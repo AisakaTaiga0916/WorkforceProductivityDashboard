@@ -7,6 +7,7 @@ import {
   adminOutsideCompanyScope,
   isCurrentProceduralStepAssignee,
   isSessionAssigneeOfTicket,
+  isSessionJobOrderTeamMember,
   personnelForbiddenForTicket,
 } from "@/lib/ticket-staff-access";
 
@@ -27,13 +28,17 @@ export async function canAccessTicketScreenshot(
   const ticket = await prisma.ticket.findUnique({
     where: { id: ticketRef.id },
     select: {
+      id: true,
       teamId: true,
       assignedAgentId: true,
+      orgChartSectionId: true,
       contactEmail: true,
       requestorEmail: true,
       paymentApprovalMeta: true,
       itemRequisitionApprovalMeta: true,
       fundTransferApprovalMeta: true,
+      jobOrderApprovalMeta: true,
+      acaApprovalMeta: true,
       assignedAgent: { select: { email: true, teamId: true } },
     },
   });
@@ -67,6 +72,17 @@ export async function canAccessTicketScreenshot(
   }
 
   if (isCurrentProceduralStepAssignee(ticket, operator?.id)) {
+    return true;
+  }
+
+  // Job Order execution / assistance team (incl. duplicate Agent rows for same email).
+  if (
+    await isSessionJobOrderTeamMember({
+      operatorId: operator?.id,
+      sessionEmail: session.user.email,
+      ticket,
+    })
+  ) {
     return true;
   }
 

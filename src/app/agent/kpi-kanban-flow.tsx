@@ -27,6 +27,7 @@ import {
   IT_PROJECT_PRIORITY_OPTIONS,
   IT_PROJECT_STATUS_OPTIONS,
   isItProjectSubTaskDelayed,
+  isTimelineProjectKpi,
   itProjectStatusProgress,
   itProjectAggregatedProgressFromRaw,
   itProjectChecklistItems,
@@ -47,6 +48,7 @@ import {
   collectAllSubKpiItems,
   collectChecklistProgressItems,
   getPillarScreenshots,
+  getPillarCompletionRequirements,
   getTaskPriority,
   getTaskTargetDueDate,
   isPillarOnlyTask,
@@ -336,7 +338,7 @@ function taskTypeBadgeLabel(r: KpiRecord, itProject: boolean): string {
 }
 
 function isTimelineProjectRecord(r: Pick<KpiRecord, "title" | "subKpis">): boolean {
-  return isItProjectImplementationPillar(r.title) || usesProjectTimelineTracker(r.subKpis);
+  return isTimelineProjectKpi(r.title, r.subKpis);
 }
 
 function nonRecurringCycleHint(r: KpiRecord): string {
@@ -1791,7 +1793,11 @@ export function AgentKpiKanbanFlow({
       delayPenaltyFrequency?: DelayPenaltyFrequency | null;
     },
   ) {
-    if (!showAdminTaskManagement) return;
+    const titleOnlyAsSuperAdmin =
+      Boolean(patch.title !== undefined) &&
+      isSuperAdmin &&
+      Object.keys(patch).every((k) => k === "title");
+    if (!showAdminTaskManagement && !titleOnlyAsSuperAdmin) return;
     setBusyId(recordId);
     setError(null);
     try {
@@ -2617,8 +2623,11 @@ export function AgentKpiKanbanFlow({
 
   function renderPillarScreenshotFields(r: KpiRecord, editable: boolean) {
     if (taskUsesSubKpiScreenshotUpload(r)) return null;
-    const genericEnabled = pillarScreenshotUploadEnabled(r.subKpis);
-    const legacyBeforeAfter = pillarScreenshotsEnabled(r.subKpis) && !genericEnabled;
+    const pillarReqs = getPillarCompletionRequirements(r.subKpis);
+    const genericEnabled =
+      pillarScreenshotUploadEnabled(r.subKpis) || Boolean(pillarReqs?.screenshotUpload);
+    const legacyBeforeAfter =
+      (pillarScreenshotsEnabled(r.subKpis) || Boolean(pillarReqs?.screenshots)) && !genericEnabled;
     if (!genericEnabled && !legacyBeforeAfter) return null;
 
     if (genericEnabled) {
@@ -3313,12 +3322,12 @@ export function AgentKpiKanbanFlow({
             </p>
           ) : null
         ) : null}
-        {needsScreenshotsForCheckbox ? (
+        {needsScreenshotsForCheckbox && completionRequirements.checkbox ? (
           <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
             Upload both before and after screenshots before marking this sub-task done.
           </p>
         ) : null}
-        {needsNumericalForCheckbox ? (
+        {needsNumericalForCheckbox && completionRequirements.checkbox ? (
           <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
             Reach 100% progress (actual ÷ target) before marking this sub-task done.
           </p>
@@ -3328,7 +3337,7 @@ export function AgentKpiKanbanFlow({
             Upload before and after screenshots to complete this sub-task.
           </p>
         ) : null}
-        {needsScreenshotUploadForCheckbox ? (
+        {needsScreenshotUploadForCheckbox && completionRequirements.checkbox ? (
           <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
             Upload at least one screenshot before marking this sub-task done.
           </p>
@@ -3559,8 +3568,14 @@ export function AgentKpiKanbanFlow({
           ) : null}
         </div>
         ) : null}
-        {!pillarOnlyMode ? renderTaskScreenshotFields(r, s, subEditable) : null}
-        {!pillarOnlyMode ? renderSubKpiScreenshotUploadFields(r, s, subEditable) : null}
+        {s.id === PILLAR_ONLY_VIRTUAL_SUBKPI_ID
+          ? renderPillarScreenshotFields(r, subEditable || canAssignWork)
+          : (
+            <>
+              {renderTaskScreenshotFields(r, s, subEditable)}
+              {renderSubKpiScreenshotUploadFields(r, s, subEditable)}
+            </>
+          )}
         {renderNumericalRecordField(r, s, subEditable, canManageSubTasks, pillarOnlyMode)}
         {!pillarOnlyMode ? renderDailyPenaltyField(r, s, canManageSubTasks) : null}
         {pillarOnlyMode && !recurring && canManageSubTasks
@@ -3605,9 +3620,40 @@ export function AgentKpiKanbanFlow({
             )}
             aria-hidden
           />
-          <span className={cn("min-w-0 flex-1 font-semibold", projectProgress === 100 && "line-through opacity-70")}>
-            {s.title}
-          </span>
+          {isSuperAdmin ? (
+            <input
+              key={`project-subtask-title-${r.id}-${s.id}-${s.title}`}
+              type="text"
+              defaultValue={s.title}
+              disabled={busyId === r.id}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onBlur={(e) => {
+                const next = e.target.value.trim();
+                const prev = s.title.trim();
+                if (next && next !== prev) {
+                  void updateSubTask(r.id, s.id, { title: next });
+                } else if (!next) {
+                  e.target.value = prev;
+                }
+              }}
+              aria-label="Project subtask title"
+              title="SuperAdmin: edit subtask title"
+              className={cn(
+                "min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs font-semibold text-zinc-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100",
+                projectProgress === 100 && "line-through opacity-70",
+              )}
+            />
+          ) : (
+            <span
+              className={cn(
+                "min-w-0 flex-1 font-semibold",
+                projectProgress === 100 && "line-through opacity-70",
+              )}
+            >
+              {s.title}
+            </span>
+          )}
         </div>
 
         {renderSubKpiAssignmentControl(r, s)}
@@ -4616,7 +4662,7 @@ export function AgentKpiKanbanFlow({
                     />
                   </label>
                 </div>
-              ) : (
+              ) : mainTaskOnly ? null : (
                 renderPillarScreenshotFields(activeTask, editable)
               )}
             </aside>
@@ -5184,7 +5230,6 @@ export function AgentKpiKanbanFlow({
                                 hideSubtaskPendingBadge: showPendingBadge,
                                 hidePillarMainCheckbox: Boolean(mainTaskItem),
                               })}
-                              {renderPillarScreenshotFields(r, editable)}
                             </div>
                           ) : null}
                           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">

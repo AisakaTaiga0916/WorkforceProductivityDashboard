@@ -814,27 +814,31 @@ export async function resolveIntakeApprovalRecommendations(opts: {
 
   if (opts.requestType === "JOB_ORDER") {
     // Requestor head → send-to (sub) department head → HR team head
-    seats.push(
-      await selectedSectionHeadSeat(
-        "notedByAgentId",
-        "Noted By (Requestor head)",
-        requestorSectionId,
-        requestorNames.sectionName,
-        maps,
-        "Select your department to recommend the requestor’s department head.",
-      ),
-    );
-    seats.push(
-      await selectedSectionHeadSeat(
-        "approvedByAgentId",
-        "Approved By (Send-to head)",
-        sendToSectionId,
-        sendToNames.sectionName,
-        maps,
-        "Select Send request to (department) to recommend that department’s head.",
-      ),
-    );
-    seats.push(await hrTeamHeadSeat("approvedBy2AgentId", "Approved By (HR)", maps));
+    if (!opts.skipNotedBy) {
+      seats.push(
+        await selectedSectionHeadSeat(
+          "notedByAgentId",
+          "Noted By (Requestor head)",
+          requestorSectionId,
+          requestorNames.sectionName,
+          maps,
+          "Select your department to recommend the requestor’s department head.",
+        ),
+      );
+    }
+    if (!opts.skipApprovedBy) {
+      seats.push(
+        await selectedSectionHeadSeat(
+          "approvedByAgentId",
+          "Approved By (Send-to head)",
+          sendToSectionId,
+          sendToNames.sectionName,
+          maps,
+          "Select Send request to (department) to recommend that department’s head.",
+        ),
+      );
+    }
+    seats.push(await hrTeamHeadSeat("approvedBy2AgentId", "HR Approver", maps));
   }
 
   if (opts.requestType === "ITEM_REQUISITION_SLIP") {

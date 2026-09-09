@@ -18,8 +18,8 @@ export const MODE_OF_PAYMENT_CHECK = "Check";
 export const MODE_OF_PAYMENT_ONLINE_DIRECT = "Online direct to Payee's Bank Account #";
 export const DELIVERY_OF_CHECK_ONLINE_DEPOSIT = "Online Deposit";
 
-/** Bank name / account number is required for online deposit paths. */
-export function paymentModeRequiresBankDetails(
+/** Show bank name / account number for online deposit paths. */
+export function paymentModeShowsBankDetails(
   modeOfPayment: string,
   deliveryOfCheck?: string | null,
 ): boolean {
@@ -29,6 +29,14 @@ export function paymentModeRequiresBankDetails(
     mode === MODE_OF_PAYMENT_CHECK &&
     (deliveryOfCheck ?? "").trim() === DELIVERY_OF_CHECK_ONLINE_DEPOSIT
   );
+}
+
+/** Bank name / account number is required only for online direct to payee. */
+export function paymentModeRequiresBankDetails(
+  modeOfPayment: string,
+  _deliveryOfCheck?: string | null,
+): boolean {
+  return modeOfPayment.trim() === MODE_OF_PAYMENT_ONLINE_DIRECT;
 }
 
 export type PaymentRequestFields = {
@@ -185,7 +193,7 @@ export function validatePaymentModeFields(
     return {
       ok: false,
       error:
-        "Bank name / account number is required for Online Deposit or Online direct to Payee's Bank Account #.",
+        "Bank name / account number is required for Online direct to Payee's Bank Account #.",
     };
   }
   if (
@@ -200,7 +208,7 @@ export function validatePaymentModeFields(
     fields: {
       modeOfPayment,
       deliveryOfCheck: modeOfPayment === MODE_OF_PAYMENT_CHECK ? deliveryOfCheck : "",
-      bankNameAccountNumber: paymentModeRequiresBankDetails(modeOfPayment, deliveryOfCheck)
+      bankNameAccountNumber: paymentModeShowsBankDetails(modeOfPayment, deliveryOfCheck)
         ? bankNameAccountNumber
         : "",
     },
@@ -215,7 +223,7 @@ export function applyPaymentModeToFields(
   const mode = patch.modeOfPayment.trim();
   const delivery =
     mode === MODE_OF_PAYMENT_CHECK ? (patch.deliveryOfCheck ?? "").trim() : "";
-  const bank = paymentModeRequiresBankDetails(mode, delivery)
+  const bank = paymentModeShowsBankDetails(mode, delivery)
     ? (patch.bankNameAccountNumber ?? "").trim()
     : "";
   return {

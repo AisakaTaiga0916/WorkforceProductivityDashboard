@@ -62,11 +62,15 @@ export async function PATCH(req: Request) {
         { status: 403 },
       );
     }
-    if (portalRole === "Admin" || portalRole === "Personnel") {
+    if (
+      portalRole === "Admin" ||
+      portalRole === "Personnel" ||
+      portalRole === "HighAdmin"
+    ) {
       return NextResponse.json(
         {
           error:
-            "Personnel and Admin are set from org-chart department and sub-department heads (Workforce → Sectioning). Assign elevated roles (SuperAdmin / HighAdmin) here instead.",
+            "Personnel, Admin, and HighAdmin are set from the Org Chart (Workforce → Org. Chart). Use ListView for SuperAdmin / Personnel-Guard / Customer.",
         },
         { status: 400 },
       );

@@ -111,6 +111,9 @@ export function OrgChartWorkspace({
   onMessage,
   onError,
   onChartSelectionChange,
+  readOnly = false,
+  canSetPortalRoles = false,
+  initialPortalRoleByMergedId = {},
 }: {
   initialNodes: OrgChartNodeRow[];
   initialSections: OrgChartSectionRow[];
@@ -130,6 +133,10 @@ export function OrgChartWorkspace({
   onError?: (msg: string | null) => void;
   /** Optional: mirror the diagram's multi-select for the host's bulk actions. */
   onChartSelectionChange?: (ids: string[]) => void;
+  /** Browse-only (no drag/edit). SuperAdmin elevate still allowed when canSetPortalRoles. */
+  readOnly?: boolean;
+  canSetPortalRoles?: boolean;
+  initialPortalRoleByMergedId?: Record<string, string>;
 }) {
   const [internalNodes, setInternalNodes] = useState<OrgChartNodeRow[]>(initialNodes);
   const [internalSections, setInternalSections] =
@@ -140,10 +147,23 @@ export function OrgChartWorkspace({
   const [internalError, setInternalError] = useState<string | null>(null);
   const [internalBusy, setInternalBusy] = useState(false);
   const [sectionsPanelOpen, setSectionsPanelOpen] = useState(false);
+  const [portalRoleByMergedId, setPortalRoleByMergedId] = useState<Record<string, string>>(
+    () => {
+      const fromRoster: Record<string, string> = {};
+      for (const r of roster) {
+        const id = r.mergedSourceUserId?.trim();
+        const role = r.staffRole?.trim();
+        if (id && role) fromRoster[id] = role;
+      }
+      return { ...fromRoster, ...initialPortalRoleByMergedId };
+    },
+  );
 
   const nodes = controlledNodes ?? internalNodes;
   const sections = controlledSections ?? internalSections;
   const busy = controlledBusy ?? internalBusy;
+  /** Lock chart mutations when read-only or a request is in flight. */
+  const chartLocked = busy || readOnly;
 
   const setNodes = useCallback(
     (next: OrgChartNodeRow[]) => {
@@ -945,6 +965,7 @@ export function OrgChartWorkspace({
         </p>
       ) : null}
 
+      {!readOnly ? (
       <div className="rounded-2xl border border-zinc-200/80 bg-white/95 p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -1405,6 +1426,7 @@ export function OrgChartWorkspace({
           </div>
         </div>
       </div>
+      ) : null}
 
       <div className="rounded-2xl border border-zinc-200/80 bg-white/95 p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1440,17 +1462,23 @@ export function OrgChartWorkspace({
               onClick={() => setSectionsPanelOpen((v) => !v)}
             >
               <FolderKanban className="mr-1.5 h-4 w-4" />
-              {sectionsPanelOpen ? "Hide departments" : "Manage departments"}
+              {sectionsPanelOpen
+                ? readOnly
+                  ? "Hide departments"
+                  : "Hide departments"
+                : readOnly
+                  ? "View departments"
+                  : "Manage departments"}
             </Button>
             <p className="max-w-xl text-xs leading-relaxed text-zinc-500 sm:text-right">
-              The org chart shows departments and heads with hierarchy lines. Click a
-              department to open its members. Use Manage departments to create groups, nest
-              them, or set heads.
+              {readOnly
+                ? "Read-only view of your department tree. SuperAdmin elevates Personnel, Admin, and HighAdmin from member rows."
+                : "The org chart shows departments and heads with hierarchy lines. Click a department to open its members. Use Manage departments to create groups, nest them, set heads, or elevate portal roles."}
             </p>
           </div>
         </div>
 
-        {chartSelectedIds.length < 2 ? (
+        {chartSelectedIds.length < 2 && !readOnly ? (
           <p className="mt-3 text-[11px] text-zinc-500">
             Tip: drag a department onto another to nest it. Open a department, then Shift-click
             members. Use Add / Remove for membership. Link either / or opens a Person A / Person B
@@ -1465,35 +1493,46 @@ export function OrgChartWorkspace({
                 sections={sections}
                 nodes={nodes}
                 companyOptions={companyOptions}
-                busy={busy}
+                busy={chartLocked}
                 chartSelectedIds={chartSelectedIds}
                 onSectionsChange={setSections}
                 onNodesChange={setNodes}
                 onSelectMember={handleSectionMemberSelect}
                 onSelectMembers={handleSectionMembersSelect}
-                onRemoveSelected={(ids) => {
-                  if (ids.length > 1) removeMany(ids);
-                  else if (ids.length === 1) {
-                    const id = ids[0]!;
-                    remove(id, nodes.filter((n) => n.parentId === id).length);
-                  }
-                }}
+                onRemoveSelected={
+                  readOnly
+                    ? undefined
+                    : (ids) => {
+                        if (ids.length > 1) removeMany(ids);
+                        else if (ids.length === 1) {
+                          const id = ids[0]!;
+                          remove(id, nodes.filter((n) => n.parentId === id).length);
+                        }
+                      }
+                }
                 onMessage={setMessage}
                 onError={setError}
                 setBusy={setBusy}
+                readOnly={readOnly}
+                canSetPortalRoles={canSetPortalRoles}
+                portalRoleByMergedId={portalRoleByMergedId}
+                onPortalRoleChange={(mergedId, role) => {
+                  setPortalRoleByMergedId((prev) => ({ ...prev, [mergedId]: role }));
+                }}
               />
             </div>
           ) : null}
           {nodes.length === 0 && sections.length === 0 ? (
             <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-10 text-center text-sm text-zinc-500 dark:border-zinc-700">
-              The chart is empty. Use Manage departments to create groups, then add people with
-              Add or remove member (choose a department).
+              {readOnly
+                ? "No departments in your org-chart scope."
+                : "The chart is empty. Use Manage departments to create groups, then add people with Add or remove member (choose a department)."}
             </p>
           ) : (
             <OrgChartDiagram
               nodes={nodes}
               sections={sections}
-              busy={busy}
+              busy={chartLocked}
               onReparent={reparent}
               onReparentMany={reparentMany}
               onMove={move}

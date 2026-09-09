@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   findOrgChartSectionByName,
   orgChartMajorDepartments,
+  orgChartScopeRootDepartments,
   orgChartSubDepartments,
   resolveSendToDepartmentSelection,
   type OrgChartSectionOption,
@@ -69,6 +70,12 @@ describe("intake send-to department helpers", () => {
     ]);
     expect(orgChartSubDepartments(sections, "corp").map((s) => s.id)).toEqual(["gs", "hr"]);
     expect(orgChartSubDepartments(sections, "acct")).toEqual([]);
+  });
+
+  it("shows sub-department as a scope root when major is outside the viewer set", () => {
+    const scoped = sections.filter((s) => s.id === "gs" || s.id === "hr");
+    expect(orgChartScopeRootDepartments(scoped).map((s) => s.id)).toEqual(["gs", "hr"]);
+    expect(orgChartMajorDepartments(scoped)).toEqual([]);
   });
 
   it("resolves recommendation names to major + sub", () => {

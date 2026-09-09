@@ -6,7 +6,7 @@ import { buildOrgChartDepartmentFilterOptions } from "@/lib/org-chart-section-di
 import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
 import {
   resolveViewerOrgChartSectionScope,
-  roleUsesOrgChartSectionBoardScope,
+  roleUsesCompanyDepartmentTaskAssignScope,
 } from "@/lib/org-chart-section-scope";
 import { prisma } from "@/lib/prisma";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
@@ -65,7 +65,7 @@ export async function GET() {
     });
   }
 
-  if (!roleUsesOrgChartSectionBoardScope(session.user.role)) {
+  if (!roleUsesCompanyDepartmentTaskAssignScope(session.user.role)) {
     return NextResponse.json({
       elevated: false,
       companies: teams,

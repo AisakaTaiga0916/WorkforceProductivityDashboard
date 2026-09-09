@@ -8,6 +8,7 @@ import { resolveAdminOnDutyCompanyFilter } from "@/lib/staff-company-scope";
 import {
   reconcilePortalStaffRolesFromOrgChart,
   resolvePortalTechnicalRolesByMergedSourceUserIds,
+  resolveViewerOrgChartSectionScope,
 } from "@/lib/org-chart-section-scope";
 import { WorkforceClient } from "./ui";
 import type { OrgChartSectionRow } from "../superadmin-settings/OrgChartSectionsPanel";
@@ -131,17 +132,54 @@ export default async function WorkforcePage({
     await reconcilePortalStaffRolesFromOrgChart();
   }
 
-  const headMergedIds =
-    orgPayload?.[1]
-      .map((s) => s.headNode?.mergedSourceUserId)
-      .filter((id): id is string => Boolean(id?.trim())) ?? [];
+  /** Admins (and non-elevated heads): org chart is read-only and limited to their dept tree. */
+  const scopeOrgChartToViewer =
+    Boolean(orgPayload) &&
+    !isSuperAdmin &&
+    session.user.role === "Admin";
+  const viewerSectionScope = scopeOrgChartToViewer
+    ? await resolveViewerOrgChartSectionScope(session.user.email)
+    : null;
+  const allowedSectionIdSet =
+    viewerSectionScope && viewerSectionScope.sectionIds.length > 0
+      ? new Set(viewerSectionScope.sectionIds)
+      : scopeOrgChartToViewer
+        ? new Set<string>()
+        : null;
+
+  let scopedOrgNodes = orgPayload?.[0] ?? [];
+  let scopedOrgSections = orgPayload?.[1] ?? [];
+  let scopedEitherOr = orgPayload?.[2] ?? [];
+
+  if (allowedSectionIdSet) {
+    scopedOrgSections = scopedOrgSections.filter((s) => allowedSectionIdSet.has(s.id));
+    // Keep parent links only when parent is also in scope; otherwise treat as root.
+    scopedOrgSections = scopedOrgSections.map((s) =>
+      s.parentId && !allowedSectionIdSet.has(s.parentId) ? { ...s, parentId: null } : s,
+    );
+    scopedOrgNodes = scopedOrgNodes.filter((n) =>
+      (n.sectionMemberships ?? []).some((m) => allowedSectionIdSet.has(m.sectionId)),
+    );
+    const nodeIdSet = new Set(scopedOrgNodes.map((n) => n.id));
+    scopedEitherOr = scopedEitherOr.filter(
+      (l) => nodeIdSet.has(l.nodeAId) && nodeIdSet.has(l.nodeBId),
+    );
+  }
+
+  const headMergedIds = scopedOrgSections
+    .map((s) => s.headNode?.mergedSourceUserId)
+    .filter((id): id is string => Boolean(id?.trim()));
+  const memberMergedIds = scopedOrgNodes
+    .map((n) => n.mergedSourceUserId?.trim())
+    .filter((id): id is string => Boolean(id));
+  const portalRoleLookupIds = [...new Set([...headMergedIds, ...memberMergedIds])];
   const portalRoleByMergedId =
-    headMergedIds.length > 0
-      ? await resolvePortalTechnicalRolesByMergedSourceUserIds(headMergedIds)
+    portalRoleLookupIds.length > 0
+      ? await resolvePortalTechnicalRolesByMergedSourceUserIds(portalRoleLookupIds)
       : new Map<string, string>();
 
   const initialOrgSections: OrgChartSectionRow[] | undefined = orgPayload
-    ? orgPayload[1].map((s) => {
+    ? scopedOrgSections.map((s) => {
         const mergedId = s.headNode?.mergedSourceUserId?.trim() ?? "";
         const portalRole = mergedId ? portalRoleByMergedId.get(mergedId) ?? null : null;
         return {
@@ -165,11 +203,13 @@ export default async function WorkforcePage({
         };
       })
     : undefined;
-  const initialOrgEitherOrLinks = orgPayload?.[2].map((l) => ({
+  const initialOrgEitherOrLinks = scopedEitherOr.map((l) => ({
     id: l.id,
     nodeAId: l.nodeAId,
     nodeBId: l.nodeBId,
   }));
+
+  const initialPortalRoleByMergedId = Object.fromEntries(portalRoleByMergedId);
 
   return (
     <WorkforceClient
@@ -200,9 +240,11 @@ export default async function WorkforcePage({
       userEmail={session.user.email}
       visibleViews={visibleViews}
       canManageSections={isSuperAdmin}
+      canSetPortalRoles={isSuperAdmin}
       initialOrgSections={initialOrgSections}
-      initialOrgNodes={orgPayload?.[0]}
-      initialOrgEitherOrLinks={initialOrgEitherOrLinks}
+      initialOrgNodes={orgPayload ? scopedOrgNodes : undefined}
+      initialOrgEitherOrLinks={orgPayload ? initialOrgEitherOrLinks : undefined}
+      initialPortalRoleByMergedId={initialPortalRoleByMergedId}
       sectionCompanyOptions={orderedCompanies}
     />
   );

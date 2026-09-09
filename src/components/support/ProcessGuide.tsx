@@ -124,8 +124,8 @@ const APPROVAL_LANES = [
     title: "Job Order",
     acronym: "J.O.",
     tone: "from-amber-500/20 to-transparent",
-    steps: ["Noted By", "Approved By", "Project link", "Green-lit"],
-    note: "Job Order approvals mirror RFP-style seats and can link Task Board projects.",
+    steps: ["Set approvers", "Job Done", "Approved By", "For confirmation", "Closed"],
+    note: "Create the Job Order and set approvers. After Job Done, the final Approved By (recommended as HR Approver) sends the request for confirmation.",
   },
   {
     title: "Authority to Conduct Activity",

@@ -1,0 +1,232 @@
+﻿{
+  "range": {
+    "from": "2026-08-01",
+    "to": "2026-08-08",
+    "tz": "Asia/Taipei",
+    "workingDays": 7,
+    "sundaysExcluded": true
+  },
+  "companyRequestSupport": {
+    "closedInRange": 36,
+    "openTicketsInPeriod": 16,
+    "requestsInRange": 49,
+    "openBacklog": 1,
+    "percent": 69.2,
+    "formulaOk": true,
+    "note": "Live+CSV blend may apply when unscoped; percent uses helpdeskSupportPercent (1 decimal)."
+  },
+  "creditRules": {
+    "assignee": "Issue/Concern, Job Order, other non-procedural ΓåÆ assignedAgentId",
+    "excludedFromAssignee": [
+      "REQUEST_FOR_PAYMENT",
+      "ITEM_REQUISITION_SLIP",
+      "FUND_TRANSFER_REQUEST",
+      "AUTHORITY_TO_CONDUCT_ACTIVITY"
+    ],
+    "rfp": "Accounting / Finance agents (not requestor)",
+    "irs": "Canvassed By",
+    "ftr": "Prepared By",
+    "aca": "Submitted By",
+    "pendingStatuses": [
+      "OPEN",
+      "IN_PROGRESS",
+      "PENDING_INFO"
+    ],
+    "closedWindow": "closedAt on MonΓÇôSat working day in range"
+  },
+  "proceduralNotDoubleCountedOnAssignee": {
+    "proceduralTicketsClosedInRangeWithAssignee": 2,
+    "proceduralTicketsPendingWithAssignee": 7,
+    "note": "These must NOT appear in personnelTicketMetrics (role KPIs only)."
+  },
+  "bucketChecks": {
+    "assigneeTickets": {
+      "ok": true,
+      "mismatchCount": 0,
+      "metricsUsers": 4
+    },
+    "rfpAccounting": {
+      "ok": true,
+      "mismatchCount": 0,
+      "metricsUsers": 1
+    },
+    "rfpFinance": {
+      "ok": true,
+      "mismatchCount": 0,
+      "metricsUsers": 0
+    },
+    "irsCanvass": {
+      "ok": true,
+      "mismatchCount": 0,
+      "metricsUsers": 0
+    },
+    "ftrPrepared": {
+      "ok": true,
+      "mismatchCount": 0,
+      "metricsUsers": 2
+    },
+    "acaSubmitted": {
+      "ok": true,
+      "mismatchCount": 0,
+      "metricsUsers": 0
+    }
+  },
+  "mismatches": [],
+  "userCount": 7,
+  "users": [
+    {
+      "name": "Bernabe, Neziah Dizon",
+      "id": "cms3wqbsp00d5tcqrdp9mw7d6",
+      "requests": {
+        "closed": 1,
+        "pending": 0,
+        "efficiency": 100
+      },
+      "buckets": {
+        "tickets": {
+          "closed": 1,
+          "pending": 0,
+          "efficiency": 100
+        },
+        "rfpAccounting": null,
+        "rfpFinance": null,
+        "irsCanvass": null,
+        "ftrPrepared": null,
+        "acaSubmitted": null
+      }
+    },
+    {
+      "name": "Magsadia, John Laurence Sacramento",
+      "id": "cmrpro89r002110lf736wh6es",
+      "requests": {
+        "closed": 10,
+        "pending": 0,
+        "efficiency": 100
+      },
+      "buckets": {
+        "tickets": {
+          "closed": 10,
+          "pending": 0,
+          "efficiency": 100
+        },
+        "rfpAccounting": null,
+        "rfpFinance": null,
+        "irsCanvass": null,
+        "ftrPrepared": null,
+        "acaSubmitted": null
+      }
+    },
+    {
+      "name": "Mark Robina",
+      "id": "cmrppavrz0003j1ciov5wmwjl",
+      "requests": {
+        "closed": 4,
+        "pending": 0,
+        "efficiency": 100
+      },
+      "buckets": {
+        "tickets": {
+          "closed": 4,
+          "pending": 0,
+          "efficiency": 100
+        },
+        "rfpAccounting": null,
+        "rfpFinance": null,
+        "irsCanvass": null,
+        "ftrPrepared": null,
+        "acaSubmitted": null
+      }
+    },
+    {
+      "name": "Moncada, Darwin Diamante",
+      "id": "cmrbdhqpp011r11jo3ibai04y",
+      "requests": {
+        "closed": 1,
+        "pending": 0,
+        "efficiency": 100
+      },
+      "buckets": {
+        "tickets": null,
+        "rfpAccounting": null,
+        "rfpFinance": null,
+        "irsCanvass": null,
+        "ftrPrepared": {
+          "closed": 1,
+          "pending": 0,
+          "efficiency": 100
+        },
+        "acaSubmitted": null
+      }
+    },
+    {
+      "name": "Zeta Love Talatagod Valencia",
+      "id": "cmrpyre1p001h12w5dupioh0n",
+      "requests": {
+        "closed": 1,
+        "pending": 0,
+        "efficiency": 100
+      },
+      "buckets": {
+        "tickets": null,
+        "rfpAccounting": null,
+        "rfpFinance": null,
+        "irsCanvass": null,
+        "ftrPrepared": {
+          "closed": 1,
+          "pending": 0,
+          "efficiency": 100
+        },
+        "acaSubmitted": null
+      }
+    },
+    {
+      "name": "Malubay, Reginald Ara├▒a",
+      "id": "cmrpr1c8u000xj1cin55odq2m",
+      "requests": {
+        "closed": 16,
+        "pending": 1,
+        "efficiency": 94
+      },
+      "buckets": {
+        "tickets": {
+          "closed": 16,
+          "pending": 1,
+          "efficiency": 94
+        },
+        "rfpAccounting": null,
+        "rfpFinance": null,
+        "irsCanvass": null,
+        "ftrPrepared": null,
+        "acaSubmitted": null
+      }
+    },
+    {
+      "name": "Kimberly Pada Caliag",
+      "id": "cmrppavsc0005j1cir4377j3k",
+      "requests": {
+        "closed": 0,
+        "pending": 1,
+        "efficiency": 0
+      },
+      "buckets": {
+        "tickets": null,
+        "rfpAccounting": {
+          "closed": 0,
+          "pending": 1,
+          "efficiency": 0
+        },
+        "rfpFinance": null,
+        "irsCanvass": null,
+        "ftrPrepared": null,
+        "acaSubmitted": null
+      }
+    }
+  ],
+  "summary": {
+    "allBucketsOk": true,
+    "companyFormulaOk": true,
+    "usersWithRequests": 7,
+    "totalClosed": 33,
+    "totalPending": 2
+  }
+}

@@ -115,6 +115,10 @@ export function OrgChartSectionsPanel({
   onMessage,
   onError,
   setBusy,
+  readOnly = false,
+  canSetPortalRoles = false,
+  portalRoleByMergedId = {},
+  onPortalRoleChange,
 }: {
   sections: OrgChartSectionRow[];
   nodes: OrgChartNodeRow[];
@@ -131,6 +135,10 @@ export function OrgChartSectionsPanel({
   onMessage: (msg: string | null) => void;
   onError: (msg: string | null) => void;
   setBusy: (busy: boolean) => void;
+  readOnly?: boolean;
+  canSetPortalRoles?: boolean;
+  portalRoleByMergedId?: Record<string, string>;
+  onPortalRoleChange?: (mergedSourceUserId: string, role: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [creating, setCreating] = useState(false);
@@ -435,6 +443,58 @@ export function OrgChartSectionsPanel({
     const body = (await res.json()) as OrgChartNodeRow[];
     onNodesChange(body);
   }, [onNodesChange]);
+
+  async function setMemberPortalRole(node: OrgChartNodeRow, role: string) {
+    const mergedId = (node.mergedSourceUserId ?? "").trim();
+    if (!mergedId) {
+      onError("This person is not linked to an HRIS user.");
+      return;
+    }
+    setBusy(true);
+    onError(null);
+    onMessage(null);
+    try {
+      const res = await fetch("/api/admin/org-chart/portal-role", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodeId: node.id, mergedSourceUserId: mergedId, role }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        role?: string;
+        clearedHead?: boolean;
+      };
+      if (!res.ok) throw new Error(body.error || "Could not update portal role.");
+      const nextRole = body.role ?? role;
+      onPortalRoleChange?.(mergedId, nextRole);
+      onSectionsChange(
+        sections.map((s) => {
+          if (body.clearedHead && s.headNodeId === node.id) {
+            return {
+              ...s,
+              headNodeId: null,
+              headName: null,
+              headRole: null,
+              headCompanyName: null,
+            };
+          }
+          if (s.headNodeId === node.id) {
+            return { ...s, headRole: nextRole };
+          }
+          return s;
+        }),
+      );
+      onMessage(
+        `Set ${node.personName} to ${nextRole} (reflected on ListView).${
+          body.clearedHead ? " Cleared department head." : ""
+        }`,
+      );
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Could not update portal role.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function saveSection() {
     const trimmed = name.trim();
@@ -915,7 +975,7 @@ export function OrgChartSectionsPanel({
     const roles = section.roles ?? [];
     return (
       <div>
-        {members.length > 0 ? (
+        {members.length > 0 && !readOnly ? (
           <div className="space-y-2 border-b border-zinc-100 px-4 py-2.5 dark:border-zinc-800">
             <label className="flex flex-wrap items-center gap-2 text-xs">
               <span className="inline-flex items-center gap-1 font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
@@ -1020,15 +1080,24 @@ export function OrgChartSectionsPanel({
               const membership = n.sectionMemberships.find((m) => m.sectionId === section.id);
               const assignedRoleId = membership?.roleId ?? membership?.role?.id ?? "";
               const assignedRoleLabel = membership?.role?.label ?? null;
+              const mergedId = (n.mergedSourceUserId ?? "").trim();
+              const portalRole =
+                (mergedId && portalRoleByMergedId[mergedId]) ||
+                (isHead ? section.headRole : null) ||
+                "Personnel";
               return (
                 <li
                   key={n.id}
-                  draggable={!busy}
+                  draggable={!busy && !readOnly}
                   onClick={() => {
                     if (onSelectMembers) onSelectMembers([n.id], n);
                     else onSelectMember(n);
                   }}
                   onDragStart={(e) => {
+                    if (readOnly) {
+                      e.preventDefault();
+                      return;
+                    }
                     setDragNodeId(n.id);
                     e.dataTransfer.setData("text/org-node-id", n.id);
                     e.dataTransfer.effectAllowed = "move";
@@ -1069,47 +1138,89 @@ export function OrgChartSectionsPanel({
                   <span className="shrink-0 truncate text-xs text-zinc-500">
                     {[n.personRole, n.companyName].filter(Boolean).join(" · ")}
                   </span>
-                  <label
-                    className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <span className="sr-only">Section role</span>
-                    <select
-                      disabled={busy || roles.length === 0}
-                      value={assignedRoleId}
-                      title={
-                        roles.length === 0
-                          ? "Add a custom role above first"
-                          : "Assign section role"
-                      }
-                      onChange={(e) => {
-                        void setMemberSectionRole(
-                          section.id,
-                          n.id,
-                          e.target.value || null,
-                        );
-                      }}
-                      className="h-7 max-w-[9rem] rounded-md border border-zinc-300 bg-white px-1.5 text-[11px] outline-none focus:border-orange-500/60 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                  {canSetPortalRoles && mergedId ? (
+                    portalRole === "SuperAdmin" ||
+                    portalRole === "Customer" ||
+                    portalRole === "Personnel-Guard" ? (
+                      <span
+                        className="shrink-0 rounded-md border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                        title="Change this role from ListView"
+                      >
+                        {portalRole}
+                      </span>
+                    ) : (
+                      <label
+                        className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="sr-only">Portal role</span>
+                        <select
+                          disabled={busy}
+                          value={
+                            portalRole === "Personnel" ||
+                            portalRole === "Admin" ||
+                            portalRole === "HighAdmin"
+                              ? portalRole
+                              : "Personnel"
+                          }
+                          title="Elevate portal role (ListView)"
+                          onChange={(e) => {
+                            void setMemberPortalRole(n, e.target.value);
+                          }}
+                          className="h-7 max-w-[8.5rem] rounded-md border border-amber-300 bg-amber-50 px-1.5 text-[11px] font-semibold text-amber-950 outline-none focus:border-orange-500/60 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+                        >
+                          <option value="Personnel">Personnel</option>
+                          <option value="Admin">Admin</option>
+                          <option value="HighAdmin">HighAdmin</option>
+                        </select>
+                      </label>
+                    )
+                  ) : null}
+                  {!readOnly ? (
+                    <label
+                      className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <option value="">Role…</option>
-                      {roles.map((role) => (
-                        <option key={role.id} value={role.id}>
-                          {role.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className="shrink-0 text-[11px] font-semibold text-zinc-500 hover:text-rose-600 disabled:opacity-40"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void removeNodesFromSection(section.id, [n.id]);
-                    }}
-                  >
-                    Remove from section
-                  </button>
+                      <span className="sr-only">Section role</span>
+                      <select
+                        disabled={busy || roles.length === 0}
+                        value={assignedRoleId}
+                        title={
+                          roles.length === 0
+                            ? "Add a custom role above first"
+                            : "Assign section role"
+                        }
+                        onChange={(e) => {
+                          void setMemberSectionRole(
+                            section.id,
+                            n.id,
+                            e.target.value || null,
+                          );
+                        }}
+                        className="h-7 max-w-[9rem] rounded-md border border-zinc-300 bg-white px-1.5 text-[11px] outline-none focus:border-orange-500/60 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                      >
+                        <option value="">Role…</option>
+                        {roles.map((role) => (
+                          <option key={role.id} value={role.id}>
+                            {role.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  {!readOnly ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="shrink-0 text-[11px] font-semibold text-zinc-500 hover:text-rose-600 disabled:opacity-40"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void removeNodesFromSection(section.id, [n.id]);
+                      }}
+                    >
+                      Remove from section
+                    </button>
+                  ) : null}
                 </li>
               );
             })
@@ -1537,25 +1648,34 @@ export function OrgChartSectionsPanel({
             </span>
           </div>
           <p className="mt-1 max-w-2xl text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
-            Drag the <span className="font-medium">grip</span> to rearrange departments at the same
-            level, or drop onto a different department to nest it. Use{" "}
-            <span className="font-medium">Move up</span> /{" "}
-            <span className="font-medium">Make main</span> to change nesting. Add people from{" "}
-            <span className="font-medium">Add or remove member</span> (choose a department), or use{" "}
-            <span className="font-medium">Add selected</span> for chart members. Pick a head and
-            optional custom roles after members are in place.
+            {readOnly
+              ? "Browse your department and sub-department members. Portal roles are managed by SuperAdmin."
+              : (
+                <>
+                  Drag the <span className="font-medium">grip</span> to rearrange departments at the same
+                  level, or drop onto a different department to nest it. Use{" "}
+                  <span className="font-medium">Move up</span> /{" "}
+                  <span className="font-medium">Make main</span> to change nesting. Add people from{" "}
+                  <span className="font-medium">Add or remove member</span> (choose a department), or use{" "}
+                  <span className="font-medium">Add selected</span> for chart members. Pick a head and
+                  optional custom roles after members are in place. SuperAdmin can elevate Personnel /
+                  Admin / HighAdmin on each member.
+                </>
+              )}
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-9 rounded-xl"
-          disabled={busy}
-          onClick={startCreateMain}
-        >
-          <Plus className="mr-1.5 h-4 w-4" />
-          New department
-        </Button>
+        {!readOnly ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 rounded-xl"
+            disabled={busy}
+            onClick={startCreateMain}
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
+            New department
+          </Button>
+        ) : null}
       </div>
 
       {formOpen ? (

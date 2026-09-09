@@ -1,0 +1,482 @@
+﻿{
+  "company": {
+    "id": "cmoqrlj5s000a66vwhylnue0f",
+    "name": "ACI"
+  },
+  "range": {
+    "from": "2026-07-09T00:00:00.000Z",
+    "to": "2026-08-08T23:59:59.999Z",
+    "periodKey": "2026-08"
+  },
+  "roster": {
+    "agentCount": 58,
+    "agents": [
+      {
+        "id": "cmrpsn24g000dglcqku82hhf0",
+        "name": "Ailyn Lorono Silana",
+        "email": "ailynloronosilana@gmail.com"
+      },
+      {
+        "id": "cmrpro88e000310lfcrtru9p7",
+        "name": "Alren Querequincia Namata",
+        "email": "namataalren4@gmail.com"
+      },
+      {
+        "id": "cmrpyrco7000d12w5oh5fy6fd",
+        "name": "Arbole, Jojie Molde",
+        "email": "bebs6@yahoo.com"
+      },
+      {
+        "id": "cmrpyrdw7001b12w5nftl27tc",
+        "name": "Ballescas, Ryan Caballero",
+        "email": "ballescasryan05@gmail.com"
+      },
+      {
+        "id": "cmrpro88l000f10lf1mzvptxv",
+        "name": "Belen Navarro Bisnar",
+        "email": "belenbisnar@gmail.com"
+      },
+      {
+        "id": "cms9nhnxy0001k79zlrv7kgz8",
+        "name": "BUHISAN, JOEL LABESORES",
+        "email": "joel@hris.merged"
+      },
+      {
+        "id": "cmrpro88o000h10lf56idc4jm",
+        "name": "Caputulan, Mark Richard Nasibog",
+        "email": "parkseohyung4444@gmail.com"
+      },
+      {
+        "id": "cmrpro88q000j10lfml8wkq51",
+        "name": "Cris John Donald Rejuso",
+        "email": "crisjohnrejuso342@gmail.com"
+      },
+      {
+        "id": "cmrpyr4ln0001tlvkard3kgbt",
+        "name": "Danny Rey Panganduyon Lupas",
+        "email": "dannyrheylupas@gmail.com"
+      },
+      {
+        "id": "cmrpro88v000p10lfwohj7swo",
+        "name": "Dimayuga, Bryan Domingo",
+        "email": "dimayugabryan974@gmail.com"
+      },
+      {
+        "id": "cmrpyr4r30005tlvksi3d7wo2",
+        "name": "Edsrael Dimaagos Kumaca",
+        "email": "edsraelkumaca@gmail.com"
+      },
+      {
+        "id": "cmrpro88y000t10lf5ehzaj8r",
+        "name": "Edwina - Cuarteros",
+        "email": "edwina@hris.merged"
+      },
+      {
+        "id": "cmrpyrct7000j12w5cp4vqb2m",
+        "name": "Estaca, Julius Rigor Rotoni",
+        "email": "juliusrigore@gmail.com"
+      },
+      {
+        "id": "cmrpro88z000v10lfsznejbxq",
+        "name": "Fatima, Artillero,",
+        "email": "fatimaartillero@gmail.com"
+      },
+      {
+        "id": "cmrpro891000x10lfz1rzn596",
+        "name": "Federica Cancio Dela Cruz",
+        "email": "delacruz.federica@gmail.com"
+      },
+      {
+        "id": "cmrpyrcbm000112w59l15y3i5",
+        "name": "Franz Medilo Pongaron",
+        "email": "franz_pongaron@yahoo.com"
+      },
+      {
+        "id": "cmsformqf0001vce3y2yfy03g",
+        "name": "Gador, Joanne Agarao",
+        "email": "joannegador5@gmail.com"
+      },
+      {
+        "id": "cmrprgs3g004lj1cil4fucbpq",
+        "name": "Gador, Joanne Agarao",
+        "email": "joanne1@hris.merged"
+      },
+      {
+        "id": "cmrpyr4ns0003tlvk2e8jfx0i",
+        "name": "Guerrero, Dianne Ross Plaza",
+        "email": "rossdapz888@gmailc.om"
+      },
+      {
+        "id": "cmrpyrcet000312w5dqy5rze6",
+        "name": "Jake Tong Salas",
+        "email": "jakesalas35_r78@indeedemail.com"
+      },
+      {
+        "id": "cmrpro899001b10lfmwdkbmlk",
+        "name": "Jessiechael Tresvalles Hizon",
+        "email": "hjessiechael@gmail.com"
+      },
+      {
+        "id": "cmrpro89d001j10lfphu3w1nz",
+        "name": "Juan Miguel Go Uykimpang",
+        "email": "jmigueluykimpang@gmail.com"
+      },
+      {
+        "id": "cmrppavsc0005j1cir4377j3k",
+        "name": "Kimberly Pada Caliag",
+        "email": "https.kimoy@gmail.com"
+      },
+      {
+        "id": "cmrpro89h001r10lfbfwok0m0",
+        "name": "Kimberly Philana Hao Uykimpang",
+        "email": "kimberly@hris.merged"
+      },
+      {
+        "id": "cmrpt1qt500194xsuqrcmujmh",
+        "name": "Kimberly Philana Hao Uykimpang",
+        "email": "kcaliag@theamalgatedproperties.com"
+      },
+      {
+        "id": "cmrpyrd89000p12w54imrzalk",
+        "name": "Labiano, Mayumi Paulino",
+        "email": "mayumiken2@gmail.com"
+      },
+      {
+        "id": "cmrpyrdmc000z12w5w39yuipn",
+        "name": "Lu, Roderick Ubalde",
+        "email": "rodericklu263@gmail.com"
+      },
+      {
+        "id": "cmrpro89q001z10lfgpb4ivwm",
+        "name": "Magracia, Girly Arizala",
+        "email": "gelainmagracia@gmail.com"
+      },
+      {
+        "id": "cmrpsn1tv0007glcqmffs5r0j",
+        "name": "Maiden Christal Entrampas Gerodias",
+        "email": "maidenchristalgerodias4@gmail.com"
+      },
+      {
+        "id": "cmrbdhqpp011s11joh3velnqq",
+        "name": "Manilyn Arcala Edquila",
+        "email": "manilyn_edquila@yahoo.com"
+      },
+      {
+        "id": "cmrpro89w002710lf4ojowxq9",
+        "name": "Manuel Go Uykimpang Iii",
+        "email": "manueluykimpang@gmail.com"
+      },
+      {
+        "id": "cmrpyrd31000l12w5mywcbvpl",
+        "name": "Marco Oliver Valmoria Dela Rama",
+        "email": "marcooliverdelarama@gmail.com"
+      },
+      {
+        "id": "cmrpyrd48000n12w5doho0s9b",
+        "name": "Marjun Lisondra Daque",
+        "email": "mardaqpersonal@gmail.com"
+      },
+      {
+        "id": "cmpeudwx6009xsdp4b4lgvty0",
+        "name": "Marvin Nu├▒ez",
+        "email": "marvin.n@accounting.com"
+      },
+      {
+        "id": "cmrpyrdh7000v12w5dtydu5a8",
+        "name": "Matilac, Rex Febra",
+        "email": "rex@hris.merged"
+      },
+      {
+        "id": "cmrpro8a2002h10lf2jo3777q",
+        "name": "Meinard Estela Matuod",
+        "email": "meinardmatuod87@gmail.com"
+      },
+      {
+        "id": "cmrpro8a3002j10lf3uguet0d",
+        "name": "michael madarang galapin",
+        "email": "mjbumen@gmail.com"
+      },
+      {
+        "id": "cmrpro8a6002n10lffr5hs326",
+        "name": "Miraluna O. Evalaroza",
+        "email": "mira26luna@gmail.com"
+      },
+      {
+        "id": "cmrbdhqpp011r11jo3ibai04y",
+        "name": "Moncada, Darwin Diamante",
+        "email": "dardarmoncada0525@gmail.com"
+      },
+      {
+        "id": "cmrbdhqry013211joh9a7zo9r",
+        "name": "Noel Rapista Libres",
+        "email": "libresnoel4@gmail.com"
+      },
+      {
+        "id": "cmrpro8ad002v10lfm069jt31",
+        "name": "Queenie Ansit Palabrica",
+        "email": "palabricaqueenie@gmail.com"
+      },
+      {
+        "id": "cmrpt1qo900154xsu1oydrs12",
+        "name": "Queenie Palabrica",
+        "email": "qpalabrica@theamalgatedproperties.com"
+      },
+      {
+        "id": "cmrpsn1rd0005glcqpl4lewk6",
+        "name": "Riezel Cua Lelis",
+        "email": "lelisriezel@gmail.com"
+      },
+      {
+        "id": "cmrpyrdo9001112w5layphs4o",
+        "name": "Rogeric Raza Reyes",
+        "email": "jeric0802@gmail.com"
+      },
+      {
+        "id": "cmrpyrdpv001512w5bjygp3qb",
+        "name": "Rolly Soronio Quebral",
+        "email": "rolly@hris.merged"
+      },
+      {
+        "id": "cmrpro8ak003710lftcchfmk0",
+        "name": "Rudolfo Tio Liquigan Jr.",
+        "email": "liquigan_rudolfo@yahoo.com"
+      },
+      {
+        "id": "cmrpyrdt8001912w589l3atna",
+        "name": "Saro, Roque Biron",
+        "email": "roque@hris.merged"
+      },
+      {
+        "id": "cmowhr7sk0058y9hdc8pohbfw",
+        "name": "Satorre, Engelbert Masanegra",
+        "email": "satorre.em@gmail.com"
+      },
+      {
+        "id": "cmrpro8ao003d10lf6j53pt3w",
+        "name": "Sembrano, Mark Jim Valenzuela",
+        "email": "markjim.sembrano@gmail.com"
+      },
+      {
+        "id": "cmrpro8ap003f10lfzgblqvn3",
+        "name": "Sialza, Shawn Allyson O├▒ez",
+        "email": "allyshawn143@gmail.com"
+      },
+      {
+        "id": "cmrpyrdou001312w5ynnii2k2",
+        "name": "Siao, Roland Aragon",
+        "email": "rolandsiaosiao@gmail.com"
+      },
+      {
+        "id": "cmrpyrchm000712w5af8whp5k",
+        "name": "Siarot, Jerve Yagel",
+        "email": "jerve@hris.merged"
+      },
+      {
+        "id": "cmsfoqa92000113f3cw70jjji",
+        "name": "Talino, Amik Bandila",
+        "email": "amik@hris.merged"
+      },
+      {
+        "id": "cmrpyre14001f12w5bs5uvrfh",
+        "name": "Tanutan, Wyneth Maxine Dea├▒o",
+        "email": "wynethtanutan@gmail.com"
+      },
+      {
+        "id": "cmrpro8ay003v10lfkz6olbqm",
+        "name": "Telebrico, Jessua Villarin",
+        "email": "jessua@hris.merged"
+      },
+      {
+        "id": "cmrpro8b5004310lfgsnwoc4b",
+        "name": "Wilfredo Bual Cuarteros",
+        "email": "wilfredo@hris.merged"
+      },
+      {
+        "id": "cmrpyre1p001h12w5dupioh0n",
+        "name": "Zeta Love Talatagod Valencia",
+        "email": "valenciazetalove@gmail.com"
+      },
+      {
+        "id": "cmrpro8b7004710lf5f1su6bx",
+        "name": "Zyrah Faith Cuba Gascon",
+        "email": "zyrahfaithcubagascon@gmail.com"
+      }
+    ]
+  },
+  "liveTaskMetricsScoped": {
+    "cardCount": 4,
+    "outsiderCount": 0,
+    "outsiders": [],
+    "ok": true,
+    "personnel": [
+      {
+        "name": "Moncada, Darwin Diamante",
+        "inAciRoster": true,
+        "requests": {
+          "closed": 1,
+          "pending": 0,
+          "efficiency": 100
+        },
+        "tasks": null,
+        "overall": 100,
+        "activeBuckets": {
+          "ftrPrepared": {
+            "closed": 1,
+            "pending": 0,
+            "efficiency": 100
+          }
+        }
+      },
+      {
+        "name": "Zeta Love Talatagod Valencia",
+        "inAciRoster": true,
+        "requests": {
+          "closed": 1,
+          "pending": 0,
+          "efficiency": 100
+        },
+        "tasks": null,
+        "overall": 100,
+        "activeBuckets": {
+          "ftrPrepared": {
+            "closed": 1,
+            "pending": 0,
+            "efficiency": 100
+          }
+        }
+      },
+      {
+        "name": "Kimberly Pada Caliag",
+        "inAciRoster": true,
+        "requests": {
+          "closed": 0,
+          "pending": 1,
+          "efficiency": 0
+        },
+        "tasks": null,
+        "overall": 50,
+        "activeBuckets": {
+          "rfpAccounting": {
+            "closed": 0,
+            "pending": 1,
+            "efficiency": 0
+          }
+        }
+      },
+      {
+        "name": "Sialza, Shawn Allyson O├▒ez",
+        "inAciRoster": true,
+        "requests": null,
+        "tasks": {
+          "closed": 394,
+          "pending": 47,
+          "efficiency": 89,
+          "penalty": 0
+        },
+        "overall": 89,
+        "activeBuckets": {}
+      }
+    ]
+  },
+  "mergedPersonnelView": {
+    "periodKey": "2026-08",
+    "frequency": "MONTHLY",
+    "rowCount": 2,
+    "outsideRosterCount": 0,
+    "outsideRoster": [],
+    "rosterMissingFromMerged": [
+      "Ailyn Lorono Silana",
+      "Alren Querequincia Namata",
+      "Arbole, Jojie Molde",
+      "Ballescas, Ryan Caballero",
+      "Belen Navarro Bisnar",
+      "BUHISAN, JOEL LABESORES",
+      "Caputulan, Mark Richard Nasibog",
+      "Cris John Donald Rejuso",
+      "Danny Rey Panganduyon Lupas",
+      "Dimayuga, Bryan Domingo",
+      "Edsrael Dimaagos Kumaca",
+      "Edwina - Cuarteros",
+      "Estaca, Julius Rigor Rotoni",
+      "Fatima, Artillero,",
+      "Federica Cancio Dela Cruz",
+      "Franz Medilo Pongaron",
+      "Gador, Joanne Agarao",
+      "Gador, Joanne Agarao",
+      "Guerrero, Dianne Ross Plaza",
+      "Jake Tong Salas",
+      "Jessiechael Tresvalles Hizon",
+      "Juan Miguel Go Uykimpang",
+      "Kimberly Pada Caliag",
+      "Kimberly Philana Hao Uykimpang",
+      "Kimberly Philana Hao Uykimpang",
+      "Labiano, Mayumi Paulino",
+      "Lu, Roderick Ubalde",
+      "Magracia, Girly Arizala",
+      "Maiden Christal Entrampas Gerodias",
+      "Manilyn Arcala Edquila",
+      "Manuel Go Uykimpang Iii",
+      "Marco Oliver Valmoria Dela Rama",
+      "Marjun Lisondra Daque",
+      "Marvin Nu├▒ez",
+      "Matilac, Rex Febra",
+      "Meinard Estela Matuod",
+      "michael madarang galapin",
+      "Miraluna O. Evalaroza",
+      "Moncada, Darwin Diamante",
+      "Noel Rapista Libres",
+      "Queenie Ansit Palabrica",
+      "Queenie Palabrica",
+      "Riezel Cua Lelis",
+      "Rogeric Raza Reyes",
+      "Rolly Soronio Quebral",
+      "Rudolfo Tio Liquigan Jr.",
+      "Saro, Roque Biron",
+      "Satorre, Engelbert Masanegra",
+      "Siao, Roland Aragon",
+      "Siarot, Jerve Yagel",
+      "Talino, Amik Bandila",
+      "Tanutan, Wyneth Maxine Dea├▒o",
+      "Telebrico, Jessua Villarin",
+      "Wilfredo Bual Cuarteros",
+      "Zeta Love Talatagod Valencia",
+      "Zyrah Faith Cuba Gascon"
+    ],
+    "ok": true,
+    "personnel": [
+      {
+        "name": "Sialza, Shawn Allyson O├▒ez",
+        "companyName": "ACI",
+        "ticketsClosed": 0,
+        "ticketsPending": 0,
+        "ticketEfficiency": null,
+        "taskEfficiency": 88,
+        "overallEfficiency": 88,
+        "inAciRoster": true
+      },
+      {
+        "name": "Sembrano, Mark Jim Valenzuela",
+        "companyName": "ACI",
+        "ticketsClosed": 0,
+        "ticketsPending": 0,
+        "ticketEfficiency": null,
+        "taskEfficiency": 0,
+        "overallEfficiency": 50,
+        "inAciRoster": true
+      }
+    ]
+  },
+  "roleCreditNotes": {
+    "approverOnlySuspectsOnLive": [
+      "Kimberly Pada Caliag"
+    ],
+    "note": "RFP/IRS/FTR credit requires explicit role seats; Approvers must not appear from board-assignee fallback."
+  },
+  "summary": {
+    "liveScopedOk": true,
+    "mergedCompanyFilterOk": true,
+    "aciRosterSize": 58,
+    "livePersonnelWithActivity": 4,
+    "mergedAciRows": 2
+  }
+}

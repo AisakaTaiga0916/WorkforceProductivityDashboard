@@ -58,7 +58,10 @@ export function segmentsToKanbanBoards(segments: SubKpiSegment[]): SubtaskKanban
   return [
     ...named.map((seg) => ({
       id: seg.id,
-      label: seg.label.trim() || "Untitled segment",
+      // Keep the raw label (not trimmed) so the controlled rename input accepts
+      // spaces while typing — trimming here eats each space before the next
+      // keystroke (e.g. "QA Testing" becomes "QATesting").
+      label: seg.label,
       dueDate: seg.dueDate ?? null,
       items: seg.items.map((item) => toCard(item, seg.id)),
     })),
@@ -136,15 +139,17 @@ export function SubTasksKanbanView({
                 aria-label={showPhaseDueDate ? "Phase name" : "Segment name"}
               />
             ) : (
-              <h3
-                className={cn(
-                  "text-[10px] font-bold uppercase tracking-[0.12em]",
-                  isUnassigned
-                    ? "text-orange-800 dark:text-orange-200"
-                    : "text-orange-700 dark:text-orange-400",
-                )}
-              >
-                {isUnassigned ? UNASSIGNED_COLUMN_LABEL : board.label}
+<h3
+                    className={cn(
+                      "text-[10px] font-bold uppercase tracking-[0.12em]",
+                      isUnassigned
+                        ? "text-orange-800 dark:text-orange-200"
+                        : "text-orange-700 dark:text-orange-400",
+                    )}
+                  >
+                    {isUnassigned
+                      ? UNASSIGNED_COLUMN_LABEL
+                      : board.label.trim() || "Untitled segment"}
                 <span className="ml-1 font-semibold normal-case tracking-normal text-zinc-500">
                   ({board.items.length})
                 </span>

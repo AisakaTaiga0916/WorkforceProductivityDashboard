@@ -109,10 +109,20 @@ export async function computeDepartmentTaskMetrics(args: {
   timeZone?: string;
   /** When set, only sections/members tied to this company team are included. */
   companyTeamId?: string | null;
+  /**
+   * When set (Admin / section-scoped viewers), only these section ids appear —
+   * typically membership + headed sections + descendants. Roots are tops of this
+   * set so a sub-department head sees their sub as a top-level card.
+   */
+  allowedSectionIds?: string[] | null;
   /** When set, only sections that include this merged user are included. */
   onlyMergedSourceUserId?: string | null;
 }): Promise<DepartmentMetricsPayload> {
   const timeZone = snapshotTimeZoneForTaskMetrics(args.timeZone);
+  const allowedSectionIdSet =
+    args.allowedSectionIds && args.allowedSectionIds.length > 0
+      ? new Set(args.allowedSectionIds)
+      : null;
   const [sections, memberships, primaryNodes, staff] = await Promise.all([
     prisma.orgChartSection.findMany({
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
@@ -135,8 +145,14 @@ export async function computeDepartmentTaskMetrics(args: {
       where: { sectionId: { not: null } },
       select: { id: true, sectionId: true, mergedSourceUserId: true },
     }),
+    // Section-scoped viewers: load full roster so department members aren't dropped
+    // when HRIS company_name doesn't match portal designated company.
     loadHrisAssignableStaff(
-      args.companyTeamId ? { companyTeamId: args.companyTeamId } : {},
+      allowedSectionIdSet
+        ? {}
+        : args.companyTeamId
+          ? { companyTeamId: args.companyTeamId }
+          : {},
     ),
   ]);
 
@@ -176,6 +192,7 @@ export async function computeDepartmentTaskMetrics(args: {
     const treeIds = collectDescendantIds(sectionId, childrenByParent);
     const mergedIds = new Set<string>();
     for (const sid of treeIds) {
+      if (allowedSectionIdSet && !allowedSectionIdSet.has(sid)) continue;
       for (const member of membersBySection.get(sid) ?? []) {
         mergedIds.add(member.mergedSourceUserId);
       }
@@ -191,6 +208,7 @@ export async function computeDepartmentTaskMetrics(args: {
   async function buildNode(sectionId: string): Promise<DepartmentMetricRow | null> {
     const section = sections.find((s) => s.id === sectionId);
     if (!section) return null;
+    if (allowedSectionIdSet && !allowedSectionIdSet.has(section.id)) return null;
     const scope = agentsForSectionTree(section.id);
     const metric = await metricForAgentIds({
       agentIds: scope.agentIds,
@@ -200,7 +218,8 @@ export async function computeDepartmentTaskMetrics(args: {
       timeZone,
     });
     const childIds = (childrenByParent.get(section.id) ?? []).filter((childId) => {
-      if (!args.companyTeamId) return true;
+      if (allowedSectionIdSet && !allowedSectionIdSet.has(childId)) return false;
+      if (!args.companyTeamId || allowedSectionIdSet) return true;
       const child = sections.find((s) => s.id === childId);
       if (!child) return false;
       // Same company, or inherit parent company when child has no company set.
@@ -222,7 +241,12 @@ export async function computeDepartmentTaskMetrics(args: {
   }
 
   let mainSections = sections.filter((s) => !s.parentId);
-  if (args.companyTeamId) {
+  if (allowedSectionIdSet) {
+    const scoped = sections.filter((s) => allowedSectionIdSet.has(s.id));
+    const scopedIds = new Set(scoped.map((s) => s.id));
+    // Tops of the viewer tree (e.g. a sub-department head's section).
+    mainSections = scoped.filter((s) => !s.parentId || !scopedIds.has(s.parentId));
+  } else if (args.companyTeamId) {
     // Require an explicit company match — do not keep unscoped (null) sections.
     mainSections = mainSections.filter((s) => s.companyTeamId === args.companyTeamId);
   }

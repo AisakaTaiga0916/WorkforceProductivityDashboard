@@ -186,7 +186,7 @@ export function Nav() {
     let ignore = false;
     queueMicrotask(() => setNotifLoading(true));
     void Promise.all([
-      fetch("/api/tickets").then((r) => (r.ok ? r.json() : [])),
+      fetch("/api/tickets?limit=100").then((r) => (r.ok ? r.json() : [])),
       fetch("/api/travel-orders/pending-approvals", { cache: "no-store" }).then((r) =>
         r.ok ? r.json() : { pendingApprovals: [] },
       ),
@@ -253,9 +253,9 @@ export function Nav() {
           },
         ]) => {
           if (ignore) return;
-          const latestTickets = [...rows]
-            .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-            .slice(0, 6);
+          const latestTickets = [...rows].sort(
+            (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+          );
           setNotifications(latestTickets);
           setTravelOrderApprovals(
             (travelPayload.pendingApprovals ?? []).map((n) => ({
@@ -360,7 +360,7 @@ export function Nav() {
           </button>
         ) : null}
       </div>
-      <div className="mt-1 max-h-[min(320px,calc(100dvh_-_9rem))] space-y-1 overflow-y-auto">
+      <div className="mt-1 max-h-[min(70dvh,calc(100dvh_-_9rem))] min-h-0 space-y-1 overflow-y-auto overscroll-contain">
         {notifLoading ? (
           <p className="px-2 py-6 text-center text-sm text-zinc-500 dark:text-zinc-500">Loading…</p>
         ) : notifications.length === 0 &&
@@ -552,7 +552,7 @@ export function Nav() {
             />
             <div
               ref={mobileNotifPanelRef}
-              className="fixed inset-x-3 top-[calc(4.25rem_+_env(safe-area-inset-top,0px))] z-[201] max-h-[calc(100dvh_-_5.5rem_-_env(safe-area-inset-bottom,0px))] overflow-hidden rounded-[var(--radius-stoic-lg)] border border-border bg-[var(--surface-elevated)] p-2 shadow-[var(--shadow-elevated)] sm:hidden"
+              className="fixed inset-x-3 top-[calc(4.25rem_+_env(safe-area-inset-top,0px))] z-[201] flex max-h-[calc(100dvh_-_5.5rem_-_env(safe-area-inset-bottom,0px))] flex-col overflow-hidden rounded-[var(--radius-stoic-lg)] border border-border bg-[var(--surface-elevated)] p-2 shadow-[var(--shadow-elevated)] sm:hidden"
             >
               {notifPanelBody}
             </div>
@@ -623,7 +623,7 @@ export function Nav() {
                 {notifOpen ? (
                   <div
                     ref={desktopNotifPanelRef}
-                    className="absolute right-0 z-50 mt-2 hidden w-[min(360px,calc(100vw_-_2rem))] max-w-[calc(100vw_-_2rem)] max-h-[min(420px,calc(100dvh_-_6rem))] overflow-hidden stoic-card-elevated bg-[var(--surface-elevated)] p-2 sm:block"
+                    className="absolute right-0 z-50 mt-2 hidden w-[min(360px,calc(100vw_-_2rem))] max-w-[calc(100vw_-_2rem)] max-h-[min(70dvh,calc(100dvh_-_6rem))] overflow-hidden stoic-card-elevated bg-[var(--surface-elevated)] p-2 sm:block"
                   >
                     {notifPanelBody}
                   </div>

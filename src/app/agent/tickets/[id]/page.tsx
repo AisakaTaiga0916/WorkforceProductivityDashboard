@@ -11,6 +11,7 @@ import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
 import { AgentWorkspace } from "./workspace";
 import { AgentTicketModalShell } from "@/components/ticket/AgentTicketModalShell";
 import { TicketRequestMetaDetails } from "@/components/ticket/TicketRequestMetaDetails";
+import { resolveTicketSendRequestToDisplay } from "@/lib/ticket-send-to-display";
 import { TrackRecentSearchVisit } from "@/components/global-search/TrackRecentSearchVisit";
 import { requestTypeLabel, requestTypeAcronym, requestTypeSupportsTransfer } from "@/lib/request-types";
 import { TicketDetailBreadcrumbs } from "@/components/navigation/TicketDetailBreadcrumbs";
@@ -29,6 +30,8 @@ import {
   stampJobOrderCreatorOnCreate,
 } from "@/lib/job-order-approval-db";
 import { getTicketLinkedKpiMaintenanceId } from "@/lib/job-order-project";
+import { resolveAgentIdsForOrgChartSection } from "@/lib/org-chart-section-roster";
+import { isViewerOrgChartHeadForSection } from "@/lib/org-chart-section-scope";
 import { acaProceduralStatusLabel } from "@/lib/aca-approval";
 import { loadAcaApprovalMeta } from "@/lib/aca-approval-db";
 
@@ -80,6 +83,13 @@ export default async function AgentTicketPage({
         })
       )?.name ?? null
     : null;
+  const jobOrderSendToSectionAgentIds = rfpOrgChartSectionId
+    ? await resolveAgentIdsForOrgChartSection(rfpOrgChartSectionId)
+    : [];
+  const isJobOrderSendToDepartmentHead = await isViewerOrgChartHeadForSection(
+    session.user.email,
+    rfpOrgChartSectionId,
+  );
 
   const ticketForWorkspace = {
     ...ticket,
@@ -118,14 +128,12 @@ export default async function AgentTicketPage({
       a.summary === "Requesting department" ||
       a.summary === "Requesting department/business unit",
   );
-  const sendToDepartmentActivity =
-    ticketForWorkspace.activities
-      .find(
-        (a) =>
-          a.summary === "Send request to department" ||
-          a.summary === "Send request to section",
-      )
-      ?.detail?.trim() ?? null;
+  const sendRequestToDisplay = resolveTicketSendRequestToDisplay({
+    activities: ticketForWorkspace.activities,
+    orgChartSectionId: rfpOrgChartSectionId,
+    orgChartSectionName: rfpSectionName,
+    teamName: ticketForWorkspace.team?.name ?? null,
+  });
   const rfpRequestorSectionName = rfpRequestorOrgChartSectionId
     ? (
         await prisma.orgChartSection.findUnique({
@@ -280,6 +288,10 @@ export default async function AgentTicketPage({
       jobOrderApprovalMeta.notedByAgentId,
       jobOrderApprovalMeta.approvedByAgentId,
       jobOrderApprovalMeta.approvedBy2AgentId,
+      jobOrderApprovalMeta.pendingExecutionAssigneeAgentId,
+      ...(jobOrderApprovalMeta.workerAgentIds ?? []),
+      jobOrderApprovalMeta.assistanceTeam?.assigneeAgentId,
+      ...(jobOrderApprovalMeta.assistanceTeam?.workerAgentIds ?? []),
     ].filter((v): v is string => Boolean(v));
     if (ids.length > 0) {
       const agents = await prisma.agent.findMany({
@@ -425,11 +437,13 @@ export default async function AgentTicketPage({
 
           <TicketRequestMetaDetails
             preparedByLabel={
-              isFundTransferRequest || isPaymentRequest
-                ? "Prepared By"
-                : isAcaRequest
-                  ? "Submitted By"
-                  : "Requestor"
+              isPaymentRequest
+                ? "Requested By"
+                : isFundTransferRequest
+                  ? "Prepared By"
+                  : isAcaRequest
+                    ? "Submitted By"
+                    : "Requestor"
             }
             contactName={ticketForWorkspace.contactName}
             email={
@@ -438,7 +452,8 @@ export default async function AgentTicketPage({
             company={requestorCompanyName ?? "Not assigned"}
             requestingCompany={requestingCompany}
             branch={branch ?? "—"}
-            sendRequestTo={rfpSectionName ?? sendToDepartmentActivity ?? "—"}
+            sendRequestTo={sendRequestToDisplay.value}
+            sendRequestToLabel={sendRequestToDisplay.label}
             departmentLabel="Requesting department"
             department={department ?? "—"}
             requestType={requestTypeLabelText}
@@ -469,6 +484,7 @@ export default async function AgentTicketPage({
             acaApprovalMeta={acaApprovalMeta}
             acaApprovalAgentNames={acaApprovalAgentNames}
             sessionAgentId={operator?.id ?? null}
+            sessionEmail={session.user.email ?? null}
             isSuperAdmin={isSuperAdmin}
             canSetApprovalAssignees={isSuperAdmin}
             requestorCompanyTeamId={requestorCompanyTeamId}
@@ -478,6 +494,9 @@ export default async function AgentTicketPage({
             canRequestJobOrderProject={isPersonnel && isAssignedOperator && !isAdmin && !companyCoordinator}
             linkedJobOrderProjectAssigneeId={linkedJobOrderProjectAssigneeId}
             linkedJobOrderProjectAssigneeName={linkedJobOrderProjectAssigneeName}
+            jobOrderSendToSectionAgentIds={jobOrderSendToSectionAgentIds}
+            jobOrderSendToSectionName={rfpSectionName}
+            isJobOrderSendToDepartmentHead={isJobOrderSendToDepartmentHead}
           />
         </div>
       </div>

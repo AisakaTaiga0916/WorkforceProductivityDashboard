@@ -6,6 +6,7 @@ import {
 } from "@/lib/fund-transfer-approval";
 import {
   currentJobOrderStepBoardAssigneeId,
+  isJobOrderAssistanceMember,
   parseJobOrderApprovalMeta,
 } from "@/lib/job-order-approval";
 import {
@@ -177,6 +178,51 @@ export function isAcaBoardVisibleAssignee(
   return isAcaBoardVisibleToAgent(parseAcaApprovalMeta(ticket.acaApprovalMeta), operatorId);
 }
 
+/** True when the actor is on Job Order Seek Assistance or execution team for this ticket. */
+export function isJobOrderTeamMemberAssignee(
+  ticket: TicketAccessShape,
+  operatorId: string | null | undefined,
+): boolean {
+  if (!operatorId) return false;
+  const meta = parseJobOrderApprovalMeta(ticket.jobOrderApprovalMeta);
+  if (!meta) return false;
+  if (isJobOrderAssistanceMember(operatorId, meta)) return true;
+  if (meta.pendingExecutionAssigneeAgentId === operatorId) return true;
+  return Boolean(meta.workerAgentIds?.includes(operatorId));
+}
+
+/**
+ * Async: same as {@link isJobOrderTeamMemberAssignee}, also matching duplicate Agent
+ * rows that share the session email.
+ */
+export async function isSessionJobOrderTeamMember(args: {
+  operatorId?: string | null;
+  sessionEmail?: string | null;
+  ticket: TicketAccessShape;
+}): Promise<boolean> {
+  if (isJobOrderTeamMemberAssignee(args.ticket, args.operatorId)) return true;
+  const email = (args.sessionEmail ?? "").trim();
+  if (!email) return false;
+  let meta = parseJobOrderApprovalMeta(args.ticket.jobOrderApprovalMeta);
+  if (!meta && args.ticket.id) {
+    const rows = await prisma.$queryRaw<Array<{ job_order_approval_meta: unknown }>>`
+      SELECT job_order_approval_meta FROM tickets WHERE id = ${args.ticket.id} LIMIT 1
+    `;
+    meta = parseJobOrderApprovalMeta(rows[0]?.job_order_approval_meta);
+  }
+  if (!meta) return false;
+  const sessionAgents = await prisma.agent.findMany({
+    where: { email: { equals: email, mode: "insensitive" } },
+    select: { id: true },
+  });
+  return sessionAgents.some(
+    (a) =>
+      isJobOrderAssistanceMember(a.id, meta) ||
+      meta.pendingExecutionAssigneeAgentId === a.id ||
+      Boolean(meta.workerAgentIds?.includes(a.id)),
+  );
+}
+
 /**
  * Admin (JWT Admin) may only touch tickets in their designated department
  * (org-chart send-to section tree). Legacy tickets without a section fall back
@@ -203,6 +249,16 @@ export async function adminOutsideCompanyScope(args: {
     return false;
   }
   if (args.ticket && isCurrentProceduralStepAssignee(args.ticket, args.operatorId)) {
+    return false;
+  }
+  if (
+    args.ticket &&
+    (await isSessionJobOrderTeamMember({
+      operatorId: args.operatorId,
+      sessionEmail: args.email,
+      ticket: args.ticket,
+    }))
+  ) {
     return false;
   }
   const sendToSectionId = await resolveTicketSendToSectionId(args.ticket);
@@ -252,7 +308,8 @@ export async function isPendingTransferRecipient(
 /**
  * Personnel may read/mutate when they are the requestor, board assignee,
  * current procedural-step assignee, listed ACA ExeCom seat, pending transfer
- * recipient, ticket send-to department is in their org-chart section tree,
+ * recipient, Job Order Seek Assistance / execution team member,
+ * ticket send-to department is in their org-chart section tree,
  * or company coordinator for the ticket's company.
  */
 export async function personnelForbiddenForTicket(args: {
@@ -266,6 +323,15 @@ export async function personnelForbiddenForTicket(args: {
   if (isCurrentProceduralStepAssignee(ticket, operatorId)) return false;
   if (isAcaBoardVisibleAssignee(ticket, operatorId)) return false;
   if (await isPendingTransferRecipient(ticket.id, operatorId)) return false;
+  if (
+    await isSessionJobOrderTeamMember({
+      operatorId,
+      sessionEmail: email,
+      ticket,
+    })
+  ) {
+    return false;
+  }
 
   const sendToSectionId = await resolveTicketSendToSectionId(ticket);
   if (

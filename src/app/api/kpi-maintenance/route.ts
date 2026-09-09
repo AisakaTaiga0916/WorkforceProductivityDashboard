@@ -20,6 +20,7 @@ import {
   collectAllSubKpiItems,
   collectChecklistProgressItems,
   getPillarScreenshots,
+  getPillarCompletionRequirements,
   hasSubKpiAssignedTo,
   isPillarOnlyTask,
   pillarScreenshotUploadEnabled,
@@ -78,6 +79,7 @@ import {
   setItProjectSubKpiPenalty,
   setItProjectSubKpiProjectMeta,
   setItProjectSubKpiSchedule,
+  setItProjectSubKpiTitle,
   syncAllPhaseDueDates,
   updateItProjectPhases,
   usesProjectTimelineTracker,
@@ -85,6 +87,7 @@ import {
   wrapItProjectSubKpis,
   moveItProjectSubKpiToPhase,
   setItProjectPhaseDueDate,
+  isTimelineProjectKpi,
   type ItProjectData,
 } from "@/lib/it-project-subkpis";
 import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
@@ -92,7 +95,7 @@ import { kpiRowInCompanyScope } from "@/lib/kpi-company-board-scope";
 import {
   kpiRowInSectionAgentScope,
   resolveViewerOrgChartSectionScope,
-  roleUsesOrgChartSectionBoardScope,
+  roleUsesCompanyDepartmentTaskAssignScope,
 } from "@/lib/org-chart-section-scope";
 import { isValidLatLng } from "@/lib/travel-order";
 import { normalizeDelayPenaltyFrequency } from "@/lib/delay-penalty-frequency";
@@ -106,6 +109,7 @@ import { rosterTeamNameFilter } from "@/lib/company-roster";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
 import { timeZoneFromPeriodKey, upsertKpiPeriodSnapshot } from "@/lib/kpi-period-snapshots";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
+import { isPlatformSuperAdminPortalRole } from "@/lib/staff-role";
 import {
   loadAgentIdsForCompanyTeam,
   resolveAgentDesignatedCompanyId,
@@ -232,7 +236,7 @@ export async function GET(req: Request) {
   }
 
   // Admin / Personnel: only tasks assigned within the viewer's org-chart section tree.
-  if (roleUsesOrgChartSectionBoardScope(session.user.role)) {
+  if (roleUsesCompanyDepartmentTaskAssignScope(session.user.role)) {
     const sectionScope = await resolveViewerOrgChartSectionScope(session.user.email);
     const sectionAgentIds = new Set(sectionScope.agentIds);
     if (perms.canAssignWork) {
@@ -1390,7 +1394,8 @@ export async function PATCH(req: Request) {
     dumpOverallKpiToMerged();
   }
   const isAssignee = !!perms.operator && perms.operator.id === kpiRow.assignedAgentId;
-  const subKpiItems = isItProjectImplementationPillar(kpiRow.title)
+  const timelineProject = isTimelineProjectKpi(kpiRow.title, kpiRow.subKpis);
+  const subKpiItems = timelineProject
     ? itProjectAllItems(parseItProjectSubKpis(kpiRow.subKpis, kpiRow.itProjectPhase))
     : collectChecklistProgressItems(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
   const canEditSubKpi = (subKpiId: string) => {
@@ -1794,8 +1799,8 @@ export async function PATCH(req: Request) {
   }
 
   if (body.subKpiProjectMeta != null && typeof body.subKpiProjectMeta === "object") {
-    if (!isItProjectImplementationPillar(kpiRow.title)) {
-      return NextResponse.json({ error: "Project metadata applies only to IT Project Implementation." }, { status: 400 });
+    if (!timelineProject) {
+      return NextResponse.json({ error: "Project metadata applies only to Timeline Tracker projects." }, { status: 400 });
     }
     const subKpiIdMeta = String(body.subKpiProjectMeta.subKpiId ?? "").trim();
     if (!subKpiIdMeta) {
@@ -1908,7 +1913,7 @@ export async function PATCH(req: Request) {
             { status: 400 },
           );
         }
-        if (roleUsesOrgChartSectionBoardScope(session.user.role)) {
+        if (roleUsesCompanyDepartmentTaskAssignScope(session.user.role)) {
           const scope = await resolveViewerOrgChartSectionScope(session.user.email);
           const allowed = new Set(scope.agentIds);
           const companyAgents = mainAssigneeCompanyId
@@ -1929,7 +1934,7 @@ export async function PATCH(req: Request) {
         }
       }
     }
-    const updatedJson = isItProjectImplementationPillar(kpiRow.title)
+    const updatedJson = timelineProject
       ? setItProjectSubKpiAssignee(kpiRow.subKpis, subKpiIdAssign, assignee)
       : setSubKpiItemAssignee(kpiRow.subKpis, subKpiIdAssign, assignee);
     const updated = await prisma.kpiMaintenance.update({
@@ -1977,7 +1982,7 @@ export async function PATCH(req: Request) {
       return respondUpdated(updated);
     }
     const byAgentId = perms.operator!.id;
-    const updatedJson = isItProjectImplementationPillar(kpiRow.title)
+    const updatedJson = timelineProject
       ? setItProjectSubKpiItemsAssistanceRequested(kpiRow.subKpis, pendingIds, byAgentId)
       : setSubKpiItemsAssistanceRequested(kpiRow.subKpis, pendingIds, byAgentId);
     if (!updatedJson) {
@@ -2005,13 +2010,19 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     if (slot === "general") {
-      if (!pillarScreenshotUploadEnabled(kpiRow.subKpis)) {
+      if (
+        !pillarScreenshotUploadEnabled(kpiRow.subKpis) &&
+        !getPillarCompletionRequirements(kpiRow.subKpis)?.screenshotUpload
+      ) {
         return NextResponse.json(
           { error: "Pillar screenshot uploads were not enabled when this task was created." },
           { status: 400 },
         );
       }
-    } else if (!pillarScreenshotsEnabled(kpiRow.subKpis)) {
+    } else if (
+      !pillarScreenshotsEnabled(kpiRow.subKpis) &&
+      !getPillarCompletionRequirements(kpiRow.subKpis)?.screenshots
+    ) {
       return NextResponse.json(
         { error: "Pillar before/after screenshots were not enabled for this task." },
         { status: 400 },
@@ -2264,7 +2275,7 @@ export async function PATCH(req: Request) {
       );
     }
     // Admin / Personnel: must stay within company ∩ org-chart department scope.
-    if (roleUsesOrgChartSectionBoardScope(session.user.role)) {
+    if (roleUsesCompanyDepartmentTaskAssignScope(session.user.role)) {
       const companyId = await resolveStaffCompanyTeamId(session.user.email);
       const sectionScope = await resolveViewerOrgChartSectionScope(session.user.email);
       const sectionAgents = new Set(sectionScope.agentIds);
@@ -2366,9 +2377,9 @@ export async function PATCH(req: Request) {
     const hasDailyPenalty = body.updateSubKpi.dailyPenaltyAmount !== undefined;
     const hasDelayFrequency = body.updateSubKpi.delayPenaltyFrequency !== undefined;
     const isItProjectRow = isItProjectImplementationPillar(kpiRow.title);
-    if (isItProjectRow) {
-      if (
-        hasTitle ||
+    const isTimelineProject = isTimelineProjectKpi(kpiRow.title, kpiRow.subKpis);
+    if (isTimelineProject || isItProjectRow) {
+      const hasNonTitleNonPenalty =
         hasDescription ||
         hasRemarks ||
         hasStartDate ||
@@ -2376,34 +2387,57 @@ export async function PATCH(req: Request) {
         hasPriority ||
         hasCompletionMode ||
         hasCompletionRequirements ||
-        hasNumericalTarget
-      ) {
+        hasNumericalTarget ||
+        hasDueDateRollsWithCycle;
+      if (hasNonTitleNonPenalty) {
         return NextResponse.json(
-          { error: "Use task management to edit IT Project Implementation checklists." },
+          { error: "Use task management to edit project timeline checklists." },
           { status: 400 },
         );
       }
-      if (!hasDailyPenalty && !hasDelayFrequency) {
+      if (hasTitle && !isPlatformSuperAdminPortalRole(session.user.role)) {
+        return NextResponse.json(
+          { error: "Only SuperAdmin can edit project subtask titles." },
+          { status: 403 },
+        );
+      }
+      if (!hasTitle && !hasDailyPenalty && !hasDelayFrequency) {
         return NextResponse.json(
           {
             error:
-              "Provide dailyPenaltyAmount and/or delayPenaltyFrequency to update an IT Project Sub Task.",
+              "Provide title, dailyPenaltyAmount, and/or delayPenaltyFrequency to update a project Sub Task.",
           },
           { status: 400 },
         );
       }
-      const penaltyResult = setItProjectSubKpiPenalty(kpiRow.subKpis, subKpiIdUpdate, {
-        ...(hasDailyPenalty ? { dailyPenaltyAmount: body.updateSubKpi.dailyPenaltyAmount ?? null } : {}),
-        ...(hasDelayFrequency
-          ? { delayPenaltyFrequency: body.updateSubKpi.delayPenaltyFrequency ?? null }
-          : {}),
-      });
-      if (!penaltyResult.ok) {
-        return NextResponse.json({ error: penaltyResult.error }, { status: 400 });
+      let nextJson: Prisma.InputJsonValue =
+        (kpiRow.subKpis as Prisma.InputJsonValue | null) ?? [];
+      if (hasTitle) {
+        const titleResult = setItProjectSubKpiTitle(
+          kpiRow.subKpis,
+          subKpiIdUpdate,
+          String(body.updateSubKpi.title ?? ""),
+        );
+        if (!titleResult.ok) {
+          return NextResponse.json({ error: titleResult.error }, { status: 400 });
+        }
+        nextJson = titleResult.json;
+      }
+      if (hasDailyPenalty || hasDelayFrequency) {
+        const penaltyResult = setItProjectSubKpiPenalty(nextJson, subKpiIdUpdate, {
+          ...(hasDailyPenalty ? { dailyPenaltyAmount: body.updateSubKpi.dailyPenaltyAmount ?? null } : {}),
+          ...(hasDelayFrequency
+            ? { delayPenaltyFrequency: body.updateSubKpi.delayPenaltyFrequency ?? null }
+            : {}),
+        });
+        if (!penaltyResult.ok) {
+          return NextResponse.json({ error: penaltyResult.error }, { status: 400 });
+        }
+        nextJson = penaltyResult.json;
       }
       const updated = await prisma.kpiMaintenance.update({
         where: { id },
-        data: { subKpis: penaltyResult.json },
+        data: { subKpis: nextJson },
       });
       triggerEfficiencyRecomputeBackground();
       return respondUpdated(updated);

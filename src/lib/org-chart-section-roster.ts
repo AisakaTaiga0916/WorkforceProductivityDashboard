@@ -39,10 +39,37 @@ export async function listOrgChartSectionOptions(): Promise<OrgChartSectionOptio
   return orderOrgChartSectionsTree(sections);
 }
 
+/**
+ * Section roster = members (memberships + primary sectionId) plus org-chart heads.
+ * Heads are often not listed as members of the section they head — RFP Noted By
+ * still needs them in the picker and in submit validation.
+ */
+export function collectMergedIdsForSectionTree(
+  treeIds: Iterable<string>,
+  membersBySection: Map<string, Array<{ mergedSourceUserId: string }>>,
+  headMergedBySection?: Map<string, string>,
+): string[] {
+  const mergedIds = new Set<string>();
+  for (const sid of treeIds) {
+    for (const member of membersBySection.get(sid) ?? []) {
+      const merged = member.mergedSourceUserId?.trim();
+      if (merged) mergedIds.add(merged);
+    }
+    const headMerged = headMergedBySection?.get(sid)?.trim();
+    if (headMerged) mergedIds.add(headMerged);
+  }
+  return [...mergedIds];
+}
+
 async function loadSectionMemberGraph() {
   const [sections, memberships, primaryNodes, staff] = await Promise.all([
     prisma.orgChartSection.findMany({
-      select: { id: true, parentId: true, companyTeamId: true },
+      select: {
+        id: true,
+        parentId: true,
+        companyTeamId: true,
+        headNode: { select: { mergedSourceUserId: true } },
+      },
     }),
     prisma.orgChartNodeSectionMembership.findMany({
       select: {
@@ -86,24 +113,24 @@ async function loadSectionMemberGraph() {
     addMember(node.sectionId, node.id, node.mergedSourceUserId);
   }
 
-  return { sections, childrenByParent, membersBySection, agentByMerged };
+  const headMergedBySection = new Map<string, string>();
+  for (const s of sections) {
+    const merged = s.headNode?.mergedSourceUserId?.trim();
+    if (merged) headMergedBySection.set(s.id, merged);
+  }
+
+  return { sections, childrenByParent, membersBySection, agentByMerged, headMergedBySection };
 }
 
-/** Merged HRIS user ids for a section and all nested subsections. */
+/** Merged HRIS user ids for a section and all nested subsections (members + section heads). */
 export async function resolveMergedSourceUserIdsForOrgChartSection(
   sectionId: string,
 ): Promise<string[]> {
   const id = sectionId.trim();
   if (!id) return [];
-  const { childrenByParent, membersBySection } = await loadSectionMemberGraph();
+  const { childrenByParent, membersBySection, headMergedBySection } = await loadSectionMemberGraph();
   const treeIds = collectDescendantIds(id, childrenByParent);
-  const mergedIds = new Set<string>();
-  for (const sid of treeIds) {
-    for (const member of membersBySection.get(sid) ?? []) {
-      mergedIds.add(member.mergedSourceUserId);
-    }
-  }
-  return [...mergedIds];
+  return collectMergedIdsForSectionTree(treeIds, membersBySection, headMergedBySection);
 }
 
 /** Agent ids for a section and all nested subsections. */
@@ -122,13 +149,13 @@ export async function resolveAgentIdsForOrgChartSection(
   return [...new Set(agentIds)];
 }
 
-/** Sections the merged HRIS user belongs to (memberships + primary sectionId). */
+/** Sections the merged HRIS user belongs to (memberships + primary sectionId + headed sections). */
 export async function resolveOrgChartSectionIdsForMergedUser(
   mergedSourceUserId: string | null | undefined,
 ): Promise<string[]> {
   const key = (mergedSourceUserId ?? "").trim();
   if (!key) return [];
-  const [memberships, primary] = await Promise.all([
+  const [memberships, primary, headed] = await Promise.all([
     prisma.orgChartNodeSectionMembership.findMany({
       where: { node: { mergedSourceUserId: key } },
       select: { sectionId: true },
@@ -137,10 +164,15 @@ export async function resolveOrgChartSectionIdsForMergedUser(
       where: { mergedSourceUserId: key, sectionId: { not: null } },
       select: { sectionId: true },
     }),
+    prisma.orgChartSection.findMany({
+      where: { headNode: { mergedSourceUserId: key } },
+      select: { id: true },
+    }),
   ]);
   const ids = new Set<string>();
   for (const m of memberships) ids.add(m.sectionId);
   if (primary?.sectionId) ids.add(primary.sectionId);
+  for (const s of headed) ids.add(s.id);
   return [...ids];
 }
 

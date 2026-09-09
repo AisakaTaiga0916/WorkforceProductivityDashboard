@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/access";
 import { rosterTeamNameFilter } from "@/lib/company-roster";
 import { computeKpis, parseHelpdeskCadence, parseKpiRangeFromQuery } from "@/lib/kpis";
 import { resolveAgentIdsForOrgChartSection } from "@/lib/org-chart-section-roster";
+import { resolveViewerOrgChartSectionScope } from "@/lib/org-chart-section-scope";
 import { prisma } from "@/lib/prisma";
 import { resolveStaffCompanyTeamId, resolveAgentDesignatedCompanyId } from "@/lib/staff-company-scope";
 import { findSessionAgentId } from "@/lib/session-agent";
@@ -83,6 +84,12 @@ export async function GET(req: Request) {
   // Org-chart department: tickets whose assignee is in the section (incl. subsections).
   // Skipped when a single agent is already selected (search wins).
   if (!assignedAgentId && departmentId && session?.user?.role !== "Personnel") {
+    if (session?.user?.role === "Admin") {
+      const sectionScope = await resolveViewerOrgChartSectionScope(session.user.email);
+      if (!sectionScope.sectionIds.includes(departmentId)) {
+        return NextResponse.json({ error: "Forbidden department filter." }, { status: 403 });
+      }
+    }
     assignedAgentIds = await resolveAgentIdsForOrgChartSection(departmentId);
   }
 

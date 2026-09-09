@@ -2,10 +2,18 @@ import { Prisma, type TicketStatus } from "@prisma/client/primary";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/access";
 import { loadHrisAssignableStaff } from "@/lib/hris-staff-roster";
+import { filterOrgChartSectionsByCompanyTeam } from "@/lib/org-chart-section-display";
 import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
+import {
+  resolveViewerOrgChartSectionScope,
+  roleUsesCompanyDepartmentTaskAssignScope,
+} from "@/lib/org-chart-section-scope";
 import { prisma } from "@/lib/prisma";
 import { loadStaffAssignmentColorsForAgents } from "@/lib/assignee-assignment-color";
 import { ensureRosterTeamsInDb } from "@/lib/roster-teams";
+import {
+  resolveStaffCompanyTeamId,
+} from "@/lib/staff-company-scope";
 import { ManualAssignmentBoard } from "./ui";
 
 export const dynamic = "force-dynamic";
@@ -17,55 +25,168 @@ export default async function ManualAssignmentPage() {
   if (!session?.user) redirect("/signin");
   if (!["SuperAdmin", "HighAdmin", "Admin"].includes(session.user.role)) redirect("/agent");
 
-  /** Reserved for future personnel company lock; currently SuperAdmin/Admin see all staff. */
-  const isPersonnelCompanyLock = false;
-  const scopedCompanyFilterTeamId: string | null = null;
-  const scopeUnavailable = false;
+  const companyDeptLock = roleUsesCompanyDepartmentTaskAssignScope(session.user.role);
 
   await ensureRosterTeamsInDb();
 
+  let scopedCompanyFilterTeamId: string | null = null;
+  let restrictSectionIds: string[] | null = null;
+  let companyRosterSectionIds: string[] | null = null;
+  let departmentAgentIds: string[] | null = null;
+  let scopeUnavailable = false;
+  let scopeNotice: string | null = null;
+
+  if (companyDeptLock) {
+    const [companyId, sectionScope] = await Promise.all([
+      resolveStaffCompanyTeamId(session.user.email),
+      resolveViewerOrgChartSectionScope(session.user.email),
+    ]);
+    if (!companyId) {
+      scopeUnavailable = true;
+      scopeNotice =
+        "Your portal account doesn't have a designated company yet. A SuperAdmin can set one in Personnel → Portal Accounts so you can assign requests.";
+    } else if (sectionScope.sectionIds.length === 0) {
+      scopeUnavailable = true;
+      scopeNotice =
+        "Your account is not placed on the org chart. Ask a SuperAdmin to assign your department before assigning requests.";
+    } else {
+      scopedCompanyFilterTeamId = companyId;
+      // Department scope follows org-chart membership (do not require section.companyTeamId —
+      // many live sections are unlinked and that was emptying Admin boards).
+      restrictSectionIds = sectionScope.sectionIds;
+      departmentAgentIds = sectionScope.agentIds;
+      const allSections = await listOrgChartSectionOptions();
+      const companySections = filterOrgChartSectionsByCompanyTeam(allSections, companyId);
+      companyRosterSectionIds =
+        companySections.length > 0
+          ? companySections.map((s) => s.id)
+          : sectionScope.sectionIds;
+    }
+  }
+
   const [unassigned, hrisStaff, sectionOptions] = await Promise.all([
-    prisma.ticket.findMany({
-      where: {
-        assignedAgentId: null,
-        OR: [
-          { status: { in: ACTIVE_STATUSES } },
-          {
-            status: "FOR_CONFIRMATION",
-            requestType: "JOB_ORDER",
-            jobOrderApprovalMeta: {
-              path: ["proceduralStep"],
-              equals: "DONE",
-            },
+    scopeUnavailable
+      ? Promise.resolve([])
+      : prisma.ticket.findMany({
+          where: {
+            assignedAgentId: null,
+            OR: [
+              { status: { in: ACTIVE_STATUSES } },
+              {
+                status: "FOR_CONFIRMATION",
+                requestType: "JOB_ORDER",
+                jobOrderApprovalMeta: {
+                  path: ["proceduralStep"],
+                  equals: "DONE",
+                },
+              },
+            ],
+            ...(restrictSectionIds
+              ? { orgChartSectionId: { in: restrictSectionIds } }
+              : scopedCompanyFilterTeamId
+                ? { teamId: scopedCompanyFilterTeamId }
+                : {}),
           },
-        ],
-        ...(scopedCompanyFilterTeamId ? { teamId: scopedCompanyFilterTeamId } : {}),
-      },
-      orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        ticketNumber: true,
-        title: true,
-        description: true,
-        priority: true,
-        status: true,
-        updatedAt: true,
-        teamId: true,
-        orgChartSectionId: true,
-        requestorOrgChartSectionId: true,
-      },
-    }),
+          orderBy: { updatedAt: "desc" },
+          select: {
+            id: true,
+            ticketNumber: true,
+            title: true,
+            description: true,
+            priority: true,
+            status: true,
+            updatedAt: true,
+            teamId: true,
+            orgChartSectionId: true,
+            requestorOrgChartSectionId: true,
+          },
+        }),
     scopeUnavailable
       ? Promise.resolve([])
       : loadHrisAssignableStaff({
-          companyTeamId: isPersonnelCompanyLock ? scopedCompanyFilterTeamId : null,
+          companyTeamId: companyDeptLock ? scopedCompanyFilterTeamId : null,
         }),
     listOrgChartSectionOptions(),
   ]);
-  const personnelScopeCompanyId = isPersonnelCompanyLock ? scopedCompanyFilterTeamId : null;
-  const scopedUnassigned = scopeUnavailable ? [] : unassigned;
 
-  const agentsForBoard = hrisStaff;
+  // Company view: designated-company HRIS roster. Departments view filters via departmentAgentIds.
+  // Merge any org-chart department agents missing from the HRIS company list so Departments view is complete.
+  let agentsForBoard = hrisStaff;
+  if (departmentAgentIds && departmentAgentIds.length > 0) {
+    const have = new Set(hrisStaff.map((a) => a.agentId));
+    const missingIds = departmentAgentIds.filter((id) => !have.has(id));
+    if (missingIds.length > 0) {
+      const extraAgents = await prisma.agent.findMany({
+        where: { id: { in: missingIds } },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          team: { select: { id: true, name: true } },
+        },
+      });
+      const extraPortals =
+        extraAgents.length > 0
+          ? await prisma.portalAccount.findMany({
+              where: {
+                OR: extraAgents.map((a) => ({
+                  email: { equals: a.email, mode: "insensitive" as const },
+                })),
+              },
+              select: {
+                email: true,
+                role: true,
+                mergedSourceUserId: true,
+              },
+            })
+          : [];
+      const portalByEmail = new Map(
+        extraPortals.map((p) => [p.email.trim().toLowerCase(), p]),
+      );
+      agentsForBoard = [
+        ...hrisStaff,
+        ...extraAgents.map((a) => {
+          const portal = portalByEmail.get(a.email.trim().toLowerCase());
+          return {
+            mergedSourceUserId:
+              portal?.mergedSourceUserId != null
+                ? String(portal.mergedSourceUserId)
+                : a.id,
+            agentId: a.id,
+            name: a.name,
+            email: a.email,
+            portalRole: portal?.role ?? "Personnel",
+            headPrivileges: false,
+            assignmentCompany: a.team
+              ? { id: a.team.id, name: a.team.name }
+              : null,
+            teamLabel: a.team?.name ?? "Unassigned",
+          };
+        }),
+      ];
+    }
+  }
+
+  const companyRosterSections = (() => {
+    if (companyRosterSectionIds && companyRosterSectionIds.length > 0) {
+      const allowed = new Set(companyRosterSectionIds);
+      return sectionOptions
+        .filter((s) => allowed.has(s.id))
+        .map((s) => ({ id: s.id, name: s.name, depth: s.depth }));
+    }
+    return sectionOptions.map((s) => ({ id: s.id, name: s.name, depth: s.depth }));
+  })();
+
+  const departmentRosterSections =
+    restrictSectionIds && restrictSectionIds.length > 0
+      ? (() => {
+          const allowed = new Set(restrictSectionIds);
+          return sectionOptions
+            .filter((s) => allowed.has(s.id))
+            .map((s) => ({ id: s.id, name: s.name, depth: s.depth }));
+        })()
+      : null;
+
   const assigneeColorByEmail = await loadStaffAssignmentColorsForAgents(
     agentsForBoard.map((a) => ({ email: a.email, name: a.name })),
   );
@@ -120,26 +241,29 @@ export default async function ManualAssignmentPage() {
     return { id, name: sectionNameByOptionId.get(id) ?? "Unknown section" };
   }
 
-  const assignedByAgent = await prisma.ticket.findMany({
-    where: {
-      status: { in: ACTIVE_STATUSES },
-      assignedAgentId: { in: agentsForBoard.map((a) => a.agentId) },
-      ...(personnelScopeCompanyId ? { teamId: personnelScopeCompanyId } : {}),
-    },
-    orderBy: { updatedAt: "desc" },
-    select: {
-      id: true,
-      ticketNumber: true,
-      title: true,
-      description: true,
-      priority: true,
-      status: true,
-      updatedAt: true,
-      assignedAgentId: true,
-      orgChartSectionId: true,
-      requestorOrgChartSectionId: true,
-    },
-  });
+  const assignedByAgent =
+    agentsForBoard.length === 0
+      ? []
+      : await prisma.ticket.findMany({
+          where: {
+            status: { in: ACTIVE_STATUSES },
+            assignedAgentId: { in: agentsForBoard.map((a) => a.agentId) },
+            ...(scopedCompanyFilterTeamId ? { teamId: scopedCompanyFilterTeamId } : {}),
+          },
+          orderBy: { updatedAt: "desc" },
+          select: {
+            id: true,
+            ticketNumber: true,
+            title: true,
+            description: true,
+            priority: true,
+            status: true,
+            updatedAt: true,
+            assignedAgentId: true,
+            orgChartSectionId: true,
+            requestorOrgChartSectionId: true,
+          },
+        });
   const grouped = new Map<string, typeof assignedByAgent>();
   for (const t of assignedByAgent) {
     const key = t.assignedAgentId ?? "";
@@ -148,7 +272,7 @@ export default async function ManualAssignmentPage() {
 
   const requestTypeById = new Map<string, string>();
   const allTicketIds = [
-    ...new Set([...scopedUnassigned.map((t) => t.id), ...assignedByAgent.map((t) => t.id)]),
+    ...new Set([...unassigned.map((t) => t.id), ...assignedByAgent.map((t) => t.id)]),
   ];
   if (allTicketIds.length > 0) {
     const rows = await prisma.$queryRaw<Array<{ id: string; request_type: string | null }>>`
@@ -161,7 +285,7 @@ export default async function ManualAssignmentPage() {
 
   const ticketSectionIds = [
     ...new Set(
-      [...scopedUnassigned, ...assignedByAgent]
+      [...unassigned, ...assignedByAgent]
         .flatMap((t) => [t.orgChartSectionId, t.requestorOrgChartSectionId])
         .filter((id): id is string => Boolean(id)),
     ),
@@ -225,17 +349,11 @@ export default async function ManualAssignmentPage() {
 
   return (
     <ManualAssignmentBoard
-      rosterSections={sectionOptions.map((s) => ({
-        id: s.id,
-        name: s.name,
-        depth: s.depth,
-      }))}
-      notice={
-        scopeUnavailable
-          ? "Your portal account doesn't have a designated company yet. A SuperAdmin can set one in Personnel → Portal Accounts so you can see your team's lanes."
-          : null
-      }
-      unassigned={scopedUnassigned.map(toCard)}
+      rosterSections={companyRosterSections}
+      departmentRosterSections={departmentRosterSections}
+      departmentAgentIds={departmentAgentIds}
+      notice={scopeNotice}
+      unassigned={unassigned.map(toCard)}
       personnel={personnel}
     />
   );

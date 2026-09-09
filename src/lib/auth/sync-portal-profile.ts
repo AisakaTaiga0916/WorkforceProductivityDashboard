@@ -154,8 +154,10 @@ async function resolvePrimaryTeamId(companyName: string | null | undefined): Pro
  * Conflict policy when syncing HRIS/OAuth → Primary portal_accounts:
  * - Profile fields (name, username, image): always refresh from canonical source.
  * - SuperAdmin / HighAdmin: never auto-changed.
- * - Admin ↔ Personnel: follow org-chart head overlay from resolvePortalRole
- *   (department / sub-department heads → Admin; others → Personnel).
+ * - Admin with headPrivileges: follow org-chart head overlay (heads → Admin;
+ *   former heads → Personnel).
+ * - Admin without headPrivileges: keep (SuperAdmin elevate from Org Chart).
+ * - Personnel → Admin: allow when incoming says Admin (new chart head).
  */
 function buildPortalRoleUpdate(
   existing: ExistingPortalRow,
@@ -185,8 +187,12 @@ function buildPortalRoleUpdate(
     update.role = incoming.portalRole;
     if (incoming.headPrivileges) update.headPrivileges = true;
   } else if (existingNorm === "Admin" && incoming.portalRole === "Personnel") {
-    update.role = "Personnel";
-    update.headPrivileges = false;
+    // Chart-head Admins (headPrivileges) demote when no longer a head.
+    // Manual Org Chart elevates keep Admin (headPrivileges false).
+    if (existing.headPrivileges) {
+      update.role = "Personnel";
+      update.headPrivileges = false;
+    }
   } else if (incoming.headPrivileges && !existing.headPrivileges) {
     update.headPrivileges = true;
   } else if (

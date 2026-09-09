@@ -86,12 +86,18 @@ export function ticketScreenshotsUploadDir(ticketId: string): string {
 export async function persistTicketScreenshots(
   ticketId: string,
   files: File[],
+  opts?: {
+    section?: IntakeScreenshotMetaItem["section"];
+    uploadedByAgentId?: string | null;
+  },
 ): Promise<IntakeScreenshotMetaItem[]> {
   const nonEmpty = files.filter((f) => f.size > 0);
   if (nonEmpty.length === 0) return [];
   const dir = ticketScreenshotsUploadDir(ticketId);
   await mkdir(dir, { recursive: true });
   const meta: IntakeScreenshotMetaItem[] = [];
+  const uploadedAt = new Date().toISOString();
+  const uploadedByAgentId = opts?.uploadedByAgentId?.trim() || null;
   for (const file of nonEmpty) {
     const mimeType = resolveStoredMime(file);
     const ext = guessExt(mimeType, file.name);
@@ -103,6 +109,9 @@ export async function persistTicketScreenshots(
       originalName: file.name.slice(0, 200) || storedFileName,
       mimeType,
       size: file.size,
+      ...(opts?.section ? { section: opts.section } : {}),
+      ...(uploadedByAgentId ? { uploadedByAgentId } : {}),
+      uploadedAt,
     });
   }
   return meta;

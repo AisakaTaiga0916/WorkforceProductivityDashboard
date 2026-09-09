@@ -250,7 +250,7 @@ export function CustomerTopNav() {
                     Mark all as read
                   </button>
                 </div>
-                <div className="mt-1 max-h-[min(20rem,calc(100dvh_-_8rem))] space-y-1 overflow-auto">
+                <div className="mt-1 max-h-[min(70dvh,calc(100dvh_-_8rem))] min-h-0 space-y-1 overflow-y-auto overscroll-contain">
                   {notifBusy && groupedNotifications.length === 0 ? (
                     <p className="px-2 py-3 text-xs text-zinc-500 dark:text-zinc-500">Loading…</p>
                   ) : null}

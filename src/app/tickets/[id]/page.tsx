@@ -18,6 +18,7 @@ import { stampJobOrderCreatorOnCreate } from "@/lib/job-order-approval-db";
 import { AgentWorkspace } from "@/app/agent/tickets/[id]/workspace";
 import { AgentTicketModalShell } from "@/components/ticket/AgentTicketModalShell";
 import { TicketRequestMetaDetails } from "@/components/ticket/TicketRequestMetaDetails";
+import { resolveTicketSendRequestToDisplay } from "@/lib/ticket-send-to-display";
 import { CustomerTicketPanel } from "./ui";
 
 export const dynamic = "force-dynamic";
@@ -82,14 +83,6 @@ export default async function TicketPage({
       a.summary === "Requesting department/business unit",
   );
   const department = departmentActivity?.detail?.trim() ?? null;
-  const sendToDepartmentActivity =
-    ticket.activities
-      .find(
-        (a) =>
-          a.summary === "Send request to department" ||
-          a.summary === "Send request to section",
-      )
-      ?.detail?.trim() ?? null;
   const sendToSectionRows = await prisma.$queryRaw<
     Array<{ org_chart_section_id: string | null }>
   >`
@@ -107,8 +100,12 @@ export default async function TicketPage({
         })
       )?.name?.trim() ?? null
     : null;
-  const sendRequestToDepartment =
-    sendToSectionName ?? sendToDepartmentActivity ?? null;
+  const sendRequestToDisplay = resolveTicketSendRequestToDisplay({
+    activities: ticket.activities,
+    orgChartSectionId: sendToOrgChartSectionId,
+    orgChartSectionName: sendToSectionName,
+    teamName: ticket.team?.name ?? null,
+  });
   const requestTypeActivity = ticket.activities.find((a) => a.summary === "Request type");
   const requestTypeId =
     "requestType" in ticket && typeof (ticket as { requestType?: string }).requestType === "string"
@@ -226,6 +223,8 @@ export default async function TicketPage({
       jobOrderApprovalMeta.notedByAgentId,
       jobOrderApprovalMeta.approvedByAgentId,
       jobOrderApprovalMeta.approvedBy2AgentId,
+      jobOrderApprovalMeta.pendingExecutionAssigneeAgentId,
+      ...(jobOrderApprovalMeta.workerAgentIds ?? []),
     ].filter((v): v is string => Boolean(v));
     if (ids.length > 0) {
       const agents = await prisma.agent.findMany({
@@ -287,18 +286,21 @@ export default async function TicketPage({
 
           <TicketRequestMetaDetails
             preparedByLabel={
-              isFundTransferRequest || isPaymentRequest
-                ? "Prepared By"
-                : isAcaRequest
-                  ? "Submitted By"
-                  : "Requestor"
+              isPaymentRequest
+                ? "Requested By"
+                : isFundTransferRequest
+                  ? "Prepared By"
+                  : isAcaRequest
+                    ? "Submitted By"
+                    : "Requestor"
             }
             contactName={ticket.contactName}
             email={ticket.requestorEmail ?? ticket.contactEmail ?? "—"}
             company={requestorCompanyName ?? "Not assigned"}
             requestingCompany={requestingCompany}
             branch={branch ?? "—"}
-            sendRequestTo={sendRequestToDepartment ?? "—"}
+            sendRequestTo={sendRequestToDisplay.value}
+            sendRequestToLabel={sendRequestToDisplay.label}
             departmentLabel="Requesting department"
             department={department ?? "—"}
             requestType={requestTypeLabelText}

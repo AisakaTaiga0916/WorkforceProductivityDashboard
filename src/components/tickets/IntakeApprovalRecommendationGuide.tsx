@@ -19,7 +19,10 @@ type Props = {
   acaRecommendingLevel?: string;
   acaApprovingPath?: string;
   acaApprovingSeatCount?: number;
-  onApply: (assignees: Record<string, string>) => void;
+  onApply: (
+    assignees: Record<string, string>,
+    people: Array<{ key: string; id: string; name: string }>,
+  ) => void;
 };
 
 export function IntakeApprovalRecommendationGuide({
@@ -190,7 +193,7 @@ export function IntakeApprovalRecommendationGuide({
       if (guide.sendToSectionName) {
         parts.push(`send-to head from ${guide.sendToSectionName}`);
       }
-      parts.push("HR team head");
+      parts.push("HR Approver");
       return parts.join(" · ");
     }
     if (guide.requestorMainSectionName) {
@@ -209,22 +212,27 @@ export function IntakeApprovalRecommendationGuide({
       return "Suggested Approved By from your department. Canvassed By is assigned later on the Assignment Board. You can still choose someone else below.";
     }
     if (requestType === "REQUEST_FOR_PAYMENT") {
-      return "Suggested assignees from org-chart sections. Sub-department heads are listed first for Noted By when you belong to a sub-department. Approved By uses the next section head up from your department. Bookkeeper uses send-to section and your company. You can still choose someone else below.";
+      return "Suggested assignees from org-chart sections. You can pick any company user for each seat below.";
     }
     if (requestType === "JOB_ORDER") {
-      return "Suggested chain: head of your department → head of the send-to department (or sub-department if selected) → head of the HR team. You can still choose someone else below.";
+      return "Suggested chain: head of your department → head of the send-to department → HR Approver. The form seat is Approved By. You can pick any company user for each seat below.";
     }
-    return "Suggested assignees from org-chart sections and position holders. You can still choose someone else below.";
+    return "Suggested assignees from org-chart sections and position holders. You can pick any company user for each seat below.";
   }, [requestType]);
 
   function handleApply() {
     if (!guide) return;
     const next: Record<string, string> = {};
+    const people: Array<{ key: string; id: string; name: string }> = [];
     for (const seat of guide.seats) {
-      if (seat.agentId) next[seat.key] = seat.agentId;
+      const id = seat.agentId?.trim() ?? "";
+      const name = seat.agentName?.trim() ?? "";
+      if (!id) continue;
+      next[seat.key] = id;
+      people.push({ key: seat.key, id, name: name || id });
     }
     if (Object.keys(next).length === 0) return;
-    onApply(next);
+    onApply(next, people);
   }
 
   const emptyHint =

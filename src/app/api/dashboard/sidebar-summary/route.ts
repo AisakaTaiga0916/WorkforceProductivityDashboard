@@ -12,7 +12,7 @@ import {
 } from "@/lib/staff-company-scope";
 import {
   resolveViewerDepartmentScopeLabel,
-  roleUsesOrgChartSectionBoardScope,
+  roleShowsDesignatedDepartmentLabel,
   sectionScopedTicketWhere,
 } from "@/lib/org-chart-section-scope";
 import { countTaskBoardLanes } from "@/lib/task-board-lane-counts";
@@ -56,7 +56,7 @@ async function resolveDesignations(input: {
   const email = (input.email ?? "").trim();
   const [companyTeamId, departmentDesignation] = await Promise.all([
     resolveStaffCompanyTeamId(email),
-    roleUsesOrgChartSectionBoardScope(input.role)
+    roleShowsDesignatedDepartmentLabel(input.role)
       ? resolveViewerDepartmentScopeLabel(email)
       : Promise.resolve(null),
   ]);

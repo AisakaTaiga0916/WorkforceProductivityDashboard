@@ -10,6 +10,7 @@ import {
   type SubKpiItem,
 } from "@/lib/kpi-subkpis";
 import { normalizeTimeZone } from "@/lib/kpi-recurrence";
+import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
 import { parseTaskScreenshotMetaList } from "@/lib/task-screenshot-meta";
 import { hasValidActualDate, normalizeOptionalUsDate } from "@/lib/us-date-format";
 
@@ -483,6 +484,15 @@ export function buildItProjectFromPhaseDrafts(
 /** True when this KPI row should use the Kanban Timeline Tracker. */
 export function usesProjectTimelineTracker(subKpis: unknown): boolean {
   return isItProjectEnvelope(subKpis);
+}
+
+/**
+ * Timeline Tracker projects (IT Project Implementation pillar OR any `it_project` envelope).
+ * Job Order → Project cards keep a custom `title` but still store phases under the IT envelope —
+ * assignee / meta / seek-assistance writers must use the envelope path, not checklist normalize.
+ */
+export function isTimelineProjectKpi(title: string, subKpis: unknown): boolean {
+  return isItProjectImplementationPillar(title) || usesProjectTimelineTracker(subKpis);
 }
 
 /**
@@ -1090,6 +1100,30 @@ export function setItProjectSubKpiPenalty(
       }
     }
     return next;
+  };
+  const next = mapPhases(data, (phase) => ({
+    ...phase,
+    items: phase.items.map(touch),
+  }));
+  if (!found) return { ok: false, error: "Sub-task not found." };
+  return { ok: true, json: updateItProjectPhases(raw, next) };
+}
+
+export function setItProjectSubKpiTitle(
+  raw: unknown,
+  subKpiId: string,
+  title: string,
+): { ok: true; json: Prisma.InputJsonValue } | { ok: false; error: string } {
+  const nextTitle = title.trim();
+  if (!nextTitle) {
+    return { ok: false, error: "Sub-task title is required." };
+  }
+  const data = parseItProjectSubKpis(raw);
+  let found = false;
+  const touch = (it: SubKpiItem): SubKpiItem => {
+    if (it.id !== subKpiId) return it;
+    found = true;
+    return { ...it, title: nextTitle };
   };
   const next = mapPhases(data, (phase) => ({
     ...phase,

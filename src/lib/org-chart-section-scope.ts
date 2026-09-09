@@ -326,6 +326,41 @@ export async function resolveViewerOrgChartSectionScope(
 }
 
 /**
+ * True when the viewer is the org-chart head of `sectionId`, or heads an ancestor
+ * department that contains it (major dept head covers nested send-to sections).
+ */
+export async function isViewerOrgChartHeadForSection(
+  email: string | null | undefined,
+  sectionId: string | null | undefined,
+): Promise<boolean> {
+  const sid = (sectionId ?? "").trim();
+  const e = (email ?? "").trim();
+  if (!sid || !e) return false;
+  const mergedId = await resolveMergedSourceUserIdForSessionEmail(e);
+  if (!mergedId) return false;
+  const headed = await prisma.orgChartSection.findMany({
+    where: { headNode: { mergedSourceUserId: mergedId } },
+    select: { id: true },
+  });
+  if (headed.length === 0) return false;
+  const headedIds = new Set(headed.map((h) => h.id));
+  if (headedIds.has(sid)) return true;
+
+  const sections = await prisma.orgChartSection.findMany({
+    select: { id: true, parentId: true },
+  });
+  const byId = new Map(sections.map((s) => [s.id, s]));
+  let current: string | null = sid;
+  const seen = new Set<string>();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (headedIds.has(current)) return true;
+    current = byId.get(current)?.parentId ?? null;
+  }
+  return false;
+}
+
+/**
  * Ticket visibility for Personnel: send-to section in the viewer's section tree,
  * OR personal assignee / procedural / transfer scope.
  * Admin Request Board uses {@link personnelRequestBoardWhere} (assigned only).
@@ -391,6 +426,28 @@ export function roleUsesOrgChartSectionBoardScope(role: string | null | undefine
   if (!role) return false;
   if (isElevatedUserRole(role)) return false;
   return role === "Personnel";
+}
+
+/**
+ * Task Board assign + KPI visibility: Admin and Personnel are locked to
+ * designated company ∩ org-chart department tree. Elevated roles are free.
+ * Distinct from {@link roleUsesOrgChartSectionBoardScope} (Request Board).
+ */
+export function roleUsesCompanyDepartmentTaskAssignScope(
+  role: string | null | undefined,
+): boolean {
+  if (!role) return false;
+  if (isElevatedUserRole(role)) return false;
+  return role === "Admin" || role === "Personnel";
+}
+
+/** Sidebar / home: show designated department for Admin and Personnel. */
+export function roleShowsDesignatedDepartmentLabel(
+  role: string | null | undefined,
+): boolean {
+  if (!role) return false;
+  if (isElevatedUserRole(role)) return false;
+  return role === "Admin" || role === "Personnel";
 }
 
 /**

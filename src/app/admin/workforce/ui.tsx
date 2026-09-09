@@ -94,9 +94,13 @@ type Props = {
   visibleViews: WorkforceVisibleViews;
   /** SuperAdmin: manage org-chart departments when Org. Chart is shown. */
   canManageSections?: boolean;
+  /** SuperAdmin: set Personnel / Admin / HighAdmin from Org Chart member rows. */
+  canSetPortalRoles?: boolean;
   initialOrgSections?: OrgChartSectionRow[];
   initialOrgNodes?: OrgChartNodeRow[];
   initialOrgEitherOrLinks?: OrgChartEitherOrLinkRow[];
+  /** Portal technical roles keyed by mergedSourceUserId (Org Chart elevate UI). */
+  initialPortalRoleByMergedId?: Record<string, string>;
   sectionCompanyOptions?: { id: string; name: string }[];
 };
 
@@ -565,6 +569,9 @@ export function WorkforceClient(props: Props) {
                 initialEitherOrLinks={props.initialOrgEitherOrLinks ?? []}
                 roster={props.initialPersonnel}
                 companyOptions={props.sectionCompanyOptions ?? []}
+                readOnly={!canManageSections}
+                canSetPortalRoles={Boolean(props.canSetPortalRoles)}
+                initialPortalRoleByMergedId={props.initialPortalRoleByMergedId ?? {}}
               />
             ) : null}
           </div>

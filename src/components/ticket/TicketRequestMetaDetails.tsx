@@ -12,6 +12,7 @@ export type TicketRequestMetaDetailsProps = {
   requestingCompany?: string | null;
   branch: string;
   sendRequestTo: string;
+  sendRequestToLabel?: "Send request to (company)" | "Send request to (department)";
   departmentLabel: string;
   department: string;
   requestType: string;
@@ -43,6 +44,7 @@ export function TicketRequestMetaDetails({
   requestingCompany,
   branch,
   sendRequestTo,
+  sendRequestToLabel = "Send request to (department)",
   departmentLabel,
   department,
   requestType,
@@ -96,7 +98,7 @@ export function TicketRequestMetaDetails({
         </div>
         <div className="min-w-0 space-y-1">
           <MetaLine label={departmentLabel} value={department} />
-          <MetaLine label="Send request to (department)" value={sendRequestTo} />
+          <MetaLine label={sendRequestToLabel} value={sendRequestTo} />
           <MetaLine label="Request type" value={requestType} />
           {proceduralStatus ? (
             <p className="text-xs font-medium uppercase tracking-[0.12em] text-amber-400/90">

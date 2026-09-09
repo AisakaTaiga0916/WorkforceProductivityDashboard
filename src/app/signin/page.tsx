@@ -10,6 +10,7 @@ import {
   SignInLaunchPadShell,
   launchPadInputClass,
   launchPadLabelClass,
+  launchPadOutlineButtonClass,
   launchPadPrimaryButtonClass,
 } from "@/components/auth/SignInLaunchPadShell";
 import { isSessionExpired, logoutExpiredSession } from "@/lib/session-expiry-client";
@@ -28,6 +29,18 @@ function postLoginDestination(resUrl: string | null | undefined, fallback: strin
     }
   }
   return sanitizeCallbackUrl(fallback);
+}
+
+function LaunchPadDivider() {
+  return (
+    <div className="my-4 flex items-center gap-3">
+      <span className="h-px flex-1 bg-zinc-300 dark:bg-white/10" />
+      <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-500">
+        or
+      </span>
+      <span className="h-px flex-1 bg-zinc-300 dark:bg-white/10" />
+    </div>
+  );
 }
 
 function oauthErrorMessage(code: string | null): string | null {
@@ -347,18 +360,21 @@ function SignInForm() {
       ) : null}
 
       {googleEnabled ? (
-        <div className="mt-4 flex justify-center">
+        <>
+          <LaunchPadDivider />
           <button
             type="button"
             aria-label="Continue with Google"
-            title="Continue with Google"
-            className="inline-flex appearance-none items-center justify-center border-0 bg-transparent p-0 shadow-none outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-[#ff6b00]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-50 dark:focus-visible:ring-offset-[#050505]"
+            className={launchPadOutlineButtonClass}
             onClick={() => void signIn("google", { callbackUrl })}
             data-no-particles="true"
           >
-            <GoogleMark className="size-7" />
+            <span className="inline-flex items-center justify-center gap-2">
+              <GoogleMark />
+              Continue with Google
+            </span>
           </button>
-        </div>
+        </>
       ) : null}
     </SignInLaunchPadShell>
   );

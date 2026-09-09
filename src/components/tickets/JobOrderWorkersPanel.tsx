@@ -18,21 +18,27 @@ export function JobOrderWorkersPanel({
   jobOrderApprovalMeta,
   assigneeAgentId,
   assigneeName,
+  approvalsComplete = true,
   canAssignExecutionAssignee = false,
   canManageCoWorkers = false,
   canMarkJobDone = false,
+  jobDoneRecorded = false,
 }: {
   ticketId: string;
   ticketStatus: string;
   jobOrderApprovalMeta: JobOrderApprovalMeta;
   assigneeAgentId: string | null;
   assigneeName: string | null;
+  /** False while remaining approval seats are still open. */
+  approvalsComplete?: boolean;
   /** Admin / coordinator — set execution assignee before co-workers. */
   canAssignExecutionAssignee?: boolean;
   /** Assignee (or Admin) — add co-workers after assignee is set. */
   canManageCoWorkers?: boolean;
-  /** Execution assignee (or Admin) — send Job Order for customer confirmation. */
+  /** Execution / assistance team (or Admin) — send Job Order for customer confirmation. */
   canMarkJobDone?: boolean;
+  /** Job Done already stamped; waiting on final Approved By. */
+  jobDoneRecorded?: boolean;
 }) {
   const router = useRouter();
   const [agents, setAgents] = useState<AgentOption[]>([]);
@@ -183,7 +189,7 @@ export function JobOrderWorkersPanel({
   async function markJobDone() {
     if (
       !window.confirm(
-        "Mark this Job Order as done and send it to the requestor for confirmation?",
+        "Mark this Job Order as Job Done? The final Approved By can then send it for customer confirmation.",
       )
     ) {
       return;
@@ -223,8 +229,9 @@ export function JobOrderWorkersPanel({
           Execution team
         </p>
         <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
-          Approvals are complete. Assign the execution assignee on the Assignment Board or below,
-          then add co-workers who will work on this Job Order.
+          {approvalsComplete
+            ? "Approvals are complete. Assign the execution assignee on the Assignment Board or below, then add co-workers who will work on this Job Order."
+            : "Opened after Noted By and Approved By (when those seats apply). Stage the execution assignee and Task Board link now — the assignee is applied to the Request Board when remaining approvals finish."}
         </p>
       </div>
 
@@ -369,11 +376,19 @@ export function JobOrderWorkersPanel({
             <p className="mt-1 text-xs font-medium text-emerald-800 dark:text-emerald-200">
               Sent for customer confirmation.
             </p>
-          ) : canMarkJobDone && hasExecutionAssignee ? (
+          ) : jobDoneRecorded ? (
+            <p className="mt-1 text-xs font-medium text-sky-800 dark:text-sky-200">
+              Job Done recorded. Waiting on the final Approved By before customer confirmation.
+            </p>
+          ) : canMarkJobDone ? (
             <div className="mt-2">
               <p className="text-xs text-zinc-600 dark:text-zinc-400">
-                When execution work is finished, send this Job Order to the requestor for
-                confirmation.
+                When execution work is finished, mark Job Done. The final Approved By then sends
+                this request for confirmation
+                {!approvalsComplete
+                  ? " (available once the execution workspace is unlocked — remaining approvals can continue)"
+                  : ""}
+                .
               </p>
               <button
                 type="button"
@@ -391,9 +406,7 @@ export function JobOrderWorkersPanel({
             </div>
           ) : (
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              {hasExecutionAssignee
-                ? "Only the execution assignee or Admin can mark this Job Order done."
-                : "Assign an execution assignee before marking the job done."}
+              Only Admin, the execution team, or assistance team can mark this Job Order done.
             </p>
           )}
         </div>

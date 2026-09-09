@@ -45,7 +45,14 @@ import {
   initJobOrderApprovalMetaIfNeeded,
   saveJobOrderApprovalMeta,
 } from "@/lib/job-order-approval-db";
-import { resolveAgentDesignatedCompanyId, resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
+import {
+  resolveViewerOrgChartSectionScope,
+  roleUsesCompanyDepartmentTaskAssignScope,
+} from "@/lib/org-chart-section-scope";
+import {
+  resolveAgentDesignatedCompanyId,
+  resolveStaffCompanyTeamId,
+} from "@/lib/staff-company-scope";
 
 type AssignBody = {
   ticketId?: string;
@@ -84,10 +91,39 @@ export async function POST(req: Request) {
 
     if (!ticket) return NextResponse.json({ error: "Ticket not found." }, { status: 404 });
 
-    const adminCompanyId =
-      isJwtAdmin && !isSuperAdmin ? await resolveStaffCompanyTeamId(session.user.email) : null;
-    if (isJwtAdmin && !isSuperAdmin) {
-      if (!adminCompanyId || ticket.teamId !== adminCompanyId) {
+    const companyDeptLock =
+      roleUsesCompanyDepartmentTaskAssignScope(session.user.role) && !isSuperAdmin;
+    const adminCompanyId = companyDeptLock
+      ? await resolveStaffCompanyTeamId(session.user.email)
+      : null;
+    let sectionScope: Awaited<ReturnType<typeof resolveViewerOrgChartSectionScope>> | null =
+      null;
+    if (companyDeptLock) {
+      if (!adminCompanyId) {
+        return NextResponse.json(
+          { error: "You can only assign tickets in your designated company." },
+          { status: 403 },
+        );
+      }
+      sectionScope = await resolveViewerOrgChartSectionScope(session.user.email);
+      const ticketSectionId = (ticket.orgChartSectionId ?? "").trim();
+      const inDepartment =
+        Boolean(ticketSectionId) && sectionScope.sectionIds.includes(ticketSectionId);
+      // Align with Assign Requests list: department membership is the primary gate.
+      // Ticket.teamId can differ from the Admin's designated company when the same
+      // org-chart department receives work for another company (e.g. NEO on ALI while
+      // the Admin's designated company is AGC).
+      if (sectionScope.sectionIds.length > 0) {
+        if (!inDepartment) {
+          return NextResponse.json(
+            {
+              error:
+                "You can only assign tickets in your designated org-chart department.",
+            },
+            { status: 403 },
+          );
+        }
+      } else if (ticket.teamId !== adminCompanyId) {
         return NextResponse.json(
           { error: "You can only assign tickets in your designated company." },
           { status: 403 },
@@ -142,9 +178,16 @@ export async function POST(req: Request) {
         }));
     }
 
-    if (isJwtAdmin && !isSuperAdmin) {
+    if (companyDeptLock) {
       const agentCompanyId = await resolveAgentDesignatedCompanyId(agent.id);
-      if (!adminCompanyId || agentCompanyId !== adminCompanyId) {
+      const inDepartmentRoster = Boolean(
+        sectionScope?.agentIds.includes(agent.id),
+      );
+      // Allow company roster or org-chart department roster (list page merges both).
+      if (
+        !adminCompanyId ||
+        (agentCompanyId !== adminCompanyId && !inDepartmentRoster)
+      ) {
         return NextResponse.json(
           { error: "You can only assign to personnel in your designated company." },
           { status: 403 },
@@ -287,7 +330,10 @@ export async function POST(req: Request) {
         } else {
           await saveJobOrderApprovalMeta(
             ticketId,
-            markJobOrderExecutionAssigned(meta),
+            markJobOrderExecutionAssigned({
+              ...meta,
+              pendingExecutionAssigneeAgentId: null,
+            }),
           );
           await logActivity(
             ticketId,

@@ -14,6 +14,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import { SimplePaginationBar } from "@/components/ui/SimplePaginationBar";
 import { DatePickerField } from "@/components/ui/DatePickerField";
@@ -1566,24 +1567,26 @@ export function TaskPillarMetricsGrid({
         );
       })}
       </div>
-      {inspected ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 py-4"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setInspectedPillar(null)}
-        >
-          <div
-            className={cn(
-              "flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950",
-              detailView === "chart"
-                ? "max-w-6xl"
-                : canShowExtendedTasks
-                  ? "max-w-3xl"
-                  : "max-w-lg",
-            )}
-            onClick={(e) => e.stopPropagation()}
-          >
+      {inspected && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[300] flex items-center justify-center bg-black/45 px-4 py-4"
+              role="dialog"
+              aria-modal="true"
+              data-metrics-inspect=""
+              onClick={() => setInspectedPillar(null)}
+            >
+              <div
+                className={cn(
+                  "flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950",
+                  detailView === "chart"
+                    ? "max-w-6xl"
+                    : canShowExtendedTasks
+                      ? "max-w-3xl"
+                      : "max-w-lg",
+                )}
+                onClick={(e) => e.stopPropagation()}
+              >
             <div className="shrink-0 border-b border-zinc-200 p-5 pb-4 dark:border-zinc-800">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -1761,8 +1764,10 @@ export function TaskPillarMetricsGrid({
             )}
             </div>
           </div>
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

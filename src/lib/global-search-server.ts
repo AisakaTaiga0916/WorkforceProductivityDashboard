@@ -19,9 +19,12 @@ import {
 import {
   kpiRowInSectionAgentScope,
   resolveViewerOrgChartSectionScope,
+  roleUsesCompanyDepartmentTaskAssignScope,
   roleUsesOrgChartSectionBoardScope,
   sectionScopedTicketWhere,
 } from "@/lib/org-chart-section-scope";
+import { filterOrgChartSectionsByCompanyTeam } from "@/lib/org-chart-section-display";
+import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
 import { isPersonnelGuardPortalRole } from "@/lib/staff-role";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
 import { loadHrisAssignableStaff } from "@/lib/hris-staff-roster";
@@ -34,6 +37,41 @@ const MAX_TOTAL = 10;
 
 function matchesQuery(haystack: string, query: string): boolean {
   return haystack.toLowerCase().includes(query.trim().toLowerCase());
+}
+
+/** Admin Group Board–aligned ticket scope: designated company ∩ org-chart departments + personal. */
+async function adminGroupBoardTicketWhere(input: {
+  email: string | null | undefined;
+  agentId: string | null | undefined;
+}): Promise<Prisma.TicketWhereInput> {
+  const staffCompanyId = await resolveStaffCompanyTeamId(input.email);
+  const personal =
+    input.agentId != null ? await personnelRequestBoardWhere(input.agentId) : null;
+  if (!staffCompanyId) {
+    return personal ?? { id: "__none__" };
+  }
+  const [allSections, viewerScope] = await Promise.all([
+    listOrgChartSectionOptions(),
+    resolveViewerOrgChartSectionScope(input.email),
+  ]);
+  const companySectionIds = filterOrgChartSectionsByCompanyTeam(
+    allSections,
+    staffCompanyId,
+  ).map((s) => s.id);
+  let sendToSectionIds = companySectionIds;
+  if (viewerScope.sectionIds.length === 0) {
+    // Match Group Board: Admins must be placed on the org chart.
+    return personal ?? { id: "__none__" };
+  }
+  const allowed = new Set(viewerScope.sectionIds);
+  sendToSectionIds = companySectionIds.filter((id) => allowed.has(id));
+  const clauses: Prisma.TicketWhereInput[] = [];
+  if (sendToSectionIds.length > 0) {
+    clauses.push({ orgChartSectionId: { in: sendToSectionIds } });
+  }
+  if (personal) clauses.push(personal);
+  if (clauses.length === 0) return { id: "__none__" };
+  return { OR: clauses };
 }
 
 async function buildTicketWhere(session: Session, query: string): Promise<Prisma.TicketWhereInput | null> {
@@ -64,8 +102,11 @@ async function buildTicketWhere(session: Session, query: string): Promise<Prisma
   }
 
   if (role === "Admin") {
-    Object.assign(whereBase, await personnelRequestBoardWhere(operator?.id));
-    whereBase.AND = [{ OR: searchOr }];
+    const groupScope = await adminGroupBoardTicketWhere({
+      email: session.user.email,
+      agentId: operator?.id,
+    });
+    whereBase.AND = [groupScope, { OR: searchOr }];
     return whereBase;
   }
 
@@ -89,7 +130,13 @@ async function buildTicketWhere(session: Session, query: string): Promise<Prisma
     whereBase.teamId = teamIds.length > 0 ? { in: teamIds } : { in: ["__none__"] };
   } else if (companyAdminPrivileges) {
     if (!staffCompanyId) return null;
-    Object.assign(whereBase, await personnelRequestBoardWhere(operator?.id));
+    Object.assign(
+      whereBase,
+      await adminGroupBoardTicketWhere({
+        email: session.user.email,
+        agentId: operator?.id,
+      }),
+    );
   } else {
     return null;
   }
@@ -140,11 +187,23 @@ async function searchTasks(
   let where: Prisma.KpiMaintenanceWhereInput = canAssignWork ? {} : {};
   let sectionAgentIds: Set<string> | null = null;
 
-  if (canAssignWork && roleUsesOrgChartSectionBoardScope(session.user.role)) {
+  if (canAssignWork && roleUsesCompanyDepartmentTaskAssignScope(session.user.role)) {
+    const companyId = companyTeamId ?? (await resolveStaffCompanyTeamId(session.user.email));
     const sectionScope = await resolveViewerOrgChartSectionScope(session.user.email);
-    if (sectionScope.agentIds.length === 0) return [];
+    if (sectionScope.agentIds.length === 0 && !companyId) return [];
     sectionAgentIds = new Set(sectionScope.agentIds);
-    where = { assignedAgentId: { in: sectionScope.agentIds } };
+    const companyAgents = companyId
+      ? new Set(await loadAgentIdsForCompanyTeam(companyId))
+      : null;
+    const allowed =
+      companyAgents && sectionAgentIds.size > 0
+        ? [...sectionAgentIds].filter((id) => companyAgents.has(id))
+        : companyAgents
+          ? [...companyAgents]
+          : [...sectionAgentIds];
+    if (allowed.length === 0) return [];
+    sectionAgentIds = new Set(allowed);
+    where = { assignedAgentId: { in: allowed } };
   } else if (canAssignWork && companyTeamId) {
     const agentIds = await loadAgentIdsForCompanyTeam(companyTeamId);
     const companyScopeOr: Prisma.KpiMaintenanceWhereInput[] = [
@@ -152,6 +211,9 @@ async function searchTasks(
     ];
     if (agentIds.length > 0) companyScopeOr.unshift({ assignedAgentId: { in: agentIds } });
     where = { AND: [where, { OR: companyScopeOr }] };
+  } else if (canAssignWork && !isElevatedUserRole(session.user.role)) {
+    // Non-elevated assigners without a company/section lock must not see all tasks.
+    return [];
   }
 
   const rows = await prisma.kpiMaintenance.findMany({

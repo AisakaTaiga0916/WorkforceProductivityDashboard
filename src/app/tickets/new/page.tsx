@@ -40,6 +40,7 @@ import {
   MODE_OF_PAYMENT_CHECK,
   MODE_OF_PAYMENT_OPTIONS,
   paymentModeRequiresBankDetails,
+  paymentModeShowsBankDetails,
 } from "@/lib/request-for-payment";
 import {
   emptyRequisitionLineItem,
@@ -89,6 +90,22 @@ function pickImageFiles(list: File[]) {
 
 function pickAttachmentFiles(list: File[]) {
   return list.filter((f) => isAllowedIntakeAttachment(f.type || "", f.name));
+}
+
+function mergeApprovalAgentOptions<T extends { id: string; name: string; email: string }>(
+  prev: T[],
+  extras: Array<{ id: string; name: string }>,
+): T[] {
+  if (extras.length === 0) return prev;
+  const ids = new Set(prev.map((a) => a.id));
+  const next = [...prev];
+  for (const extra of extras) {
+    const id = extra.id.trim();
+    if (!id || ids.has(id)) continue;
+    ids.add(id);
+    next.push({ ...({ id, name: extra.name.trim() || id, email: "" } as T) });
+  }
+  return next;
 }
 export default function NewTicketPage() {
   return <NewTicketIntake mode="page" />;
@@ -226,9 +243,6 @@ function NewTicketPageInner({
   const [selectedCompanyTeamId, setSelectedCompanyTeamId] = useState("");
   const [sendToMode, setSendToMode] = useState<"company" | "department">("department");
   const [selectedSendToCompanyTeamId, setSelectedSendToCompanyTeamId] = useState("");
-  const [requestorApprovalAgents, setRequestorApprovalAgents] = useState<
-    Array<{ id: string; name: string; email: string }>
-  >([]);
   const [approvalAgents, setApprovalAgents] = useState<
     Array<{
       id: string;
@@ -238,9 +252,6 @@ function NewTicketPageInner({
       group?: string | null;
       optionKey?: string | null;
     }>
-  >([]);
-  const [bookkeeperApprovalAgents, setBookkeeperApprovalAgents] = useState<
-    Array<{ id: string; name: string; email: string }>
   >([]);
   const [orgChartSectionOptions, setOrgChartSectionOptions] = useState<
     OrgChartSectionOption[]
@@ -264,6 +275,8 @@ function NewTicketPageInner({
   });
   const [skipPaymentNotedBy, setSkipPaymentNotedBy] = useState(false);
   const [skipPaymentApprovedBy, setSkipPaymentApprovedBy] = useState(false);
+  const [skipJobOrderNotedBy, setSkipJobOrderNotedBy] = useState(false);
+  const [skipJobOrderApprovedBy, setSkipJobOrderApprovedBy] = useState(false);
   const [fundTransferAssignees, setFundTransferAssignees] = useState({
     recommendingApprovalAgentId: "",
     approvedByAgentId: "",
@@ -664,23 +677,10 @@ function NewTicketPageInner({
 
   useEffect(() => {
     if (!canSetIntakeAssignees) {
-      setRequestorApprovalAgents([]);
       setApprovalAgents([]);
-      setBookkeeperApprovalAgents([]);
       return;
     }
     let cancelled = false;
-
-    async function loadCompanyAgents(companyId: string | null | undefined) {
-      const id = (companyId ?? "").trim();
-      if (!id) return [] as Array<{ id: string; name: string; email: string }>;
-      const res = await fetch(`/api/agents?company=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-      });
-      if (!res.ok) return [];
-      const rows = (await res.json()) as Array<{ id: string; name: string; email: string }>;
-      return Array.isArray(rows) ? rows : [];
-    }
 
     async function loadAnyCompanyAgents() {
       const res = await fetch("/api/agents?anyCompany=1", { cache: "no-store" });
@@ -689,167 +689,22 @@ function NewTicketPageInner({
       return Array.isArray(rows) ? rows : [];
     }
 
-    async function loadOrgChartHeadAgents() {
-      const res = await fetch("/api/agents?orgChartHeads=1", { cache: "no-store" });
-      if (!res.ok) {
-        return [] as Array<{
-          id: string;
-          name: string;
-          email: string;
-          subtitle?: string | null;
-          group?: string | null;
-          optionKey?: string | null;
-        }>;
-      }
-      const rows = (await res.json()) as Array<{
-        id: string;
-        name: string;
-        email?: string | null;
-        sectionId?: string;
-        subtitle?: string | null;
-        group?: string | null;
-      }>;
-      if (!Array.isArray(rows)) return [];
-      return rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        email: row.email?.trim() || "",
-        subtitle: row.subtitle ?? null,
-        group: row.group ?? null,
-        optionKey: row.sectionId ? `${row.id}:${row.sectionId}` : row.id,
-      }));
-    }
-
-    async function loadSectionAgents(sectionId: string | null | undefined) {
-      const id = (sectionId ?? "").trim();
-      if (!id) return [] as Array<{ id: string; name: string; email: string }>;
-      const res = await fetch(`/api/agents?section=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-      });
-      if (!res.ok) return [];
-      const rows = (await res.json()) as Array<{ id: string; name: string; email: string }>;
-      return Array.isArray(rows) ? rows : [];
-    }
-
-    async function loadSectionAndCompanyAgents(
-      sectionId: string | null | undefined,
-      companyTeamId: string | null | undefined,
-    ) {
-      const section = (sectionId ?? "").trim();
-      const company = (companyTeamId ?? "").trim();
-      if (!section || !company) {
-        return [] as Array<{ id: string; name: string; email: string }>;
-      }
-      const params = new URLSearchParams({ section, company });
-      const res = await fetch(`/api/agents?${params.toString()}`, { cache: "no-store" });
-      if (!res.ok) return [];
-      const rows = (await res.json()) as Array<{ id: string; name: string; email: string }>;
-      return Array.isArray(rows) ? rows : [];
-    }
-
     void (async () => {
-      if (isPaymentRequest) {
-        const bookkeeperCompany =
-          sendToMode === "company"
-            ? effectiveSendToCompanyTeamId
-            : bookkeeperCompanyTeamId;
-        const [requestorRows, anyRows, bookkeeperRows] = await Promise.all([
-          loadSectionAgents(selectedRequestorOrgChartSectionId),
-          loadAnyCompanyAgents(),
-          sendToMode === "company" && effectiveSendToCompanyTeamId
-            ? loadCompanyAgents(effectiveSendToCompanyTeamId)
-            : loadSectionAndCompanyAgents(selectedSendToOrgChartSectionId, bookkeeperCompany),
-        ]);
-        if (cancelled) return;
-        setRequestorApprovalAgents(requestorRows);
-        setApprovalAgents(anyRows);
-        setBookkeeperApprovalAgents(bookkeeperRows);
-        return;
-      }
-      if (isJobOrderRequest) {
-        // Cross-department: only org-chart section heads, labeled by department.
-        const rows = await loadOrgChartHeadAgents();
-        if (cancelled) return;
-        setApprovalAgents(rows);
-        setRequestorApprovalAgents([]);
-        setBookkeeperApprovalAgents([]);
-        return;
-      }
-      if (isFundTransferRequest) {
-        const rows =
-          sendToMode === "company" && effectiveSendToCompanyTeamId
-            ? await loadCompanyAgents(effectiveSendToCompanyTeamId)
-            : selectedSendToOrgChartSectionId.trim()
-              ? await loadSectionAgents(selectedSendToOrgChartSectionId)
-              : await loadAnyCompanyAgents();
-        if (cancelled) return;
-        setApprovalAgents(rows);
-        setRequestorApprovalAgents([]);
-        setBookkeeperApprovalAgents([]);
-        return;
-      }
-      const rows =
-        sendToMode === "company" && effectiveSendToCompanyTeamId
-          ? await loadCompanyAgents(effectiveSendToCompanyTeamId)
-          : selectedSendToOrgChartSectionId.trim()
-            ? await loadSectionAgents(selectedSendToOrgChartSectionId)
-            : await loadCompanyAgents(selectedCompanyTeamId);
+      // Approval seats are never roster-locked at intake — pick from any company.
+      // Recommendations still use org-chart / position logic; only Recommending Approval
+      // (FTR) and Recommended By (ACA) are auto-filled from positions when left empty.
+      const rows = await loadAnyCompanyAgents();
       if (cancelled) return;
       setApprovalAgents(rows);
-      setRequestorApprovalAgents([]);
-      setBookkeeperApprovalAgents([]);
     })().catch(() => {
       if (cancelled) return;
-      setRequestorApprovalAgents([]);
       setApprovalAgents([]);
-      setBookkeeperApprovalAgents([]);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [
-    canSetIntakeAssignees,
-    isPaymentRequest,
-    isJobOrderRequest,
-    isFundTransferRequest,
-    sendToMode,
-    effectiveSendToCompanyTeamId,
-    selectedCompanyTeamId,
-    selectedRequestorOrgChartSectionId,
-    selectedSendToOrgChartSectionId,
-    bookkeeperCompanyTeamId,
-    staffDesignatedCompany?.id,
-  ]);
-
-  // Drop payment assignees that no longer belong to their roster scope.
-  useEffect(() => {
-    if (!isPaymentRequest) return;
-    const requestorIds = new Set(requestorApprovalAgents.map((a) => a.id));
-    const anyIds = new Set(approvalAgents.map((a) => a.id));
-    const bookkeeperIds = new Set(bookkeeperApprovalAgents.map((a) => a.id));
-    setPaymentAssignees((prev) => {
-      const next = {
-        ...prev,
-        notedByAgentId:
-          prev.notedByAgentId && requestorIds.has(prev.notedByAgentId) ? prev.notedByAgentId : "",
-        approvedByAgentId:
-          prev.approvedByAgentId && anyIds.has(prev.approvedByAgentId)
-            ? prev.approvedByAgentId
-            : "",
-        accountingAgentId:
-          prev.accountingAgentId && bookkeeperIds.has(prev.accountingAgentId)
-            ? prev.accountingAgentId
-            : "",
-        financeAgentId: "",
-      };
-      return next.notedByAgentId === prev.notedByAgentId &&
-        next.approvedByAgentId === prev.approvedByAgentId &&
-        next.accountingAgentId === prev.accountingAgentId
-        ? prev
-        : next;
-    });
-  }, [isPaymentRequest, requestorApprovalAgents, approvalAgents, bookkeeperApprovalAgents]);
+  }, [canSetIntakeAssignees]);
   /** Issue/Concern only — other request types stay creatable. */
   const issueConcernLocked =
     isRequestorIntakeLockRole && intakeGateReady && !intake.canCreateIssueConcern;
@@ -906,6 +761,8 @@ function NewTicketPageInner({
     setLetAccountingHandlePaymentMode(false);
     setSkipPaymentNotedBy(false);
     setSkipPaymentApprovedBy(false);
+    setSkipJobOrderNotedBy(false);
+    setSkipJobOrderApprovedBy(false);
     setSelectedRequestorOrgChartSectionId("");
     setSelectedSendToMajorDepartmentId("");
     setSelectedSendToSubDepartmentId("");
@@ -1164,7 +1021,9 @@ function NewTicketPageInner({
             paymentModeRequiresBankDetails(modeOfPaymentValue, deliveryOfCheckValue) &&
             !bankNameAccountNumber
           ) {
-            setError("Bank name / account number is required for this mode of payment.");
+            setError(
+              "Bank name / account number is required for Online direct to Payee's Bank Account #.",
+            );
             setLoading(false);
             return;
           }
@@ -1329,13 +1188,29 @@ function NewTicketPageInner({
           }
         } else if (isJobOrderRequest) {
           if (
-            !jobOrderAssignees.notedByAgentId ||
-            !jobOrderAssignees.approvedByAgentId ||
+            (!skipJobOrderNotedBy && !jobOrderAssignees.notedByAgentId) ||
+            (!skipJobOrderApprovedBy && !jobOrderAssignees.approvedByAgentId) ||
             !jobOrderAssignees.approvedBy2AgentId
           ) {
             setError(
-              "Noted By and both Approved By roles are required.",
+              [
+                skipJobOrderNotedBy ? null : "Noted By",
+                skipJobOrderApprovedBy ? null : "Approved By (Send-to)",
+                "Approved By",
+              ]
+                .filter(Boolean)
+                .join(", ") + " are required.",
             );
+            setLoading(false);
+            return;
+          }
+          const roleIds = [
+            ...(skipJobOrderNotedBy ? [] : [jobOrderAssignees.notedByAgentId]),
+            ...(skipJobOrderApprovedBy ? [] : [jobOrderAssignees.approvedByAgentId]),
+            jobOrderAssignees.approvedBy2AgentId,
+          ].filter(Boolean);
+          if (new Set(roleIds).size !== roleIds.length) {
+            setError("Each approval role must be a different person.");
             setLoading(false);
             return;
           }
@@ -1421,12 +1296,16 @@ function NewTicketPageInner({
           target.append("startDate", jobOrderStartDate);
           target.append("targetDate", jobOrderTargetDate);
           target.append("expectedDuration", jobOrderExpectedDuration.trim());
+          target.append("skipJobOrderNotedBy", skipJobOrderNotedBy ? "true" : "false");
+          target.append("skipJobOrderApprovedBy", skipJobOrderApprovedBy ? "true" : "false");
         } else {
           target.natureOfConcern = jobOrderNatures;
           target.building = building;
           target.startDate = jobOrderStartDate;
           target.targetDate = jobOrderTargetDate;
           target.expectedDuration = jobOrderExpectedDuration.trim();
+          target.skipJobOrderNotedBy = skipJobOrderNotedBy;
+          target.skipJobOrderApprovedBy = skipJobOrderApprovedBy;
         }
       };
 
@@ -1485,6 +1364,10 @@ function NewTicketPageInner({
         if (isPaymentRequest) {
           if (skipPaymentNotedBy) delete cleaned.notedByAgentId;
           if (skipPaymentApprovedBy) delete cleaned.approvedByAgentId;
+        }
+        if (isJobOrderRequest) {
+          if (skipJobOrderNotedBy) delete cleaned.notedByAgentId;
+          if (skipJobOrderApprovedBy) delete cleaned.approvedByAgentId;
         }
         if (Object.keys(cleaned).length === 0) return;
         if (target instanceof FormData) {
@@ -1775,9 +1658,11 @@ function NewTicketPageInner({
                   <label className="block min-w-0 text-sm font-medium text-zinc-800 dark:text-zinc-200">
                     {isAcaRequest
                       ? "Submitted by:"
-                      : isFundTransferRequest || isPaymentRequest || isJobOrderRequest
-                        ? "PREPARED BY:"
-                        : "Requestor"}
+                      : isPaymentRequest
+                        ? "REQUESTED BY:"
+                        : isFundTransferRequest || isJobOrderRequest
+                          ? "PREPARED BY:"
+                          : "Requestor"}
                     <Input
                       name="contactName"
                       required
@@ -2277,12 +2162,17 @@ function NewTicketPageInner({
                       </label>
                     ) : null}
 
-                    {paymentModeRequiresBankDetails(modeOfPayment, deliveryOfCheck) ? (
+                    {paymentModeShowsBankDetails(modeOfPayment, deliveryOfCheck) ? (
                       <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">
                         Bank name / account number
+                        {!paymentModeRequiresBankDetails(modeOfPayment, deliveryOfCheck) ? (
+                          <span className="ml-1 text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                            (optional)
+                          </span>
+                        ) : null}
                         <Input
                           name="bankNameAccountNumber"
-                          required
+                          required={paymentModeRequiresBankDetails(modeOfPayment, deliveryOfCheck)}
                           maxLength={200}
                           placeholder="e.g. BDO · 0012-3456-7890"
                           className="mt-1.5 border-zinc-300 bg-white text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
@@ -2785,10 +2675,9 @@ function NewTicketPageInner({
                     Set approvers
                   </p>
                   <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                    Assign procedural approvers before creating this request. Recommendations use your
-                    department, send-to department, and org-chart heads (Job Order: requestor head →
-                    send-to head → HR). Item Requisition only needs Approved By here — Canvassed By is
-                    set later on the Assignment Board.
+                    Assign procedural approvers before creating this request. Use recommendations for
+                    suggested names, or search any company user for each seat. Item Requisition only
+                    needs Approved By here — Canvassed By is set later on the Assignment Board.
                   </p>
                 </div>
                 <IntakeApprovalRecommendationGuide
@@ -2798,23 +2687,37 @@ function NewTicketPageInner({
                   requestingCompanyTeamId={
                     useCustomRequestingCompany ? selectedRequestingCompanyTeamId : ""
                   }
-                  skipNotedBy={skipPaymentNotedBy}
-                  skipApprovedBy={skipPaymentApprovedBy}
+                  skipNotedBy={isPaymentRequest ? skipPaymentNotedBy : skipJobOrderNotedBy}
+                  skipApprovedBy={
+                    isPaymentRequest ? skipPaymentApprovedBy : skipJobOrderApprovedBy
+                  }
                   deferBookkeeper={letAccountingHandlePaymentMode}
-                  onApply={(assignees) => {
+                  onApply={(assignees, people = []) => {
                     if (isPaymentRequest) {
+                      if (people.length > 0) {
+                        setApprovalAgents((prev) => mergeApprovalAgentOptions(prev, people));
+                      }
                       setPaymentAssignees((prev) => ({ ...prev, ...assignees }));
                       return;
                     }
                     if (isFundTransferRequest) {
+                      if (people.length > 0) {
+                        setApprovalAgents((prev) => mergeApprovalAgentOptions(prev, people));
+                      }
                       setFundTransferAssignees((prev) => ({ ...prev, ...assignees }));
                       return;
                     }
                     if (isJobOrderRequest) {
+                      if (people.length > 0) {
+                        setApprovalAgents((prev) => mergeApprovalAgentOptions(prev, people));
+                      }
                       setJobOrderAssignees((prev) => ({ ...prev, ...assignees }));
                       return;
                     }
                     if (isRequisitionRequest) {
+                      if (people.length > 0) {
+                        setApprovalAgents((prev) => mergeApprovalAgentOptions(prev, people));
+                      }
                       setItemRequisitionAssignees((prev) => ({ ...prev, ...assignees }));
                     }
                   }}
@@ -2863,11 +2766,11 @@ function NewTicketPageInner({
                     </div>
                     {(
                       [
-                        ["notedByAgentId", "Noted By", "requestor"],
-                        ["approvedByAgentId", "Approved By", "any"],
+                        ["notedByAgentId", "Noted By"],
+                        ["approvedByAgentId", "Approved By"],
                         ...(letAccountingHandlePaymentMode
                           ? []
-                          : ([["accountingAgentId", "Prepared by Bookkeeper", "bookkeeper"]] as const)),
+                          : ([["accountingAgentId", "Prepared by Bookkeeper"]] as const)),
                       ] as const
                     )
                       .filter(
@@ -2875,13 +2778,7 @@ function NewTicketPageInner({
                           !(skipPaymentNotedBy && key === "notedByAgentId") &&
                           !(skipPaymentApprovedBy && key === "approvedByAgentId"),
                       )
-                      .map(([key, label, scope]) => {
-                      const roster =
-                        scope === "requestor"
-                          ? requestorApprovalAgents
-                          : scope === "bookkeeper"
-                            ? bookkeeperApprovalAgents
-                            : approvalAgents;
+                      .map(([key, label]) => {
                       const taken = new Set(
                         (
                           [
@@ -2893,39 +2790,15 @@ function NewTicketPageInner({
                           ] as string[]
                         ).filter((id) => id && id !== paymentAssignees[key]),
                       );
-                      const scopeReady =
-                        scope === "requestor"
-                          ? Boolean(selectedRequestorOrgChartSectionId.trim())
-                          : scope === "bookkeeper"
-                            ? sendToMode === "company"
-                              ? Boolean(effectiveSendToCompanyTeamId)
-                              : Boolean(
-                                  selectedSendToOrgChartSectionId.trim() &&
-                                    bookkeeperCompanyTeamId,
-                                )
-                            : true;
                       return (
                         <CompanyUserSearchField
                           key={key}
                           label={label}
                           required
-                          users={roster}
+                          users={approvalAgents}
                           value={paymentAssignees[key]}
                           excludedIds={taken}
-                          disabled={!scopeReady}
-                          placeholder={
-                            !scopeReady
-                              ? scope === "requestor"
-                                ? "Select requesting department first"
-                                : scope === "bookkeeper"
-                                  ? sendToMode === "company"
-                                    ? "Select send-to company first"
-                                    : useCustomRequestingCompany
-                                      ? "Select send-to department and requesting company first"
-                                      : "Select send-to department first (uses your assigned company)"
-                                  : "Loading users…"
-                              : "Search by name or email…"
-                          }
+                          placeholder="Search by name or email…"
                           onChange={(agentId) =>
                             setPaymentAssignees((prev) => ({ ...prev, [key]: agentId }))
                           }
@@ -2967,18 +2840,66 @@ function NewTicketPageInner({
                   : null}
                 {isJobOrderRequest ? (
                   <div className="flex flex-col gap-3">
+                    <div className="flex flex-wrap gap-2">
+                      <label className="flex w-fit cursor-pointer select-none items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={skipJobOrderNotedBy}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            setSkipJobOrderNotedBy(checked);
+                            if (checked) {
+                              setSkipJobOrderApprovedBy(false);
+                              setJobOrderAssignees((prev) => ({
+                                ...prev,
+                                notedByAgentId: "",
+                              }));
+                            }
+                          }}
+                          className="size-3.5 accent-orange-600"
+                        />
+                        Skip Noted By:
+                      </label>
+                      <label className="flex w-fit cursor-pointer select-none items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={skipJobOrderApprovedBy}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            setSkipJobOrderApprovedBy(checked);
+                            if (checked) {
+                              setSkipJobOrderNotedBy(false);
+                              setJobOrderAssignees((prev) => ({
+                                ...prev,
+                                approvedByAgentId: "",
+                              }));
+                            }
+                          }}
+                          className="size-3.5 accent-orange-600"
+                        />
+                        Skip Approved By:
+                      </label>
+                    </div>
                     {(
                       [
                         ["notedByAgentId", "Noted By (Requestor head)"],
                         ["approvedByAgentId", "Approved By (Send-to head)"],
-                        ["approvedBy2AgentId", "Approved By (HR)"],
+                        ["approvedBy2AgentId", "Approved By"],
                       ] as const
-                    ).map(([key, label]) => {
+                    )
+                      .filter(
+                        ([key]) =>
+                          !(skipJobOrderNotedBy && key === "notedByAgentId") &&
+                          !(skipJobOrderApprovedBy && key === "approvedByAgentId"),
+                      )
+                      .map(([key, label]) => {
                       const taken = new Set(
                         (
                           [
-                            jobOrderAssignees.notedByAgentId,
-                            jobOrderAssignees.approvedByAgentId,
+                            ...(skipJobOrderNotedBy ? [] : [jobOrderAssignees.notedByAgentId]),
+                            ...(skipJobOrderApprovedBy
+                              ? []
+                              : [jobOrderAssignees.approvedByAgentId]),
                             jobOrderAssignees.approvedBy2AgentId,
                           ] as string[]
                         ).filter((id) => id && id !== jobOrderAssignees[key]),
@@ -2991,8 +2912,8 @@ function NewTicketPageInner({
                           users={approvalAgents}
                           value={jobOrderAssignees[key]}
                           excludedIds={taken}
-                          placeholder="Search department heads…"
-                          emptyMessage="No matching department heads."
+                          placeholder="Search by name or email…"
+                          emptyMessage="No matching users."
                           onChange={(agentId) =>
                             setJobOrderAssignees((prev) => ({ ...prev, [key]: agentId }))
                           }
@@ -3004,18 +2925,9 @@ function NewTicketPageInner({
                 {isRequisitionRequest ? (
                   <CompanyUserSearchField
                     label="Approved By"
-                    users={
-                      requestorApprovalAgents.length > 0
-                        ? requestorApprovalAgents
-                        : approvalAgents
-                    }
+                    users={approvalAgents}
                     value={itemRequisitionAssignees.approvedByAgentId}
-                    placeholder={
-                      selectedRequestorOrgChartSectionId
-                        ? "Search by name or email… (optional — auto-filled if empty)"
-                        : "Select requesting department first"
-                    }
-                    disabled={!selectedRequestorOrgChartSectionId}
+                    placeholder="Search by name or email… (optional — auto-filled if empty)"
                     onChange={(agentId) =>
                       setItemRequisitionAssignees({ approvedByAgentId: agentId })
                     }
@@ -3024,28 +2936,16 @@ function NewTicketPageInner({
                 {(isJobOrderRequest || isFundTransferRequest || isRequisitionRequest) &&
                 approvalAgents.length === 0 ? (
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {isJobOrderRequest
-                      ? "No department heads found on the org chart yet."
-                      : selectedSendToOrgChartSectionId || selectedRequestorOrgChartSectionId
-                        ? "No assignees available in the selected department yet."
-                        : "Select your department to load assignees."}
+                    Loading assignees…
                   </p>
                 ) : null}
                 {!isPaymentRequest &&
                 !isJobOrderRequest &&
                 !isFundTransferRequest &&
                 !isRequisitionRequest &&
-                !selectedSendToOrgChartSectionId ? (
-                  <p className="text-xs text-amber-700 dark:text-amber-300">
-                    Select “Send request to” (company or department) first to load assignees.
-                  </p>
-                ) : !isPaymentRequest &&
-                  !isJobOrderRequest &&
-                  !isFundTransferRequest &&
-                  !isRequisitionRequest &&
-                  approvalAgents.length === 0 ? (
+                approvalAgents.length === 0 ? (
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    No section assignees available for this roster yet.
+                    Loading assignees…
                   </p>
                 ) : null}
               </div>

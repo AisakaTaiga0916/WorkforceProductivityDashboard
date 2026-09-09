@@ -1,0 +1,375 @@
+﻿[
+  {
+    "name": "Juan Miguel Uykimpang",
+    "id": "cmrpt1qmy00114xsuxldzl5rq",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Rogeric Reyes",
+    "id": "cmrps98xd0001uhmm58h3utt9",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Dianne Ross Guerrero",
+    "id": "cmrps99f6001huhmmy2zqc4c8",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Manilyn Arcala Edquila",
+    "id": "cmrbdhqpp011s11joh3velnqq",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Kimberly Philana Hao Uykimpang",
+    "id": "cmrpt1qt500194xsuqrcmujmh",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Guerrero, Dianne Ross Plaza",
+    "id": "cmrpyr4ns0003tlvk2e8jfx0i",
+    "assigneePendingAll": 1,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [
+      {
+        "ticket": "REQ-2026-00021",
+        "type": "REQUEST_FOR_PAYMENT",
+        "status": "IN_PROGRESS"
+      }
+    ],
+    "rfpRoleHits": [
+      {
+        "ticket": "REQ-2026-00021",
+        "status": "IN_PROGRESS",
+        "step": "APPROVED_BY_FINANCE",
+        "asApprovedBy": false,
+        "asBookkeeper": true,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": true
+      }
+    ]
+  },
+  {
+    "name": "Jojie Arbole",
+    "id": "cmrps99d90011uhmmz8odkxvb",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Queenie Palabrica",
+    "id": "cmrpt1qo900154xsu1oydrs12",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Rogeric Raza Reyes",
+    "id": "cmrpyrdo9001112w5layphs4o",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Tanutan, Wyneth Maxine Dea├▒o",
+    "id": "cmrpyre14001f12w5bs5uvrfh",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": [
+      {
+        "ticket": "REQ-2026-00033",
+        "status": "FOR_CONFIRMATION",
+        "step": "DONE",
+        "asApprovedBy": false,
+        "asBookkeeper": false,
+        "asFinance": true,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      },
+      {
+        "ticket": "REQ-2026-00036",
+        "status": "FOR_CONFIRMATION",
+        "step": "DONE",
+        "asApprovedBy": false,
+        "asBookkeeper": false,
+        "asFinance": true,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      },
+      {
+        "ticket": "REQ-2026-00048",
+        "status": "IN_PROGRESS",
+        "step": "NOTED_BY",
+        "asApprovedBy": false,
+        "asBookkeeper": false,
+        "asFinance": true,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      },
+      {
+        "ticket": "REQ-2026-00023",
+        "status": "FOR_CONFIRMATION",
+        "step": "DONE",
+        "asApprovedBy": false,
+        "asBookkeeper": true,
+        "asFinance": true,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      }
+    ]
+  },
+  {
+    "name": "Zeta Love Talatagod Valencia",
+    "id": "cmrpyre1p001h12w5dupioh0n",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": [
+      {
+        "ticket": "REQ-2026-00021",
+        "status": "IN_PROGRESS",
+        "step": "APPROVED_BY_FINANCE",
+        "asApprovedBy": false,
+        "asBookkeeper": false,
+        "asFinance": false,
+        "asNotedBy": true,
+        "boardAssigneeIsSelf": false
+      }
+    ]
+  },
+  {
+    "name": "Arbole, Jojie Molde",
+    "id": "cmrpyrco7000d12w5oh5fy6fd",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": [
+      {
+        "ticket": "REQ-2026-00021",
+        "status": "IN_PROGRESS",
+        "step": "APPROVED_BY_FINANCE",
+        "asApprovedBy": true,
+        "asBookkeeper": false,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      }
+    ]
+  },
+  {
+    "name": "Riezel Cua Lelis",
+    "id": "cmrpsn1rd0005glcqpl4lewk6",
+    "assigneePendingAll": 2,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [
+      {
+        "ticket": "REQ-2026-00024",
+        "type": "REQUEST_FOR_PAYMENT",
+        "status": "IN_PROGRESS"
+      },
+      {
+        "ticket": "REQ-2026-00025",
+        "type": "REQUEST_FOR_PAYMENT",
+        "status": "IN_PROGRESS"
+      }
+    ],
+    "rfpRoleHits": [
+      {
+        "ticket": "REQ-2026-00033",
+        "status": "FOR_CONFIRMATION",
+        "step": "DONE",
+        "asApprovedBy": true,
+        "asBookkeeper": false,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      },
+      {
+        "ticket": "REQ-2026-00036",
+        "status": "FOR_CONFIRMATION",
+        "step": "DONE",
+        "asApprovedBy": true,
+        "asBookkeeper": false,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      },
+      {
+        "ticket": "REQ-2026-00013",
+        "status": "IN_PROGRESS",
+        "step": "APPROVED_BY_ACCOUNTING",
+        "asApprovedBy": true,
+        "asBookkeeper": false,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      },
+      {
+        "ticket": "REQ-2026-00048",
+        "status": "IN_PROGRESS",
+        "step": "NOTED_BY",
+        "asApprovedBy": true,
+        "asBookkeeper": false,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      },
+      {
+        "ticket": "REQ-2026-00024",
+        "status": "IN_PROGRESS",
+        "step": "APPROVED_BY_ACCOUNTING",
+        "asApprovedBy": true,
+        "asBookkeeper": false,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": true
+      },
+      {
+        "ticket": "REQ-2026-00025",
+        "status": "IN_PROGRESS",
+        "step": "APPROVED_BY_ACCOUNTING",
+        "asApprovedBy": true,
+        "asBookkeeper": false,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": true
+      }
+    ]
+  },
+  {
+    "name": "Kimberly Pada Caliag",
+    "id": "cmrppavsc0005j1cir4377j3k",
+    "assigneePendingAll": 1,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [
+      {
+        "ticket": "REQ-2026-00013",
+        "type": "REQUEST_FOR_PAYMENT",
+        "status": "IN_PROGRESS"
+      }
+    ],
+    "rfpRoleHits": [
+      {
+        "ticket": "REQ-2026-00033",
+        "status": "FOR_CONFIRMATION",
+        "step": "DONE",
+        "asApprovedBy": false,
+        "asBookkeeper": true,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      },
+      {
+        "ticket": "REQ-2026-00036",
+        "status": "FOR_CONFIRMATION",
+        "step": "DONE",
+        "asApprovedBy": false,
+        "asBookkeeper": true,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      },
+      {
+        "ticket": "REQ-2026-00013",
+        "status": "IN_PROGRESS",
+        "step": "APPROVED_BY_ACCOUNTING",
+        "asApprovedBy": false,
+        "asBookkeeper": true,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": true
+      },
+      {
+        "ticket": "REQ-2026-00048",
+        "status": "IN_PROGRESS",
+        "step": "NOTED_BY",
+        "asApprovedBy": false,
+        "asBookkeeper": true,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      }
+    ]
+  },
+  {
+    "name": "Wyneth Tanutan",
+    "id": "cmrps997c000duhmm85am6fa2",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Alren Querequincia Namata",
+    "id": "cmrpro88e000310lfcrtru9p7",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Kimberly Philana Hao Uykimpang",
+    "id": "cmrpro89h001r10lfbfwok0m0",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": []
+  },
+  {
+    "name": "Juan Miguel Go Uykimpang",
+    "id": "cmrpro89d001j10lfphu3w1nz",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": [
+      {
+        "ticket": "REQ-2026-00023",
+        "status": "FOR_CONFIRMATION",
+        "step": "DONE",
+        "asApprovedBy": true,
+        "asBookkeeper": false,
+        "asFinance": false,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      }
+    ]
+  },
+  {
+    "name": "Queenie Ansit Palabrica",
+    "id": "cmrpro8ad002v10lfm069jt31",
+    "assigneePendingAll": 0,
+    "assigneePendingNonProcedural": [],
+    "assigneePendingProcedural": [],
+    "rfpRoleHits": [
+      {
+        "ticket": "REQ-2026-00013",
+        "status": "IN_PROGRESS",
+        "step": "APPROVED_BY_ACCOUNTING",
+        "asApprovedBy": false,
+        "asBookkeeper": false,
+        "asFinance": true,
+        "asNotedBy": false,
+        "boardAssigneeIsSelf": false
+      }
+    ]
+  }
+]

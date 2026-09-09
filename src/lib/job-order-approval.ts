@@ -29,11 +29,68 @@ export type JobOrderApprovalMeta = JobOrderApprovalAssignees & {
   proceduralStep: JobOrderProceduralStep;
   /** ISO timestamps when each step was completed. */
   completed: Partial<Record<JobOrderApprovalStep, string>>;
+  /** Intake: skip Noted By (requestor head) and start at Approved By. */
+  skipNotedBy?: boolean;
+  /** Intake: skip first Approved By (send-to head); final Approved By still required. */
+  skipApprovedBy?: boolean;
+  /**
+   * Chosen after prior seats green-lit, before the chain is fully DONE.
+   * Applied to the ticket board assignee when approvals reach DONE.
+   */
+  pendingExecutionAssigneeAgentId?: string | null;
   /** Post-approval co-workers who share KPI credit with the execution assignee. */
   workerAgentIds?: string[];
   /** Set when an admin assigns execution; until then the board icon stays cleared. */
   executionAssignedAt?: string | null;
+  /**
+   * When the execution assignee is outside Send request to (department),
+   * approvers can stage an assistance team scoped by department or company.
+   */
+  assistanceTeam?: JobOrderAssistanceTeam | null;
+  /**
+   * ISO timestamp when execution/assistance marked Job Done.
+   * Final Approved By (and customer confirmation) wait for this.
+   */
+  jobDoneAt?: string | null;
 };
+
+export type JobOrderAssistanceScopeMode = "department" | "company";
+
+export type JobOrderAssistanceTeam = {
+  scopeMode: JobOrderAssistanceScopeMode;
+  orgChartSectionId: string | null;
+  companyTeamId: string | null;
+  assigneeAgentId: string | null;
+  workerAgentIds: string[];
+};
+
+export function defaultJobOrderAssistanceTeam(
+  partial?: Partial<JobOrderAssistanceTeam>,
+): JobOrderAssistanceTeam {
+  return {
+    scopeMode: partial?.scopeMode === "company" ? "company" : "department",
+    orgChartSectionId: partial?.orgChartSectionId?.trim() || null,
+    companyTeamId: partial?.companyTeamId?.trim() || null,
+    assigneeAgentId: partial?.assigneeAgentId?.trim() || null,
+    workerAgentIds: Array.isArray(partial?.workerAgentIds)
+      ? [...new Set(partial.workerAgentIds.map((id) => id.trim()).filter(Boolean))]
+      : [],
+  };
+}
+
+export function parseJobOrderAssistanceTeam(raw: unknown): JobOrderAssistanceTeam | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  return defaultJobOrderAssistanceTeam({
+    scopeMode: o.scopeMode === "company" ? "company" : "department",
+    orgChartSectionId: typeof o.orgChartSectionId === "string" ? o.orgChartSectionId : null,
+    companyTeamId: typeof o.companyTeamId === "string" ? o.companyTeamId : null,
+    assigneeAgentId: typeof o.assigneeAgentId === "string" ? o.assigneeAgentId : null,
+    workerAgentIds: Array.isArray(o.workerAgentIds)
+      ? o.workerAgentIds.filter((id): id is string => typeof id === "string")
+      : [],
+  });
+}
 
 export const JOB_ORDER_APPROVAL_STEP_LABELS: Record<JobOrderApprovalStep, string> = {
   NOTED_BY: "NOTED BY",
@@ -60,16 +117,43 @@ function normalizeProceduralStep(raw: unknown): JobOrderProceduralStep {
   return LEGACY_STEP_ALIASES[raw] ?? "NOTED_BY";
 }
 
-export function defaultJobOrderApprovalMeta(): JobOrderApprovalMeta {
+export function jobOrderApprovalStartStep(
+  skipNotedBy: boolean,
+  skipApprovedBy: boolean,
+): JobOrderApprovalStep {
+  if (skipNotedBy && skipApprovedBy) return "APPROVED_BY_2";
+  if (skipNotedBy) return "APPROVED_BY";
+  return "NOTED_BY";
+}
+
+/** Procedural steps that apply for this request (Noted By / first Approved By may be skipped). */
+export function jobOrderApprovalStepsFor(
+  meta: Pick<JobOrderApprovalMeta, "skipApprovedBy" | "skipNotedBy"> | null | undefined,
+): JobOrderApprovalStep[] {
+  return JOB_ORDER_APPROVAL_STEPS.filter((step) => {
+    if (meta?.skipNotedBy && step === "NOTED_BY") return false;
+    if (meta?.skipApprovedBy && step === "APPROVED_BY") return false;
+    return true;
+  });
+}
+
+export function defaultJobOrderApprovalMeta(opts?: {
+  skipNotedBy?: boolean;
+  skipApprovedBy?: boolean;
+}): JobOrderApprovalMeta {
+  const skipNotedBy = opts?.skipNotedBy === true;
+  const skipApprovedBy = opts?.skipApprovedBy === true;
   return {
     preparedByAgentId: null,
     notedByAgentId: null,
     approvedByAgentId: null,
     approvedBy2AgentId: null,
-    proceduralStep: "NOTED_BY",
+    proceduralStep: jobOrderApprovalStartStep(skipNotedBy, skipApprovedBy),
     completed: {},
     workerAgentIds: [],
     executionAssignedAt: null,
+    ...(skipNotedBy ? { skipNotedBy: true } : {}),
+    ...(skipApprovedBy ? { skipApprovedBy: true } : {}),
   };
 }
 
@@ -94,6 +178,13 @@ export function parseJobOrderApprovalMeta(raw: unknown): JobOrderApprovalMeta | 
     approvedBy2AgentId: typeof o.approvedBy2AgentId === "string" ? o.approvedBy2AgentId : null,
     proceduralStep: normalizeProceduralStep(o.proceduralStep),
     completed,
+    skipNotedBy: o.skipNotedBy === true,
+    skipApprovedBy: o.skipApprovedBy === true,
+    pendingExecutionAssigneeAgentId:
+      typeof o.pendingExecutionAssigneeAgentId === "string" &&
+      o.pendingExecutionAssigneeAgentId.trim()
+        ? o.pendingExecutionAssigneeAgentId.trim()
+        : null,
     workerAgentIds: Array.isArray(o.workerAgentIds)
       ? o.workerAgentIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim()))
       : [],
@@ -101,6 +192,9 @@ export function parseJobOrderApprovalMeta(raw: unknown): JobOrderApprovalMeta | 
       typeof o.executionAssignedAt === "string" && o.executionAssignedAt.trim()
         ? o.executionAssignedAt.trim()
         : null,
+    assistanceTeam: parseJobOrderAssistanceTeam(o.assistanceTeam),
+    jobDoneAt:
+      typeof o.jobDoneAt === "string" && o.jobDoneAt.trim() ? o.jobDoneAt.trim() : null,
   };
 }
 
@@ -109,6 +203,57 @@ export function jobOrderProceduralStatusLabel(
 ): string | null {
   if (!step || step === "DONE") return null;
   return formatNeedsToBeProceduralLabel(JOB_ORDER_APPROVAL_STEP_LABELS[step]);
+}
+
+/** True when at least one procedural approval seat has been marked Done. */
+export function hasJobOrderFirstApprovalCompleted(
+  meta: JobOrderApprovalMeta | null | undefined,
+): boolean {
+  if (!meta) return false;
+  if (meta.proceduralStep === "DONE") return true;
+  return JOB_ORDER_APPROVAL_STEPS.some((step) => Boolean(meta.completed[step]));
+}
+
+/** Final remaining procedural seat (the last Approver). */
+export function jobOrderLastApprovalStep(
+  meta: Pick<JobOrderApprovalMeta, "skipNotedBy" | "skipApprovedBy"> | null | undefined,
+): JobOrderApprovalStep | null {
+  const steps = jobOrderApprovalStepsFor(meta);
+  return steps.length > 0 ? steps[steps.length - 1]! : null;
+}
+
+/**
+ * Seats that must be green-lit before Execution / Task Board unlock
+ * (everything before the last Approver).
+ */
+export function jobOrderUnlockPrerequisiteSteps(
+  meta: Pick<JobOrderApprovalMeta, "skipNotedBy" | "skipApprovedBy"> | null | undefined,
+): JobOrderApprovalStep[] {
+  const steps = jobOrderApprovalStepsFor(meta);
+  if (steps.length <= 1) return [];
+  return steps.slice(0, -1);
+}
+
+/**
+ * Execution team + Task Board open after Noted By (when present) and Approved By
+ * are complete — i.e. all seats before the last Approver. If only the last seat
+ * remains, open immediately so Job Output can be uploaded for that Done gate.
+ */
+export function isJobOrderExecutionWorkspaceOpen(
+  meta: JobOrderApprovalMeta | null | undefined,
+): boolean {
+  if (!meta) return false;
+  if (meta.proceduralStep === "DONE") return true;
+  const prior = jobOrderUnlockPrerequisiteSteps(meta);
+  if (prior.length === 0) return true;
+  return prior.every((step) => Boolean(meta.completed[step]));
+}
+
+export function isJobOrderCurrentStepLastApprover(
+  meta: JobOrderApprovalMeta | null | undefined,
+): boolean {
+  if (!meta || meta.proceduralStep === "DONE") return false;
+  return jobOrderLastApprovalStep(meta) === meta.proceduralStep;
 }
 
 /** True when Noted By and both Approved By seats are complete (green-lit). */
@@ -144,12 +289,18 @@ export function currentJobOrderStepBoardAssigneeId(meta: JobOrderApprovalMeta): 
   return jobOrderAssigneeIdForStep(meta, meta.proceduralStep);
 }
 
-export function nextJobOrderApprovalStep(step: JobOrderProceduralStep): JobOrderProceduralStep {
+export function nextJobOrderApprovalStep(
+  step: JobOrderProceduralStep,
+  meta?: Pick<JobOrderApprovalMeta, "skipApprovedBy" | "skipNotedBy"> | null,
+): JobOrderProceduralStep {
   if (step === "DONE") return "DONE";
-  const idx = JOB_ORDER_APPROVAL_STEPS.indexOf(step);
-  if (idx < 0) return "NOTED_BY";
-  if (idx >= JOB_ORDER_APPROVAL_STEPS.length - 1) return "DONE";
-  return JOB_ORDER_APPROVAL_STEPS[idx + 1]!;
+  const chain = jobOrderApprovalStepsFor(meta);
+  const idx = chain.indexOf(step as JobOrderApprovalStep);
+  if (idx < 0) {
+    return jobOrderApprovalStartStep(meta?.skipNotedBy === true, meta?.skipApprovedBy === true);
+  }
+  if (idx >= chain.length - 1) return "DONE";
+  return chain[idx + 1]!;
 }
 
 /** Only the ticket’s Assignment Board assignee may complete the current procedural step. */
@@ -157,6 +308,10 @@ export function canCompleteJobOrderApprovalStep(opts: {
   meta: JobOrderApprovalMeta;
   actorAgentId: string | null;
   ticketAssignedAgentId: string | null;
+  /** Required when completing the last Approver seat. */
+  hasJobOutput?: boolean;
+  /** Required when completing the last Approver seat (Job Done first). */
+  hasJobDone?: boolean;
 }): { ok: true } | { ok: false; error: string } {
   const { meta, actorAgentId, ticketAssignedAgentId } = opts;
   if (meta.proceduralStep === "DONE") {
@@ -174,7 +329,38 @@ export function canCompleteJobOrderApprovalStep(opts: {
       error: "Only the assigned personnel can complete this approval step.",
     };
   }
+  if (isJobOrderCurrentStepLastApprover(meta)) {
+    if (!(opts.hasJobDone === true || isJobOrderJobDone(meta))) {
+      return {
+        ok: false,
+        error: "Mark Job Done before completing the final Approved By.",
+      };
+    }
+    if (!opts.hasJobOutput) {
+      return {
+        ok: false,
+        error: "Upload Job Output before completing the final approval.",
+      };
+    }
+  }
   return { ok: true };
+}
+
+export function isJobOrderJobDone(meta: JobOrderApprovalMeta | null | undefined): boolean {
+  return Boolean(meta?.jobDoneAt?.trim());
+}
+
+/** Stamp Job Done on meta (does not change ticket status). */
+export function markJobOrderJobDone(meta: JobOrderApprovalMeta, atIso?: string): JobOrderApprovalMeta {
+  if (isJobOrderJobDone(meta)) return meta;
+  return { ...meta, jobDoneAt: atIso?.trim() || new Date().toISOString() };
+}
+
+/** Ready for customer confirmation: Job Done + full approval chain. */
+export function isJobOrderReadyForConfirmation(
+  meta: JobOrderApprovalMeta | null | undefined,
+): boolean {
+  return Boolean(meta && isJobOrderJobDone(meta) && meta.proceduralStep === "DONE");
 }
 
 export function completeJobOrderApprovalStep(meta: JobOrderApprovalMeta): JobOrderApprovalMeta {
@@ -182,7 +368,7 @@ export function completeJobOrderApprovalStep(meta: JobOrderApprovalMeta): JobOrd
   const step = meta.proceduralStep;
   return {
     ...meta,
-    proceduralStep: nextJobOrderApprovalStep(step),
+    proceduralStep: nextJobOrderApprovalStep(step, meta),
     completed: {
       ...meta.completed,
       [step]: new Date().toISOString(),
@@ -246,30 +432,87 @@ export function markJobOrderExecutionAssigned(
   return { ...meta, executionAssignedAt: at.toISOString() };
 }
 
-/** Execution assignee (or Admin) marks work complete → customer confirmation. */
+export function setJobOrderPendingExecutionAssignee(
+  meta: JobOrderApprovalMeta,
+  agentId: string | null,
+): JobOrderApprovalMeta {
+  const id = agentId?.trim() || null;
+  return { ...meta, pendingExecutionAssigneeAgentId: id };
+}
+
+/**
+ * When approvals finish, promote a pending execution assignee onto the board marker.
+ * Does not set ticket.assignedAgentId — caller must connect the board assignee.
+ */
+export function promoteJobOrderPendingExecutionAssignee(
+  meta: JobOrderApprovalMeta,
+): { meta: JobOrderApprovalMeta; agentId: string | null } {
+  const agentId = meta.pendingExecutionAssigneeAgentId?.trim() || null;
+  if (!agentId) return { meta, agentId: null };
+  return {
+    agentId,
+    meta: markJobOrderExecutionAssigned({
+      ...meta,
+      pendingExecutionAssigneeAgentId: null,
+    }),
+  };
+}
+
+export function applyJobOrderAssistanceTeam(
+  meta: JobOrderApprovalMeta,
+  team: Partial<JobOrderAssistanceTeam> | null,
+): JobOrderApprovalMeta {
+  if (team == null) {
+    return { ...meta, assistanceTeam: null };
+  }
+  const current = meta.assistanceTeam ?? defaultJobOrderAssistanceTeam();
+  const next = defaultJobOrderAssistanceTeam({
+    ...current,
+    ...team,
+    workerAgentIds:
+      team.workerAgentIds !== undefined ? team.workerAgentIds : current.workerAgentIds,
+  });
+  const assignee = next.assigneeAgentId;
+  if (assignee) {
+    next.workerAgentIds = next.workerAgentIds.filter((id) => id !== assignee);
+  }
+  return { ...meta, assistanceTeam: next };
+}
+
+export function isJobOrderAssistanceMember(
+  agentId: string | null | undefined,
+  meta: JobOrderApprovalMeta | null | undefined,
+): boolean {
+  const id = agentId?.trim();
+  if (!id || !meta?.assistanceTeam) return false;
+  if (meta.assistanceTeam.assigneeAgentId === id) return true;
+  return meta.assistanceTeam.workerAgentIds.includes(id);
+}
+
+/** Execution / Assistance team (or Admin) marks work complete → then final Approved By → confirmation. */
 export function canMarkJobOrderDone(opts: {
   meta: JobOrderApprovalMeta | null | undefined;
   ticketStatus: string;
   ticketAssignedAgentId: string | null;
+  /** Staged assignee chosen before approvals finish. */
+  pendingExecutionAssigneeAgentId?: string | null;
   actorAgentId: string | null;
+  /** True when session matches the assignee via email / duplicate Agent rows. */
+  actorIsExecutionAssignee?: boolean;
   isAdmin: boolean;
 }): { ok: true } | { ok: false; error: string } {
-  if (!isJobOrderProcedureGreenLit(opts.meta)) {
+  if (!isJobOrderExecutionWorkspaceOpen(opts.meta)) {
     return {
       ok: false,
-      error: "Job Order approvals must be complete before marking the job done.",
+      error: "Mark done unlocks after Noted By and Approved By are complete (when those seats apply).",
     };
   }
-  if (!opts.meta?.executionAssignedAt) {
+  if (isJobOrderJobDone(opts.meta)) {
     return {
       ok: false,
-      error: "Assign an execution assignee before marking the job done.",
-    };
-  }
-  if (!opts.ticketAssignedAgentId?.trim()) {
-    return {
-      ok: false,
-      error: "An execution assignee must be assigned on this ticket.",
+      error: isJobOrderReadyForConfirmation(opts.meta)
+        ? "This Job Order is already marked done and awaiting customer confirmation."
+        : "Job Done is already recorded. Waiting on the final Approved By.",
     };
   }
   if (
@@ -283,13 +526,22 @@ export function canMarkJobOrderDone(opts: {
     return { ok: false, error: "This Job Order cannot be marked done in its current status." };
   }
   if (opts.isAdmin) return { ok: true };
-  if (!opts.actorAgentId || opts.actorAgentId !== opts.ticketAssignedAgentId) {
-    return {
-      ok: false,
-      error: "Only the execution assignee or Admin can mark this Job Order done.",
-    };
+  if (opts.actorIsExecutionAssignee) return { ok: true };
+  const executionId =
+    opts.ticketAssignedAgentId?.trim() ||
+    opts.pendingExecutionAssigneeAgentId?.trim() ||
+    opts.meta?.pendingExecutionAssigneeAgentId?.trim() ||
+    null;
+  if (executionId && opts.actorAgentId === executionId) return { ok: true };
+  if (opts.actorAgentId && isJobOrderWorkerAgent(opts.actorAgentId, opts.meta)) return { ok: true };
+  if (opts.actorAgentId && isJobOrderAssistanceMember(opts.actorAgentId, opts.meta)) {
+    return { ok: true };
   }
-  return { ok: true };
+  return {
+    ok: false,
+    error:
+      "Only the execution team, assistance team, or Admin can mark this Job Order done.",
+  };
 }
 
 export function parseJobOrderWorkerAgentIds(meta: JobOrderApprovalMeta | null | undefined): string[] {

@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import type { DepartmentMetricRow } from "@/lib/department-task-metrics";
 import type {
@@ -569,6 +570,7 @@ export function DepartmentTaskMetricsGrid({
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastOpenRef = useRef<{ id: string; at: number } | null>(null);
 
   const inspected = drillStack.length > 0 ? drillStack[drillStack.length - 1]! : null;
   const includedTasks = inspected?.includedTasks ?? [];
@@ -676,6 +678,11 @@ export function DepartmentTaskMetricsGrid({
   }
 
   function openSection(row: DepartmentMetricRow) {
+    const now = Date.now();
+    const last = lastOpenRef.current;
+    // Touch double-tap often also fires dblclick — avoid pushing the same section twice.
+    if (last && last.id === row.id && now - last.at < 450) return;
+    lastOpenRef.current = { id: row.id, at: now };
     setSegmentFocusTaskId(null);
     setInspectView(defaultViewFor(row));
     setDrillStack((prev) => [...prev, row]);
@@ -918,18 +925,20 @@ export function DepartmentTaskMetricsGrid({
         )}
       </div>
 
-      {inspected ? (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-6"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${inspected.name} details`}
-          onClick={closeModal}
-        >
-          <div
-            className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
-            onClick={(e) => e.stopPropagation()}
-          >
+      {inspected && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[300] flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-6"
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${inspected.name} details`}
+              data-metrics-inspect=""
+              onClick={closeModal}
+            >
+              <div
+                className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950"
+                onClick={(e) => e.stopPropagation()}
+              >
             <div className="shrink-0 border-b border-zinc-200 p-5 dark:border-zinc-800 sm:p-7 sm:pb-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -1093,22 +1102,26 @@ export function DepartmentTaskMetricsGrid({
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      ) : null}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
-      {manageOpen && canManageVisibility ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-6"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Hide department sections"
-          onClick={() => setManageOpen(false)}
-        >
-          <div
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950 sm:p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
+      {manageOpen && canManageVisibility && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[310] flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-6"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Hide department sections"
+              data-metrics-inspect=""
+              onClick={() => setManageOpen(false)}
+            >
+              <div
+                className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl dark:border-zinc-700 dark:bg-zinc-950 sm:p-6"
+                onClick={(e) => e.stopPropagation()}
+              >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-600 dark:text-orange-300">
@@ -1245,9 +1258,11 @@ export function DepartmentTaskMetricsGrid({
                 })}
               </ul>
             )}
-          </div>
-        </div>
-      ) : null}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </section>
   );
 }

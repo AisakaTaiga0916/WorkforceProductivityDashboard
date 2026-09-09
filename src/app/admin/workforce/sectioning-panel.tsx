@@ -21,12 +21,20 @@ export function WorkforceSectioningClient({
   initialEitherOrLinks,
   roster,
   companyOptions,
+  readOnly = false,
+  canSetPortalRoles = false,
+  initialPortalRoleByMergedId = {},
 }: {
   initialSections: OrgChartSectionRow[];
   initialNodes: OrgChartNodeRow[];
   initialEitherOrLinks: OrgChartEitherOrLinkRow[];
   roster: PersonnelRosterRow[];
   companyOptions: CompanyOption[];
+  /** Admin / heads: browse only (scoped server-side). */
+  readOnly?: boolean;
+  /** SuperAdmin: elevate Personnel / Admin / HighAdmin from member rows. */
+  canSetPortalRoles?: boolean;
+  initialPortalRoleByMergedId?: Record<string, string>;
 }) {
   const [sections, setSections] = useState(initialSections);
   const [nodes, setNodes] = useState(initialNodes);
@@ -46,6 +54,12 @@ export function WorkforceSectioningClient({
           {error}
         </p>
       ) : null}
+      {readOnly ? (
+        <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
+          Read-only: you can view your department / sub-department tree. SuperAdmin elevates
+          Personnel, Admin, and HighAdmin from this Org Chart.
+        </p>
+      ) : null}
 
       <OrgChartWorkspace
         initialNodes={initialNodes}
@@ -61,6 +75,9 @@ export function WorkforceSectioningClient({
         onBusyChange={setBusy}
         onMessage={setMessage}
         onError={setError}
+        readOnly={readOnly}
+        canSetPortalRoles={canSetPortalRoles}
+        initialPortalRoleByMergedId={initialPortalRoleByMergedId}
       />
     </div>
   );

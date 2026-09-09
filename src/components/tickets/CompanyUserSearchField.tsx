@@ -58,10 +58,14 @@ export function CompanyUserSearchField({
     return excludedIds instanceof Set ? excludedIds : new Set(excludedIds);
   }, [excludedIds]);
 
-  const selected = useMemo(
-    () => users.find((u) => u.id === value) ?? null,
-    [users, value],
-  );
+  const selected = useMemo(() => {
+    const fromList = users.find((u) => u.id === value) ?? null;
+    if (fromList) return fromList;
+    if (value && query.trim()) {
+      return { id: value, name: query.trim() };
+    }
+    return null;
+  }, [users, value, query]);
 
   const selectable = useMemo(
     () => users.filter((u) => !excluded.has(u.id) || u.id === value),

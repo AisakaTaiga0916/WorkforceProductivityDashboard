@@ -7,6 +7,8 @@ describe("company alias normalization (CO-01)", () => {
     expect(resolveRosterCompanyName("MCHISI")).toBe("MCHISI LPG");
     expect(resolveRosterCompanyName("easygas")).toBe("EAZZYGAS");
     expect(resolveRosterCompanyName("M.CONPINCO")).toBe("MCHISI LPG");
+    expect(resolveRosterCompanyName("MCHISI FAMES")).toBe("MCHISI FAMES");
+    expect(resolveRosterCompanyName("fames")).toBe("MCHISI FAMES");
   });
 
   it("ACA form prefix uses roster aliases before prefix table", () => {

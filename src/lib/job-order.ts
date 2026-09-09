@@ -26,6 +26,15 @@ export const JOB_ORDER_NATURE_GROUPS = [
     options: ["IT / Network"],
   },
   {
+    category: "Marketing",
+    options: [
+      "Graphic Design",
+      "Print Production",
+      "Video Editing",
+      "Paid Advertising",
+    ],
+  },
+  {
     category: "Other",
     options: ["Other"],
   },

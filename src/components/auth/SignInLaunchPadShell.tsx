@@ -127,7 +127,7 @@ export function SignInLaunchPadShell({
 
           <div
             className={cn(
-              "relative w-full overflow-hidden rounded-3xl border border-zinc-200 bg-white/90 p-5 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.12)] backdrop-blur-[12px] sm:p-6",
+              "relative w-full rounded-3xl border border-zinc-200 bg-white/90 p-5 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.12)] backdrop-blur-[12px] sm:p-6",
               "dark:border-white/5 dark:bg-[rgba(26,26,26,0.4)] dark:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)]",
             )}
           >

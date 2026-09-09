@@ -1,13 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 
-/** Primary local folder for Company Board logos (by roster name). */
+/**
+ * Primary local folder for Company Board logos (by roster name).
+ * Prefer COMPANY_LOGOS_DIR, then the workstation folder, then repo public assets.
+ */
 export const LOCAL_COMPANY_LOGOS_DIR =
   process.env.COMPANY_LOGOS_DIR?.trim() ||
-  "C:/Users/jlsms/OneDrive/Desktop/work/company logos";
+  "C:/Users/tk/Desktop/work/COMPANY LOGOS";
+
+const REPO_COMPANY_LOGOS_DIR = path.join(process.cwd(), "public", "company-logos");
 
 const DEFAULT_LOGO_DIRS = [
   LOCAL_COMPANY_LOGOS_DIR,
+  REPO_COMPANY_LOGOS_DIR,
+  "C:/Users/tk/Desktop/work/COMPANY LOGOS",
   "C:/xampp/htdocs/HR/backend/storage/app/public",
   "C:/xampp/htdocs/HR/backend/public/storage",
   "C:/xampp/htdocs/HR_GEO/backend/storage/app/public",
@@ -41,6 +48,8 @@ const COMPANY_LOGO_FILENAMES: Record<string, string> = {
   industries: "industries.png",
   ali: "lending.png",
   "amalgated lending": "lending.png",
+  "amalgated lending inc.": "lending.png",
+  "amalgated lending inc": "lending.png",
   mchisi: "mchisi.png",
   "mchisi lpg": "mchisi.png",
   "mchisi fames": "mchisi.png",
@@ -81,7 +90,11 @@ function candidateFileNames(companyName: string): string[] {
 }
 
 function findExistingFile(fileName: string): string | null {
-  for (const root of [LOCAL_COMPANY_LOGOS_DIR, ...logoSearchDirs()]) {
+  for (const root of [
+    LOCAL_COMPANY_LOGOS_DIR,
+    REPO_COMPANY_LOGOS_DIR,
+    ...logoSearchDirs(),
+  ]) {
     const candidate = path.join(root, fileName);
     try {
       if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;

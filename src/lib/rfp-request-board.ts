@@ -215,7 +215,8 @@ export async function loadAcaTicketIdsForCurrentStepAssignee(
 
 /**
  * Prisma where fragment: Personnel Request Board shows own assignments + pending
- * transfers to them. Procedural approval seats live on Needs My Approval instead.
+ * transfers to them + Job Order Seek Assistance / execution-team membership.
+ * Procedural approval seats live on Needs My Approval instead.
  */
 export async function personnelRequestBoardWhere(
   agentId: string | null | undefined,
@@ -223,11 +224,17 @@ export async function personnelRequestBoardWhere(
   if (!agentId) {
     return { assignedAgentId: "__none__" };
   }
-  const transferIds = await loadTicketIdsPendingTransferToAgent(agentId);
-  if (transferIds.length === 0) {
+  const [transferIds, jobOrderTeamIds] = await Promise.all([
+    loadTicketIdsPendingTransferToAgent(agentId),
+    import("@/lib/job-order-workers-server").then((m) =>
+      m.loadJobOrderTicketIdsVisibleToAgent(agentId),
+    ),
+  ]);
+  const extraIds = [...new Set([...transferIds, ...jobOrderTeamIds])];
+  if (extraIds.length === 0) {
     return { assignedAgentId: agentId };
   }
   return {
-    OR: [{ assignedAgentId: agentId }, { id: { in: transferIds } }],
+    OR: [{ assignedAgentId: agentId }, { id: { in: extraIds } }],
   };
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectOrgChartDescendantIds,
   kpiRowInSectionAgentScope,
+  roleUsesCompanyDepartmentTaskAssignScope,
   roleUsesOrgChartSectionBoardScope,
 } from "@/lib/org-chart-section-scope";
 
@@ -94,6 +95,16 @@ describe("roleUsesOrgChartSectionBoardScope", () => {
   });
 });
 
+describe("roleUsesCompanyDepartmentTaskAssignScope", () => {
+  it("locks Admin and Personnel; elevates SuperAdmin / HighAdmin", () => {
+    expect(roleUsesCompanyDepartmentTaskAssignScope("Admin")).toBe(true);
+    expect(roleUsesCompanyDepartmentTaskAssignScope("Personnel")).toBe(true);
+    expect(roleUsesCompanyDepartmentTaskAssignScope("SuperAdmin")).toBe(false);
+    expect(roleUsesCompanyDepartmentTaskAssignScope("HighAdmin")).toBe(false);
+    expect(roleUsesCompanyDepartmentTaskAssignScope("Customer")).toBe(false);
+  });
+});
+
 describe("Departments filter intersection with viewer scope", () => {
   it("keeps only sub-departments the viewer can see", () => {
     const expanded = collectOrgChartDescendantIds(["corp"], tree);
@@ -102,5 +113,25 @@ describe("Departments filter intersection with viewer scope", () => {
     expect(filtered.sort()).toEqual(["gs", "hr"].sort());
     expect(filtered).not.toContain("corp");
     expect(filtered).not.toContain("it");
+  });
+});
+
+describe("isViewerOrgChartHeadForSection (pure ancestor walk)", () => {
+  it("matches head of the section or an ancestor", () => {
+    const headedIds = new Set(["corp"]);
+    const byId = new Map(tree.map((s) => [s.id, s]));
+    function isHeadFor(sectionId: string): boolean {
+      let current: string | null = sectionId;
+      const seen = new Set<string>();
+      while (current && !seen.has(current)) {
+        seen.add(current);
+        if (headedIds.has(current)) return true;
+        current = byId.get(current)?.parentId ?? null;
+      }
+      return false;
+    }
+    expect(isHeadFor("corp")).toBe(true);
+    expect(isHeadFor("it-helpdesk")).toBe(true);
+    expect(isHeadFor("acct")).toBe(false);
   });
 });

@@ -14,7 +14,6 @@ import { prisma } from "@/lib/prisma";
 import { resolveAgentDesignatedCompanyId, resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
 import {
   orgChartSectionExists,
-  resolveAgentIdsForOrgChartSection,
   resolveCompanyTeamIdForOrgChartSection,
 } from "@/lib/org-chart-section-roster";
 import { findSessionAgentId } from "@/lib/session-agent";
@@ -95,6 +94,7 @@ import {
 import {
   applyJobOrderApprovalAssignees,
   currentJobOrderStepBoardAssigneeId,
+  jobOrderApprovalStartStep,
   jobOrderProceduralStatusLabel,
   type JobOrderApprovalAssignees,
 } from "@/lib/job-order-approval";
@@ -114,9 +114,7 @@ import { acaProceduralStatusLabel, defaultAcaApprovalMeta } from "@/lib/aca-appr
 import { saveAcaApprovalMeta } from "@/lib/aca-approval-db";
 import {
   resolveAcaAssigneesFromPositions,
-  resolveAgentIdForPositionCode,
   resolveFtrAssigneesFromPositions,
-  resolveJoAssigneesFromPositions,
   resolveMergedSourceUserIdForSessionEmail,
 } from "@/lib/approval-position-resolver";
 
@@ -283,6 +281,8 @@ export async function POST(req: Request) {
     let skipApprovedByRaw: string | boolean | undefined;
     let skipPaymentNotedByRaw: string | boolean | undefined;
     let skipPaymentApprovedByRaw: string | boolean | undefined;
+    let skipJobOrderNotedByRaw: string | boolean | undefined;
+    let skipJobOrderApprovedByRaw: string | boolean | undefined;
     let requisitionItemsRaw: unknown;
     let purposeOfRequestRaw: string | undefined;
     let fundTransferAmountRaw: string | undefined;
@@ -373,6 +373,10 @@ export async function POST(req: Request) {
       skipPaymentNotedByRaw = skipNoted != null ? String(skipNoted) : undefined;
       const skipApproved = fd.get("skipPaymentApprovedBy");
       skipPaymentApprovedByRaw = skipApproved != null ? String(skipApproved) : undefined;
+      const skipJoNoted = fd.get("skipJobOrderNotedBy");
+      skipJobOrderNotedByRaw = skipJoNoted != null ? String(skipJoNoted) : undefined;
+      const skipJoApproved = fd.get("skipJobOrderApprovedBy");
+      skipJobOrderApprovedByRaw = skipJoApproved != null ? String(skipJoApproved) : undefined;
       const ri = fd.get("requisitionItems");
       if (typeof ri === "string" && ri.trim()) {
         try {
@@ -520,6 +524,16 @@ export async function POST(req: Request) {
         typeof body.skipPaymentApprovedBy === "string"
           ? body.skipPaymentApprovedBy
           : undefined;
+      skipJobOrderNotedByRaw =
+        typeof body.skipJobOrderNotedBy === "boolean" ||
+        typeof body.skipJobOrderNotedBy === "string"
+          ? body.skipJobOrderNotedBy
+          : undefined;
+      skipJobOrderApprovedByRaw =
+        typeof body.skipJobOrderApprovedBy === "boolean" ||
+        typeof body.skipJobOrderApprovedBy === "string"
+          ? body.skipJobOrderApprovedBy
+          : undefined;
       requisitionItemsRaw = body.requisitionItems;
       purposeOfRequestRaw =
         typeof body.purposeOfRequest === "string" ? body.purposeOfRequest : undefined;
@@ -665,6 +679,8 @@ export async function POST(req: Request) {
     const skipPaymentNotedBy = isFormFlag(skipPaymentNotedByRaw);
     const skipApprovedBy =
       isFormFlag(skipApprovedByRaw) || isFormFlag(skipPaymentApprovedByRaw);
+    const skipJobOrderNotedBy = isFormFlag(skipJobOrderNotedByRaw);
+    const skipJobOrderApprovedBy = isFormFlag(skipJobOrderApprovedByRaw);
 
     const requestorMergedSourceUserId = await resolveMergedSourceUserIdForSessionEmail(accountEmail);
     const requestorCompanyTeamId = await resolveStaffCompanyTeamId(session.user.email);
@@ -681,59 +697,6 @@ export async function POST(req: Request) {
       if (sectionCompanyId) intakeCompanyTeamId = sectionCompanyId;
     }
 
-    if (canSetIntakeApprovalAssignees && requestType === "REQUEST_FOR_PAYMENT") {
-      const assignees = { ...(intakeApprovalAssignees ?? {}) };
-      if (!skipPaymentNotedBy && !pickAgentId(assignees.notedByAgentId)) {
-        const notedByAgentId = await resolveAgentIdForPositionCode({
-          code: "RFP_NOTED_BY",
-          companyTeamId: requestorCompanyTeamId,
-          requestorMergedSourceUserId,
-        });
-        if (notedByAgentId) assignees.notedByAgentId = notedByAgentId;
-      }
-      if (!skipApprovedBy && !pickAgentId(assignees.approvedByAgentId)) {
-        const approvedByAgentId = await resolveAgentIdForPositionCode({
-          code: "RFP_APPROVED_BY",
-          companyTeamId: intakeCompanyTeamId,
-          requestorMergedSourceUserId,
-        });
-        if (approvedByAgentId) assignees.approvedByAgentId = approvedByAgentId;
-      }
-      const deferBookkeeperAtIntake = isFormFlag(deferPaymentModeToAccountingRaw);
-      if (
-        !deferBookkeeperAtIntake &&
-        !pickAgentId(assignees.accountingAgentId)
-      ) {
-        const accountingAgentId = await resolveAgentIdForPositionCode({
-          code: "RFP_BOOKKEEPER",
-          companyTeamId: intakeCompanyTeamId,
-          requestorMergedSourceUserId,
-        });
-        if (accountingAgentId) assignees.accountingAgentId = accountingAgentId;
-      }
-      if (Object.keys(assignees).length > 0) {
-        intakeApprovalAssignees = assignees;
-      }
-    }
-
-    if (canSetIntakeApprovalAssignees && requestType === "ITEM_REQUISITION_SLIP") {
-      // Canvassed By comes from Assignment Board assignee later — do not prefill from positions.
-      // Approved By is resolved from the requestor's company (RS_APPROVED_BY).
-      const assignees = { ...(intakeApprovalAssignees ?? {}) };
-      delete assignees.canvassedByAgentId;
-      if (!pickAgentId(assignees.approvedByAgentId)) {
-        const approvedByAgentId = await resolveAgentIdForPositionCode({
-          code: "RS_APPROVED_BY",
-          companyTeamId: requestorCompanyTeamId,
-          requestorMergedSourceUserId,
-        });
-        if (approvedByAgentId) assignees.approvedByAgentId = approvedByAgentId;
-      }
-      if (Object.keys(assignees).length > 0) {
-        intakeApprovalAssignees = assignees;
-      }
-    }
-
     if (canSetIntakeApprovalAssignees && requestType === "FUND_TRANSFER_REQUEST") {
       const assignees = { ...(intakeApprovalAssignees ?? {}) };
       const resolved = await resolveFtrAssigneesFromPositions({
@@ -743,32 +706,16 @@ export async function POST(req: Request) {
       if (!pickAgentId(assignees.recommendingApprovalAgentId) && resolved.RECOMMENDING_APPROVAL) {
         assignees.recommendingApprovalAgentId = resolved.RECOMMENDING_APPROVAL;
       }
-      if (!pickAgentId(assignees.approvedByAgentId) && resolved.APPROVED_BY) {
-        assignees.approvedByAgentId = resolved.APPROVED_BY;
-      }
       if (Object.keys(assignees).length > 0) {
         intakeApprovalAssignees = assignees;
       }
     }
 
-    if (canSetIntakeApprovalAssignees && requestType === "JOB_ORDER") {
-      const assignees = { ...(intakeApprovalAssignees ?? {}) };
-      const resolved = await resolveJoAssigneesFromPositions({
-        companyTeamId: intakeCompanyTeamId,
-        requestorMergedSourceUserId,
-      });
-      if (!pickAgentId(assignees.notedByAgentId) && resolved.NOTED_BY) {
-        assignees.notedByAgentId = resolved.NOTED_BY;
-      }
-      if (!pickAgentId(assignees.approvedByAgentId) && resolved.APPROVED_BY) {
-        assignees.approvedByAgentId = resolved.APPROVED_BY;
-      }
-      if (!pickAgentId(assignees.approvedBy2AgentId) && resolved.APPROVED_BY_2) {
-        assignees.approvedBy2AgentId = resolved.APPROVED_BY_2;
-      }
-      if (Object.keys(assignees).length > 0) {
-        intakeApprovalAssignees = assignees;
-      }
+    if (canSetIntakeApprovalAssignees && requestType === "ITEM_REQUISITION_SLIP" && intakeApprovalAssignees) {
+      // Canvassed By comes from Assignment Board assignee later — do not prefill from positions.
+      const assignees = { ...intakeApprovalAssignees };
+      delete assignees.canvassedByAgentId;
+      intakeApprovalAssignees = assignees;
     }
 
     if (
@@ -790,8 +737,10 @@ export async function POST(req: Request) {
           { key: "approvedByAgentId", label: "Approved By" },
         ],
         JOB_ORDER: [
-          { key: "notedByAgentId", label: "Noted By" },
-          { key: "approvedByAgentId", label: "Approved By" },
+          ...(skipJobOrderNotedBy ? [] : [{ key: "notedByAgentId", label: "Noted By" }]),
+          ...(skipJobOrderApprovedBy
+            ? []
+            : [{ key: "approvedByAgentId", label: "Approved By" }]),
           { key: "approvedBy2AgentId", label: "Approved By" },
         ],
       };
@@ -871,7 +820,7 @@ export async function POST(req: Request) {
           return NextResponse.json(
             {
               error:
-                "Bank name / account number is required for Online Deposit or Online direct to Payee's Bank Account #.",
+                "Bank name / account number is required for Online direct to Payee's Bank Account #.",
             },
             { status: 400 },
           );
@@ -1435,51 +1384,6 @@ export async function POST(req: Request) {
         }
       }
       if (requestType === "REQUEST_FOR_PAYMENT") {
-        async function assertAgentInSection(
-          agentId: string | null,
-          sectionId: string | null,
-          roleLabel: string,
-        ): Promise<NextResponse | null> {
-          if (!agentId) return null;
-          if (!sectionId) {
-            return NextResponse.json(
-              { error: `${roleLabel} cannot be set because the section scope is missing.` },
-              { status: 400 },
-            );
-          }
-          const allowed = new Set(await resolveAgentIdsForOrgChartSection(sectionId));
-          if (!allowed.has(agentId)) {
-            return NextResponse.json(
-              { error: `${roleLabel} must be someone from the selected section roster.` },
-              { status: 400 },
-            );
-          }
-          return null;
-        }
-        // Approved By is cross-company (any roster). Noted By uses requestor section;
-        // Bookkeeper uses Send-to section when set at intake.
-        for (const check of [
-          ...(skipPaymentNotedBy
-            ? []
-            : [
-                await assertAgentInSection(
-                  pickAgentId(intakeApprovalAssignees.notedByAgentId),
-                  intakeRequestorSectionId ?? requestorOrgChartSectionId,
-                  "Noted By",
-                ),
-              ]),
-          ...(isFormFlag(deferPaymentModeToAccountingRaw)
-            ? []
-            : [
-                await assertAgentInSection(
-                  pickAgentId(intakeApprovalAssignees.accountingAgentId),
-                  intakeSendToSectionId ?? sendToOrgChartSectionId,
-                  "Prepared by Bookkeeper",
-                ),
-              ]),
-        ]) {
-          if (check) return check;
-        }
         const roleEntries: Array<[PaymentApprovalStep, string | null]> = [
           ...(skipPaymentNotedBy
             ? []
@@ -1550,37 +1454,39 @@ export async function POST(req: Request) {
           org_chart_section_id = ${intakeSendToSectionId}
         WHERE id = ${ticket.id}
       `;
-      if (intakeRequestorSectionId) {
-        const requestorSection = await prisma.orgChartSection.findUnique({
-          where: { id: intakeRequestorSectionId },
-          select: { name: true },
-        });
-        if (requestorSection?.name) {
-          await logActivity(ticket.id, "USER", "Requesting department", requestorSection.name);
-        }
+    }
+    if (intakeRequestorSectionId) {
+      const requestorSection = await prisma.orgChartSection.findUnique({
+        where: { id: intakeRequestorSectionId },
+        select: { name: true },
+      });
+      if (requestorSection?.name) {
+        await logActivity(ticket.id, "USER", "Requesting department", requestorSection.name);
       }
-      if (intakeSendToSectionId) {
-        const sendToSection = await prisma.orgChartSection.findUnique({
-          where: { id: intakeSendToSectionId },
-          select: { name: true },
-        });
-        if (sendToSection?.name) {
-          await logActivity(ticket.id, "USER", "Send request to department", sendToSection.name);
-        }
-      } else if (staffSendToMode === "company" && sendToCompanyTeamId) {
-        const sendToTeam = await prisma.team.findUnique({
-          where: { id: sendToCompanyTeamId },
-          select: { name: true },
-        });
-        if (sendToTeam?.name) {
-          await logActivity(ticket.id, "USER", "Send request to company", sendToTeam.name);
-        }
+    }
+    if (intakeSendToSectionId) {
+      const sendToSection = await prisma.orgChartSection.findUnique({
+        where: { id: intakeSendToSectionId },
+        select: { name: true },
+      });
+      if (sendToSection?.name) {
+        await logActivity(ticket.id, "USER", "Send request to department", sendToSection.name);
+      }
+    } else if (staffSendToMode === "company" && sendToCompanyTeamId) {
+      const sendToTeam = await prisma.team.findUnique({
+        where: { id: sendToCompanyTeamId },
+        select: { name: true },
+      });
+      if (sendToTeam?.name) {
+        await logActivity(ticket.id, "USER", "Send request to company", sendToTeam.name);
       }
     }
 
     let uploadedMeta: IntakeScreenshotMetaItem[] | null = null;
     if (screenshotFiles && screenshotFiles.length > 0) {
-      uploadedMeta = await persistTicketScreenshots(ticket.id, screenshotFiles);
+      uploadedMeta = await persistTicketScreenshots(ticket.id, screenshotFiles, {
+        section: requestType === "JOB_ORDER" ? "planning" : undefined,
+      });
       await prisma.ticket.update({
         where: { id: ticket.id },
         data: { intakeScreenshotMeta: uploadedMeta },
@@ -1788,10 +1694,26 @@ export async function POST(req: Request) {
         name: session.user.name ?? effectiveName,
         teamId: team?.id ?? null,
       });
+      if (skipJobOrderNotedBy || skipJobOrderApprovedBy) {
+        meta = {
+          ...meta,
+          proceduralStep: jobOrderApprovalStartStep(
+            skipJobOrderNotedBy,
+            skipJobOrderApprovedBy,
+          ),
+          ...(skipJobOrderNotedBy ? { skipNotedBy: true, notedByAgentId: null } : {}),
+          ...(skipJobOrderApprovedBy ? { skipApprovedBy: true, approvedByAgentId: null } : {}),
+        };
+        await saveJobOrderApprovalMeta(ticket.id, meta);
+      }
       if (intakeApprovalAssignees) {
         const nextAssignees: Partial<JobOrderApprovalAssignees> = {
-          notedByAgentId: pickAgentId(intakeApprovalAssignees.notedByAgentId),
-          approvedByAgentId: pickAgentId(intakeApprovalAssignees.approvedByAgentId),
+          notedByAgentId: skipJobOrderNotedBy
+            ? null
+            : pickAgentId(intakeApprovalAssignees.notedByAgentId),
+          approvedByAgentId: skipJobOrderApprovedBy
+            ? null
+            : pickAgentId(intakeApprovalAssignees.approvedByAgentId),
           approvedBy2AgentId: pickAgentId(intakeApprovalAssignees.approvedBy2AgentId),
         };
         const agentIds = Object.values(nextAssignees).filter((v): v is string => Boolean(v));
@@ -1808,6 +1730,12 @@ export async function POST(req: Request) {
           }
         }
         meta = applyJobOrderApprovalAssignees(meta, nextAssignees);
+        if (skipJobOrderNotedBy) {
+          meta = { ...meta, skipNotedBy: true, notedByAgentId: null };
+        }
+        if (skipJobOrderApprovedBy) {
+          meta = { ...meta, skipApprovedBy: true, approvedByAgentId: null };
+        }
         await saveJobOrderApprovalMeta(ticket.id, meta);
         const boardAssigneeId = currentJobOrderStepBoardAssigneeId(meta);
         if (boardAssigneeId) {
@@ -1825,6 +1753,17 @@ export async function POST(req: Request) {
           "AGENT",
           "Job order approval assignees set at intake",
           "Procedural roles assigned when the request was created.",
+        );
+      }
+      if (skipJobOrderNotedBy || skipJobOrderApprovedBy) {
+        const skipped: string[] = [];
+        if (skipJobOrderNotedBy) skipped.push("Noted By");
+        if (skipJobOrderApprovedBy) skipped.push("Approved By (Send-to)");
+        await logActivity(
+          ticket.id,
+          "SYSTEM",
+          "Job order approval seats skipped",
+          `${skipped.join(" and ")} skipped at intake.`,
         );
       }
       await logActivity(

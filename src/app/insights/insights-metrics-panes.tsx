@@ -15,7 +15,7 @@ function shouldIgnorePaneDrag(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return true;
   if (
     target.closest(
-      "a, button, input, textarea, select, label, [role='button'], [role='link'], [role='tab'], [role='combobox'], [contenteditable='true'], [data-chart], canvas, svg, [data-radix-popper-content-wrapper]",
+      "a, button, input, textarea, select, label, [role='button'], [role='link'], [role='tab'], [role='combobox'], [role='dialog'], [contenteditable='true'], [data-chart], [data-metrics-inspect], canvas, svg, [data-radix-popper-content-wrapper]",
     )
   ) {
     return true;

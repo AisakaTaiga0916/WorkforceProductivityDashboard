@@ -16,9 +16,11 @@ import {
   filterOrgChartSectionsByCompanyTeam,
   orgChartMajorDepartments,
   orgChartRootSectionId,
+  orgChartScopeRootDepartments,
   type OrgChartSectionOption,
 } from "@/lib/org-chart-section-display";
 import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
+import { resolveViewerOrgChartSectionScope } from "@/lib/org-chart-section-scope";
 
 function mergeTeamWhereWithRoster(base?: Prisma.TeamWhereInput): Prisma.TeamWhereInput {
   const roster = rosterTeamNameFilter();
@@ -101,6 +103,11 @@ type CompanyBoardScope =
       /** Admin Group Board: bucket tickets under send-to company, not requestor roster. */
       scopeBySendToCompany: boolean;
       sendToCompanyTeamId: string | null;
+      /**
+       * When set (Admin with org-chart membership), tickets/columns are limited to
+       * these section ids (membership + descendants ∩ company sections).
+       */
+      restrictSectionIds: string[] | null;
     }
   | { ok: false; cardMode: CompanyBoardCardMode; emptyHint: string | null };
 
@@ -121,7 +128,6 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
 
   let teamWhere: Prisma.TeamWhereInput | undefined;
   let excludedTeamIds: string[] = [];
-  let restrictTicketTeamIds: string[] | null = null;
   let scopeBySendToCompany = false;
   let sendToCompanyTeamId: string | null = null;
 
@@ -139,7 +145,6 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
     /** Admin Group Board: one company card; tickets filtered by send-to department tree. */
     teamWhere = { id: staffCompanyId };
     excludedTeamIds = [];
-    restrictTicketTeamIds = null;
     scopeBySendToCompany = true;
     sendToCompanyTeamId = staffCompanyId;
   } else if (role === "Personnel") {
@@ -216,19 +221,83 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
   }
 
   if (scopeBySendToCompany && sendToCompanyTeamId) {
-    const allSections = await listOrgChartSectionOptions();
-    const sendToSectionIds = filterOrgChartSectionsByCompanyTeam(
-      allSections,
-      sendToCompanyTeamId,
-    ).map((s) => s.id);
+    const viewerScope = await resolveViewerOrgChartSectionScope(session.user.email);
+    let restrictSectionIds: string[] | null = null;
+    let sendToSectionIds: string[] = [];
+
+    if (viewerScope.sectionIds.length > 0) {
+      // Same rule as Assign Requests: department membership is the primary gate.
+      // Do not intersect with section.companyTeamId — many live sections are unlinked
+      // and that emptied Group Board for department heads (e.g. NEO / Accounting).
+      restrictSectionIds = viewerScope.sectionIds;
+      sendToSectionIds = viewerScope.sectionIds;
+    } else if (isAdminScope) {
+      return {
+        ok: false,
+        cardMode,
+        emptyHint:
+          "Your account is not placed on the org chart. Ask a SuperAdmin to assign your department.",
+      };
+    } else {
+      const allSections = await listOrgChartSectionOptions();
+      sendToSectionIds = filterOrgChartSectionsByCompanyTeam(
+        allSections,
+        sendToCompanyTeamId,
+      ).map((s) => s.id);
+    }
+
     const sendToClauses: Prisma.TicketWhereInput[] = [];
     if (sendToSectionIds.length > 0) {
       sendToClauses.push({ orgChartSectionId: { in: sendToSectionIds } });
     }
-    sendToClauses.push({ teamId: sendToCompanyTeamId, orgChartSectionId: null });
+    // Company-level tickets with no department only for elevated/unscoped admins.
+    if (!restrictSectionIds) {
+      sendToClauses.push({ teamId: sendToCompanyTeamId, orgChartSectionId: null });
+    }
+    if (sendToClauses.length === 0) {
+      return {
+        ok: false,
+        cardMode,
+        emptyHint:
+          "No requests in your designated department yet. Your Group Board is limited to your org-chart department tree.",
+      };
+    }
     ticketWhereBase.OR = sendToClauses;
-  } else if (restrictTicketTeamIds && restrictTicketTeamIds.length > 0) {
-    ticketWhereBase.teamId = { in: restrictTicketTeamIds };
+
+    const allowedTeamIds = teams.map((t) => t.id);
+
+    let displayTeamIds: string[];
+    if (allowedTeamIds.includes(sendToCompanyTeamId)) {
+      displayTeamIds = [sendToCompanyTeamId];
+    } else {
+      return {
+        ok: false,
+        cardMode,
+        emptyHint: "Your designated company is not on the roster.",
+      };
+    }
+
+    const groupByRequestor = false;
+    // When department-scoped, do not also require ticket.teamId === designated company.
+    // Send-to department tickets often live on another company team.
+    if (!restrictSectionIds) {
+      ticketWhereBase.teamId =
+        displayTeamIds.length > 0 ? { in: displayTeamIds } : { in: ["__none__"] };
+    }
+
+    return {
+      ok: true,
+      cardMode,
+      ticketWhereBase,
+      displayTeamIds,
+      teams,
+      groupByRequestor,
+      excludedTeamIds,
+      outsideId: outsideTeamRow.id,
+      scopeBySendToCompany,
+      sendToCompanyTeamId,
+      restrictSectionIds,
+    };
   }
 
   const allowedTeamIds = teams.map((t) => t.id);
@@ -238,16 +307,7 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
       : [];
 
   let displayTeamIds: string[];
-  if (scopeBySendToCompany && sendToCompanyTeamId) {
-    displayTeamIds = allowedTeamIds.includes(sendToCompanyTeamId) ? [sendToCompanyTeamId] : [];
-    if (displayTeamIds.length === 0) {
-      return {
-        ok: false,
-        cardMode,
-        emptyHint: "Your designated company is not on the roster.",
-      };
-    }
-  } else if (isAdminScope) {
+  if (isAdminScope) {
     const baseDisplay = allowedTeamIds.filter((id) => !excludedTeamIds.includes(id));
     displayTeamIds = filterBySpecificCompany
       ? baseDisplay.filter((id) => selectedFilterTeamIds.includes(id))
@@ -265,7 +325,7 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
     displayTeamIds = allowedTeamIds;
   }
 
-  const groupByRequestor = scopeBySendToCompany ? false : isAdminScope || filterBySpecificCompany;
+  const groupByRequestor = isAdminScope || filterBySpecificCompany;
 
   if (!groupByRequestor) {
     ticketWhereBase.teamId =
@@ -283,6 +343,7 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
     outsideId: outsideTeamRow.id,
     scopeBySendToCompany,
     sendToCompanyTeamId,
+    restrictSectionIds: null,
   };
 }
 
@@ -498,8 +559,12 @@ export async function loadDepartmentBoard(
     };
   }
 
-  const { cardMode, ticketWhereBase, displayTeamIds } = scope;
+  const { cardMode, ticketWhereBase, displayTeamIds, restrictSectionIds } = scope;
   const allSections = await listOrgChartSectionOptions();
+  const restrictSectionIdSet =
+    restrictSectionIds && restrictSectionIds.length > 0
+      ? new Set(restrictSectionIds)
+      : null;
 
   const companyFilterIds = (opts.companyTeamIds ?? []).map((s) => s.trim()).filter(Boolean);
   const companyFilter =
@@ -509,17 +574,30 @@ export async function loadDepartmentBoard(
         ? displayTeamIds[0]!
         : null;
 
-  let sections = companyFilter
-    ? filterOrgChartSectionsByCompanyTeam(allSections, companyFilter)
-    : allSections;
+  let sections = restrictSectionIdSet
+    ? allSections.filter((s) => restrictSectionIdSet.has(s.id))
+    : companyFilter
+      ? filterOrgChartSectionsByCompanyTeam(allSections, companyFilter)
+      : allSections;
 
-  if (displayTeamIds.length > 0 && !companyFilter) {
+  if (!restrictSectionIdSet && displayTeamIds.length > 0 && !companyFilter) {
     const allowed = new Set(displayTeamIds);
     sections = sections.filter((s) => {
       const team = s.companyTeamId;
       if (!team) return true;
       return allowed.has(team);
     });
+  }
+
+  if (restrictSectionIds && restrictSectionIds.length === 0) {
+    return {
+      columns: [],
+      cardMode,
+      emptyHint:
+        "No departments in your org-chart scope. Ask a SuperAdmin to place you on the chart.",
+      parentSection: null,
+      breadcrumb: [],
+    };
   }
 
   const parentId = (opts.parentSectionId ?? "").trim() || null;
@@ -555,7 +633,12 @@ export async function loadDepartmentBoard(
     // Include the parent as its own card for requests sent directly to it.
     columnSections = [parent, ...columnSections];
   } else {
-    columnSections = orgChartMajorDepartments(sections);
+    // Company-wide: major departments. Scoped viewers (e.g. sub-department heads):
+    // tops of their membership tree so the sub shows as a Group Board column.
+    columnSections =
+      restrictSectionIds != null
+        ? orgChartScopeRootDepartments(sections)
+        : orgChartMajorDepartments(sections);
   }
 
   const columnsBySection = new Map<string, CompanyBoardColumn>();

@@ -11,6 +11,7 @@ const HRIS_COMPANY_ALIASES: Record<string, CompanyRosterName> = {
   mchisi: "MCHISI LPG",
   "mchisi lpg": "MCHISI LPG",
   "mchisi fames": "MCHISI FAMES",
+  fames: "MCHISI FAMES",
   eazygaz: "EAZZYGAS",
   easygas: "EAZZYGAS",
   eazygas: "EAZZYGAS",

@@ -57,7 +57,7 @@ export async function GET() {
         ticket: requestorIdentityWhereForEmails(identityEmails),
       },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 100,
       include: {
         ticket: {
           select: {

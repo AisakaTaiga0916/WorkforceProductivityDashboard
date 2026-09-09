@@ -250,11 +250,17 @@ export function ManualAssignmentBoard({
   unassigned,
   personnel,
   rosterSections = [],
+  departmentRosterSections = null,
+  departmentAgentIds = null,
   notice,
 }: {
   unassigned: TicketCard[];
   personnel: PersonnelColumn[];
   rosterSections?: RosterSection[];
+  /** When set with departmentAgentIds, Departments view uses this section list. */
+  departmentRosterSections?: RosterSection[] | null;
+  /** Company ∩ designated department agents — used only in Departments view. */
+  departmentAgentIds?: string[] | null;
   notice?: string | null;
 }) {
   const [cards, setCards] = useState<TicketCard[]>(unassigned);
@@ -270,6 +276,26 @@ export function ManualAssignmentBoard({
   const [sheetGroupMode, setSheetGroupMode] = useState<PersonnelGroupMode>("section");
   const [sheetFolderId, setSheetFolderId] = useState<string | null>(null);
   const [portalReady, setPortalReady] = useState(false);
+
+  const departmentAgentIdSet = useMemo(() => {
+    // null = elevated / unlocked. [] = locked with no department people.
+    if (departmentAgentIds == null) return null;
+    return new Set(departmentAgentIds);
+  }, [departmentAgentIds]);
+
+  function rosterForMode(mode: PersonnelGroupMode): RosterSection[] {
+    if (mode === "section" && departmentRosterSections && departmentRosterSections.length > 0) {
+      return departmentRosterSections;
+    }
+    return rosterSections;
+  }
+
+  function columnsForMode(mode: PersonnelGroupMode, list: PersonnelColumn[]): PersonnelColumn[] {
+    if (mode === "section" && departmentAgentIdSet) {
+      return list.filter((col) => departmentAgentIdSet.has(col.agentId));
+    }
+    return list;
+  }
 
   useEffect(() => {
     const next = flowModeToGroupMode(readRequestKanbanFlowMode());
@@ -297,11 +323,17 @@ export function ManualAssignmentBoard({
     };
   }, [assignTicket]);
 
+  const modeColumns = useMemo(
+    () => columnsForMode(groupMode, columns),
+    [columns, groupMode, departmentAgentIdSet],
+  );
+
   const filteredColumns = useMemo(
-    () => columns.filter((col) => matchesAssignmentPersonnelSearch(col, personnelSearchQuery)),
-    [columns, personnelSearchQuery],
+    () => modeColumns.filter((col) => matchesAssignmentPersonnelSearch(col, personnelSearchQuery)),
+    [modeColumns, personnelSearchQuery],
   );
   const personnelSearchActive = Boolean(personnelSearchQuery.trim());
+  const activeRosterSections = useMemo(() => rosterForMode(groupMode), [groupMode, rosterSections, departmentRosterSections]);
 
   async function assign(ticket: TicketCard, agentId: string) {
     setBusyTicketId(ticket.id);
@@ -359,7 +391,7 @@ export function ManualAssignmentBoard({
       }
       const agentId = assignmentUserIdFromTarget(targetId);
       if (agentId) {
-        const col = columns.find((c) => c.agentId === agentId);
+        const col = modeColumns.find((c) => c.agentId === agentId);
         if (col) {
           const key = personnelFolderKey(col, groupMode);
           setDragRevealFolderId((prev) => (prev === key ? prev : key));
@@ -389,13 +421,13 @@ export function ManualAssignmentBoard({
   }, [filteredColumns, groupMode]);
 
   const sectionOrderIndex = useMemo(
-    () => new Map(rosterSections.map((s, i) => [s.id, i])),
-    [rosterSections],
+    () => new Map(activeRosterSections.map((s, i) => [s.id, i])),
+    [activeRosterSections],
   );
 
   const folderOptions = useMemo(() => {
-    const nameBySectionId = new Map(rosterSections.map((s) => [s.id, s.name]));
-    const depthBySectionId = new Map(rosterSections.map((s) => [s.id, s.depth]));
+    const nameBySectionId = new Map(activeRosterSections.map((s) => [s.id, s.name]));
+    const depthBySectionId = new Map(activeRosterSections.map((s) => [s.id, s.depth]));
     const options: FolderOption[] = [];
     for (const [id, cols] of columnsByFolder) {
       if (cols.length === 0) continue;
@@ -450,19 +482,29 @@ export function ManualAssignmentBoard({
       }
       return a.name.localeCompare(b.name);
     });
-  }, [columnsByFolder, groupMode, rosterSections, sectionOrderIndex]);
+  }, [columnsByFolder, groupMode, activeRosterSections, sectionOrderIndex]);
+
+  const sheetModeColumns = useMemo(
+    () => columnsForMode(sheetGroupMode, columns),
+    [columns, sheetGroupMode, departmentAgentIdSet],
+  );
+  const sheetActiveRosterSections = useMemo(
+    () => rosterForMode(sheetGroupMode),
+    [sheetGroupMode, rosterSections, departmentRosterSections],
+  );
 
   const sheetFolderOptions = useMemo(() => {
     const grouped = new Map<string, PersonnelColumn[]>();
-    for (const col of columns) {
+    for (const col of sheetModeColumns) {
       const key = personnelFolderKey(col, sheetGroupMode);
       const list = grouped.get(key);
       if (list) list.push(col);
       else grouped.set(key, [col]);
     }
-    const nameBySectionId = new Map(rosterSections.map((s) => [s.id, s.name]));
-    const options: FolderOption[] = [];
+    const nameBySectionId = new Map(sheetActiveRosterSections.map((s) => [s.id, s.name]));
+    const options: Array<{ id: string; name: string; agentCount: number }> = [];
     for (const [id, cols] of grouped) {
+      if (cols.length === 0) continue;
       if (sheetGroupMode === "company") {
         options.push({
           id,
@@ -470,25 +512,21 @@ export function ManualAssignmentBoard({
             id === ASSIGNMENT_UNCOMPANYED
               ? "No company"
               : cols[0]?.teamLabel?.trim() || "Unknown company",
-          depth: 0,
           agentCount: cols.length,
-          ticketCount: cols.reduce((sum, c) => sum + c.cards.length, 0),
         });
-      } else {
-        options.push({
-          id,
-          name:
-            id === ASSIGNMENT_UNSECTIONED
-              ? "No department"
-              : nameBySectionId.get(id) ?? cols[0]?.sectionName ?? "Unknown department",
-          depth: 0,
-          agentCount: cols.length,
-          ticketCount: cols.reduce((sum, c) => sum + c.cards.length, 0),
-        });
+        continue;
       }
+      options.push({
+        id,
+        name:
+          id === ASSIGNMENT_UNSECTIONED
+            ? "No department"
+            : nameBySectionId.get(id) ?? cols[0]?.sectionName ?? "Unknown department",
+        agentCount: cols.length,
+      });
     }
     return options.sort((a, b) => a.name.localeCompare(b.name));
-  }, [columns, rosterSections, sheetGroupMode]);
+  }, [sheetModeColumns, sheetActiveRosterSections, sheetGroupMode]);
 
   const activeFolderId =
     dragRevealFolderId ??
@@ -513,12 +551,14 @@ export function ManualAssignmentBoard({
   }
 
   const sheetPeople = useMemo(() => {
-    let list = columns.filter((col) => matchesAssignmentPersonnelSearch(col, sheetSearch));
+    let list = sheetModeColumns.filter((col) =>
+      matchesAssignmentPersonnelSearch(col, sheetSearch),
+    );
     if (sheetFolderId) {
       list = list.filter((col) => personnelFolderKey(col, sheetGroupMode) === sheetFolderId);
     }
     return sortPersonnelByRole(list);
-  }, [columns, sheetSearch, sheetFolderId, sheetGroupMode]);
+  }, [sheetModeColumns, sheetSearch, sheetFolderId, sheetGroupMode]);
 
   function renderTicketCard(
     t: TicketCard,
@@ -867,12 +907,12 @@ export function ManualAssignmentBoard({
               </label>
               <p className="w-full text-[11px] text-zinc-500 dark:text-zinc-500 sm:ml-auto sm:w-auto sm:text-right">
                 {personnelSearchActive
-                  ? `Showing ${filteredColumns.length} of ${columns.length} user${columns.length === 1 ? "" : "s"}`
+                  ? `Showing ${filteredColumns.length} of ${modeColumns.length} user${modeColumns.length === 1 ? "" : "s"}`
                   : `${filteredColumns.length} user${filteredColumns.length === 1 ? "" : "s"}`}
               </p>
             </div>
 
-            {columns.length === 0 ? (
+            {modeColumns.length === 0 ? (
               <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50/80 px-4 py-12 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-400">
                 No personnel — designate staff to a company/SBU in Personnel (Portal Accounts).
               </div>

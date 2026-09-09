@@ -18,7 +18,7 @@ import { formatTicketStatusLabel } from "@/lib/ticket-status-label";
 import { formatTicketActivityDetail } from "@/lib/ticket-activity-display";
 import { requestTypeLabel, requestTypeSupportsTransfer } from "@/lib/request-types";
 import type { TicketPrintField, TicketPrintModel } from "@/lib/ticket-details-print";
-import { parsePaymentRequestDescription, formatPaymentPeso, formatPaymentRequestTitle, MODE_OF_PAYMENT_CHECK, MODE_OF_PAYMENT_OPTIONS, DELIVERY_OF_CHECK_OPTIONS, paymentModeRequiresBankDetails } from "@/lib/request-for-payment";
+import { parsePaymentRequestDescription, formatPaymentPeso, formatPaymentRequestTitle, MODE_OF_PAYMENT_CHECK, MODE_OF_PAYMENT_OPTIONS, DELIVERY_OF_CHECK_OPTIONS, paymentModeRequiresBankDetails, paymentModeShowsBankDetails } from "@/lib/request-for-payment";
 import {
   parseItemRequisitionDescription,
   computeRequisitionPriceQuotation,
@@ -66,15 +66,26 @@ import {
 } from "@/lib/fund-transfer-approval";
 import { parseFundTransferRequestDescription, formatFundTransferPeso } from "@/lib/fund-transfer-request";
 import {
-  JOB_ORDER_APPROVAL_STEPS,
   JOB_ORDER_APPROVAL_STEP_LABELS,
+  isJobOrderAssistanceMember,
+  isJobOrderCurrentStepLastApprover,
+  isJobOrderJobDone,
+  jobOrderApprovalStepsFor,
   jobOrderAssigneeIdForStep,
   jobOrderProceduralStatusLabel,
+  isJobOrderExecutionWorkspaceOpen,
   isJobOrderProcedureGreenLit,
   type JobOrderApprovalAssignees,
   type JobOrderApprovalMeta,
   type JobOrderApprovalStep,
 } from "@/lib/job-order-approval";
+import { isJobOrderExecutionOutsideSendToDepartment } from "@/lib/job-order-assistance-scope";
+import {
+  hasJobOrderJobOutputUploaded,
+  JOB_ORDER_ATTACHMENT_SECTION_LABELS,
+  partitionJobOrderAttachments,
+  type JobOrderAttachmentSection,
+} from "@/lib/job-order-attachments";
 import { isJobOrderExecutionMember } from "@/lib/job-order-workers";
 import { parseJobOrderDescription } from "@/lib/job-order";
 import { parseAcaRequestDescription, formatAcaPeso } from "@/lib/authority-to-conduct-activity";
@@ -91,11 +102,13 @@ import {
 import {
   isIntakeAttachmentImage,
   parseIntakeScreenshotMeta,
+  type IntakeScreenshotMetaItem,
 } from "@/lib/ticket-intake-screenshots-meta";
 import { parseTransferRequestDetail } from "@/lib/ticket-transfer-request";
 import { JobOrderPostApprovalNav } from "@/components/tickets/JobOrderPostApprovalNav";
 import { JobOrderProjectLinkPanel } from "@/components/tickets/JobOrderProjectLinkPanel";
 import { JobOrderWorkersPanel } from "@/components/tickets/JobOrderWorkersPanel";
+import { JobOrderAssistanceTeamPanel } from "@/components/tickets/JobOrderAssistanceTeamPanel";
 import type { JobOrderScrollSection } from "@/lib/job-order-section-ids";
 
 type TransferRecipient = { id: string; name: string; email: string };
@@ -109,6 +122,7 @@ type TicketDetail = Ticket & {
     csat: number;
     comment: string | null;
   } | null;
+  orgChartSectionId?: string | null;
 };
 
 export function AgentWorkspace({
@@ -133,6 +147,7 @@ export function AgentWorkspace({
   acaApprovalMeta = null,
   acaApprovalAgentNames = {},
   sessionAgentId = null,
+  sessionEmail = null,
   isSuperAdmin = false,
   canSetApprovalAssignees = false,
   requestorCompanyTeamId = null,
@@ -142,6 +157,9 @@ export function AgentWorkspace({
   canRequestJobOrderProject = false,
   linkedJobOrderProjectAssigneeId = null,
   linkedJobOrderProjectAssigneeName = null,
+  jobOrderSendToSectionAgentIds = [],
+  jobOrderSendToSectionName = null,
+  isJobOrderSendToDepartmentHead = false,
   viewerMode = "agent",
   requestorAside = null,
 }: {
@@ -168,6 +186,8 @@ export function AgentWorkspace({
   acaApprovalMeta?: AcaApprovalMeta | null;
   acaApprovalAgentNames?: Record<string, string>;
   sessionAgentId?: string | null;
+  /** Session email — matches execution assignee across duplicate Agent rows. */
+  sessionEmail?: string | null;
   isSuperAdmin?: boolean;
   /** Admin / SuperAdmin / Personnel: set RFP / IRS / FTR / JO approval role assignees. */
   canSetApprovalAssignees?: boolean;
@@ -183,6 +203,11 @@ export function AgentWorkspace({
   /** Linked Task Board project assignee (primary KPI credit after approval). */
   linkedJobOrderProjectAssigneeId?: string | null;
   linkedJobOrderProjectAssigneeName?: string | null;
+  /** Agent ids in Send request to (department) — used for Assistance Team visibility. */
+  jobOrderSendToSectionAgentIds?: string[];
+  jobOrderSendToSectionName?: string | null;
+  /** Viewer is org-chart head of the Send-to department (or an ancestor). */
+  isJobOrderSendToDepartmentHead?: boolean;
   /**
    * `requestor` = My Requests / customer ticket detail: same request body layout,
    * without agent controls. Pass `requestorAside` for cancel / reply / verify.
@@ -196,6 +221,8 @@ export function AgentWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const planningAttachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const jobOutputAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const [attachmentInputKey, setAttachmentInputKey] = useState(0);
   const [priority, setPriority] = useState(ticket.priority);
@@ -306,83 +333,16 @@ export function AgentWorkspace({
     if (!needsApprovalAgentList) return;
     let cancelled = false;
 
-    async function loadCompanyAgents(companyId: string | null | undefined) {
-      const id = (companyId ?? "").trim();
-      const url = id
-        ? `/api/agents?company=${encodeURIComponent(id)}`
-        : `/api/agents`;
-      const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) return [] as Array<{ id: string; name: string; email: string }>;
-      const rows = (await res.json()) as Array<{ id: string; name: string; email: string }>;
-      return Array.isArray(rows) ? rows : [];
-    }
-
-    async function loadSectionAgents(sectionId: string | null | undefined) {
-      const id = (sectionId ?? "").trim();
-      if (!id) return [] as Array<{ id: string; name: string; email: string }>;
-      const res = await fetch(`/api/agents?section=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-      });
-      if (!res.ok) return [];
-      const rows = (await res.json()) as Array<{ id: string; name: string; email: string }>;
-      return Array.isArray(rows) ? rows : [];
-    }
-
     void (async () => {
-      if (
-        isPaymentRequest &&
-        (canSetApprovalAssignees ||
-          canAssignPaymentAccountingFinance ||
-          Boolean(sessionAgentId && ticket.assignedAgentId === sessionAgentId))
-      ) {
-        const requestorSectionId =
-          "requestorOrgChartSectionId" in ticket &&
-          typeof (ticket as { requestorOrgChartSectionId?: string | null }).requestorOrgChartSectionId ===
-            "string"
-            ? (ticket as { requestorOrgChartSectionId: string }).requestorOrgChartSectionId
-            : null;
-        const sendToSectionId =
-          "orgChartSectionId" in ticket &&
-          typeof (ticket as { orgChartSectionId?: string | null }).orgChartSectionId === "string"
-            ? (ticket as { orgChartSectionId: string }).orgChartSectionId
-            : null;
-        const [requestorRows, sendToRows] = await Promise.all([
-          requestorSectionId
-            ? loadSectionAgents(requestorSectionId)
-            : requestorCompanyTeamId
-              ? loadCompanyAgents(requestorCompanyTeamId)
-              : Promise.resolve([]),
-          sendToSectionId
-            ? loadSectionAgents(sendToSectionId)
-            : ticket.teamId
-              ? loadCompanyAgents(ticket.teamId)
-              : Promise.resolve([]),
-        ]);
-        if (cancelled) return;
-        setRequestorApprovalAgents(requestorRows);
-        setSendToApprovalAgents(sendToRows);
-        // Request-next / search still uses send-to roster as the default pool.
-        setApprovalAgents(sendToRows.length > 0 ? sendToRows : requestorRows);
-        return;
-      }
-      if (isJobOrderApprovalRequest || isFundTransferRequest) {
-        const anyRes = await fetch("/api/agents?anyCompany=1", { cache: "no-store" });
-        const anyRows = anyRes.ok
-          ? ((await anyRes.json()) as Array<{ id: string; name: string; email: string }>)
-          : [];
-        if (cancelled) return;
-        setApprovalAgents(Array.isArray(anyRows) ? anyRows : []);
-        setRequestorApprovalAgents([]);
-        setSendToApprovalAgents([]);
-        return;
-      }
-      const rows = await loadCompanyAgents(
-        canSetApprovalAssignees ? ticket.teamId : null,
-      );
+      const anyRes = await fetch("/api/agents?anyCompany=1", { cache: "no-store" });
+      const anyRows = anyRes.ok
+        ? ((await anyRes.json()) as Array<{ id: string; name: string; email: string }>)
+        : [];
       if (cancelled) return;
-      setApprovalAgents(rows);
-      setRequestorApprovalAgents([]);
-      setSendToApprovalAgents([]);
+      const roster = Array.isArray(anyRows) ? anyRows : [];
+      setApprovalAgents(roster);
+      setRequestorApprovalAgents(roster);
+      setSendToApprovalAgents(roster);
     })().catch(() => {});
 
     return () => {
@@ -563,55 +523,142 @@ export function AgentWorkspace({
   const isJobOrderGreenLit = Boolean(
     isJobOrderApprovalRequest && isJobOrderProcedureGreenLit(jobOrderApprovalMeta),
   );
-  const jobOrderExecutionAssigneeId = ticket.assignedAgentId?.trim() || null;
-  const jobOrderExecutionAssigneeName = ticket.assignedAgent?.name?.trim() || null;
+  const isJobOrderExecutionOpen = Boolean(
+    isJobOrderApprovalRequest && isJobOrderExecutionWorkspaceOpen(jobOrderApprovalMeta),
+  );
+  const jobOrderPendingExecutionAssigneeId =
+    jobOrderApprovalMeta?.pendingExecutionAssigneeAgentId?.trim() || null;
+  const jobOrderExecutionAssigneeId =
+    (isJobOrderGreenLit ? ticket.assignedAgentId?.trim() : null) ||
+    jobOrderPendingExecutionAssigneeId ||
+    null;
+  const jobOrderExecutionAssigneeName = (() => {
+    if (
+      isJobOrderGreenLit &&
+      ticket.assignedAgentId?.trim() &&
+      ticket.assignedAgent?.name?.trim()
+    ) {
+      return ticket.assignedAgent.name.trim();
+    }
+    if (jobOrderPendingExecutionAssigneeId) {
+      return (
+        jobOrderApprovalAgentNames[jobOrderPendingExecutionAssigneeId]?.trim() ||
+        "Selected for execution"
+      );
+    }
+    return ticket.assignedAgent?.name?.trim() || null;
+  })();
+  const assignedAgentEmail = ticket.assignedAgent?.email?.trim().toLowerCase() || null;
+  const sessionEmailNorm = sessionEmail?.trim().toLowerCase() || null;
+  const isJobOrderExecutionAssignee = Boolean(
+    (sessionAgentId && sessionAgentId === jobOrderExecutionAssigneeId) ||
+      (isJobOrderGreenLit &&
+        assignedAgentEmail &&
+        sessionEmailNorm &&
+        assignedAgentEmail === sessionEmailNorm),
+  );
   const isJobOrderExecutionTeamMember = Boolean(
-    sessionAgentId &&
-      isJobOrderExecutionMember({
-        agentId: sessionAgentId,
-        meta: jobOrderApprovalMeta,
-        ticketAssignedAgentId: ticket.assignedAgentId,
-        linkedProjectAssigneeId: linkedJobOrderProjectAssigneeId,
-      }),
+    isJobOrderExecutionAssignee ||
+      (sessionAgentId &&
+        isJobOrderExecutionMember({
+          agentId: sessionAgentId,
+          meta: jobOrderApprovalMeta,
+          ticketAssignedAgentId: jobOrderExecutionAssigneeId,
+          linkedProjectAssigneeId: linkedJobOrderProjectAssigneeId,
+        })),
   );
   const canAssignJobOrderExecutionAssignee = Boolean(
-    isJobOrderGreenLit &&
+    isJobOrderExecutionOpen &&
       (canCreateJobOrderProject || isSuperAdmin || canSetApprovalAssignees),
   );
   const canManageJobOrderCoWorkers = Boolean(
-    isJobOrderGreenLit &&
+    isJobOrderExecutionOpen &&
       jobOrderExecutionAssigneeId &&
       (canCreateJobOrderProject ||
         isSuperAdmin ||
         canSetApprovalAssignees ||
-        Boolean(sessionAgentId && sessionAgentId === jobOrderExecutionAssigneeId)),
+        isJobOrderExecutionAssignee),
+  );
+  const isJobOrderAssistanceTeamMember = Boolean(
+    sessionAgentId && isJobOrderAssistanceMember(sessionAgentId, jobOrderApprovalMeta),
   );
   const canMarkJobOrderDone = Boolean(
-    isJobOrderGreenLit &&
-      jobOrderExecutionAssigneeId &&
-      jobOrderApprovalMeta?.executionAssignedAt &&
+    isJobOrderExecutionOpen &&
+      !isJobOrderJobDone(jobOrderApprovalMeta) &&
       !["FOR_CONFIRMATION", "RESOLVED", "CLOSED"].includes(ticket.status) &&
       (canCreateJobOrderProject ||
         isSuperAdmin ||
         canSetApprovalAssignees ||
-        Boolean(sessionAgentId && sessionAgentId === jobOrderExecutionAssigneeId)),
+        isJobOrderExecutionAssignee ||
+        isJobOrderExecutionTeamMember ||
+        isJobOrderAssistanceTeamMember),
   );
-  const canAddAttachments = (() => {
+  const executionOutsideSendTo = Boolean(
+    jobOrderExecutionAssigneeId &&
+      isJobOrderExecutionOutsideSendToDepartment({
+        executionAssigneeAgentId: jobOrderExecutionAssigneeId,
+        sendToOrgChartSectionId: ticket.orgChartSectionId,
+        sendToSectionAgentIds: jobOrderSendToSectionAgentIds,
+      }),
+  );
+  const showJobOrderAssistanceTeam = Boolean(
+    isJobOrderApprovalRequest &&
+      isJobOrderExecutionOpen &&
+      (executionOutsideSendTo ||
+        Boolean(jobOrderApprovalMeta?.assistanceTeam) ||
+        isJobOrderSendToDepartmentHead),
+  );
+  const canManageJobOrderAssistanceTeam = Boolean(
+    showJobOrderAssistanceTeam &&
+      (canCreateJobOrderProject ||
+        isSuperAdmin ||
+        canSetApprovalAssignees ||
+        isJobOrderSendToDepartmentHead ||
+        (sessionAgentId && ticket.assignedAgentId === sessionAgentId)),
+  );
+  const jobOrderAttachmentPartitions = useMemo(
+    () => partitionJobOrderAttachments(intakeScreenshots),
+    [intakeScreenshots],
+  );
+  const hasJobOrderJobOutput = hasJobOrderJobOutputUploaded(intakeScreenshots);
+  const canAddPlanningAttachments = (() => {
     if (!ACTIVE_REQUEST_STATUSES.includes(ticket.status)) return false;
     if (!isJobOrderApprovalRequest) return true;
-    if (!isJobOrderGreenLit) return false;
-    if (!jobOrderExecutionAssigneeId) return false;
+    if (!isJobOrderExecutionOpen) return false;
     return (
       canCreateJobOrderProject ||
       isSuperAdmin ||
       canSetApprovalAssignees ||
-      isJobOrderExecutionTeamMember
+      isJobOrderExecutionTeamMember ||
+      isJobOrderAssistanceTeamMember
     );
   })();
+  const canAddJobOutputAttachments = Boolean(
+    isJobOrderApprovalRequest &&
+      isJobOrderExecutionOpen &&
+      ACTIVE_REQUEST_STATUSES.includes(ticket.status) &&
+      (canCreateJobOrderProject ||
+        isSuperAdmin ||
+        canSetApprovalAssignees ||
+        isJobOrderExecutionTeamMember ||
+        isJobOrderAssistanceTeamMember),
+  );
+  const canAddAttachments = isJobOrderApprovalRequest
+    ? canAddPlanningAttachments || canAddJobOutputAttachments
+    : canAddPlanningAttachments;
   const attachmentSlotsRemaining = Math.max(0, MAX_SCREENSHOT_COUNT - intakeScreenshots.length);
 
-  async function uploadTicketAttachments(fileList: FileList | null) {
-    if (!fileList || fileList.length === 0 || !canAddAttachments) return;
+  async function uploadTicketAttachments(
+    fileList: FileList | null,
+    section?: JobOrderAttachmentSection,
+  ) {
+    const allow =
+      !isJobOrderApprovalRequest
+        ? canAddAttachments
+        : section === "job_output"
+          ? canAddJobOutputAttachments
+          : canAddPlanningAttachments;
+    if (!fileList || fileList.length === 0 || !allow) return;
     const files = Array.from(fileList);
     if (attachmentSlotsRemaining <= 0) {
       setAttachmentError(`You can attach at most ${MAX_SCREENSHOT_COUNT} files.`);
@@ -634,6 +681,9 @@ export function AgentWorkspace({
     setAttachmentError(null);
     try {
       const form = new FormData();
+      if (isJobOrderApprovalRequest && section) {
+        form.append("section", section);
+      }
       for (const file of files.slice(0, attachmentSlotsRemaining)) {
         form.append("screenshots", file);
       }
@@ -652,6 +702,8 @@ export function AgentWorkspace({
     } finally {
       setAttachmentBusy(false);
       if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+      if (planningAttachmentInputRef.current) planningAttachmentInputRef.current.value = "";
+      if (jobOutputAttachmentInputRef.current) jobOutputAttachmentInputRef.current.value = "";
     }
   }
 
@@ -845,6 +897,16 @@ export function AgentWorkspace({
       : null;
   const canCompleteCurrentJobOrderStep = Boolean(
     currentJobOrderStep && sessionAgentId && ticket.assignedAgentId === sessionAgentId,
+  );
+  const jobOrderLastStepNeedsJobOutput = Boolean(
+    jobOrderApprovalMeta &&
+      isJobOrderCurrentStepLastApprover(jobOrderApprovalMeta) &&
+      !hasJobOrderJobOutput,
+  );
+  const jobOrderLastStepNeedsJobDone = Boolean(
+    jobOrderApprovalMeta &&
+      isJobOrderCurrentStepLastApprover(jobOrderApprovalMeta) &&
+      !isJobOrderJobDone(jobOrderApprovalMeta),
   );
   const canRequestJobOrderApproval = Boolean(
     currentJobOrderStep && (isPersonnel || isTicketAssignee || canSetApprovalAssignees),
@@ -1110,7 +1172,7 @@ export function AgentWorkspace({
       );
       if (jobOrderDetails.notes) notes = jobOrderDetails.notes;
       if (jobOrderApprovalMeta) {
-        for (const step of JOB_ORDER_APPROVAL_STEPS) {
+        for (const step of jobOrderApprovalStepsFor(jobOrderApprovalMeta)) {
           const agentId = jobOrderAssigneeIdForStep(jobOrderApprovalMeta, step);
           const assigneeName = agentId
             ? jobOrderApprovalAgentNames[agentId]?.trim() || null
@@ -1338,7 +1400,7 @@ export function AgentWorkspace({
                               modeOfPayment: next,
                               deliveryOfCheck:
                                 next === MODE_OF_PAYMENT_CHECK ? prev.deliveryOfCheck : "",
-                              bankNameAccountNumber: paymentModeRequiresBankDetails(
+                              bankNameAccountNumber: paymentModeShowsBankDetails(
                                 next,
                                 next === MODE_OF_PAYMENT_CHECK ? prev.deliveryOfCheck : "",
                               )
@@ -1370,7 +1432,7 @@ export function AgentWorkspace({
                               setPaymentModeDraft((prev) => ({
                                 ...prev,
                                 deliveryOfCheck: next,
-                                bankNameAccountNumber: paymentModeRequiresBankDetails(
+                                bankNameAccountNumber: paymentModeShowsBankDetails(
                                   prev.modeOfPayment,
                                   next,
                                 )
@@ -1390,13 +1452,21 @@ export function AgentWorkspace({
                         </dd>
                       </div>
                     ) : null}
-                    {paymentModeRequiresBankDetails(
+                    {paymentModeShowsBankDetails(
                       paymentModeDraft.modeOfPayment,
                       paymentModeDraft.deliveryOfCheck,
                     ) ? (
                       <div>
                         <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-500">
                           Bank name / account number
+                          {!paymentModeRequiresBankDetails(
+                            paymentModeDraft.modeOfPayment,
+                            paymentModeDraft.deliveryOfCheck,
+                          ) ? (
+                            <span className="ml-1 font-normal normal-case tracking-normal text-zinc-400">
+                              (optional)
+                            </span>
+                          ) : null}
                         </dt>
                         <dd className="mt-1">
                           <input
@@ -1455,7 +1525,7 @@ export function AgentWorkspace({
                       <dd className="mt-0.5 break-words font-medium text-zinc-800 dark:text-zinc-200">
                         {paymentDetails.modeOfPayment ||
                           (paymentApprovalMeta?.deferPaymentModeToAccounting
-                            ? "To be set by Accounting"
+                            ? "To be set by Finance"
                             : "—")}
                       </dd>
                     </div>
@@ -2089,7 +2159,7 @@ export function AgentWorkspace({
           ) : null}
           {isJobOrderRequest && jobOrderApprovalMeta ? (
             <div className="mt-4 grid grid-cols-1 items-start gap-x-4 gap-y-3 border-t border-zinc-200 pt-4 sm:grid-cols-2 lg:grid-cols-3 dark:border-zinc-800/80">
-              {JOB_ORDER_APPROVAL_STEPS.map((step) => {
+              {jobOrderApprovalStepsFor(jobOrderApprovalMeta).map((step) => {
                 const completedAt = jobOrderApprovalMeta.completed[step];
                 const agentId = jobOrderAssigneeIdForStep(jobOrderApprovalMeta, step);
                 const assigneeName = agentId
@@ -2117,14 +2187,28 @@ export function AgentWorkspace({
                       {name ?? "—"}
                     </p>
                     {step === currentJobOrderStep && canCompleteCurrentJobOrderStep ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => patch({ action: "complete_job_order_approval_step" })}
-                        className="mt-2 min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
-                      >
-                        Done
-                      </button>
+                      <div className="mt-2 space-y-1">
+                        {jobOrderLastStepNeedsJobDone ? (
+                          <p className="text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                            Mark Job Done before completing the final Approved By.
+                          </p>
+                        ) : null}
+                        {jobOrderLastStepNeedsJobOutput ? (
+                          <p className="text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                            Upload Job Output before completing the final approval.
+                          </p>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={
+                            busy || jobOrderLastStepNeedsJobOutput || jobOrderLastStepNeedsJobDone
+                          }
+                          onClick={() => patch({ action: "complete_job_order_approval_step" })}
+                          className="min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+                        >
+                          Done
+                        </button>
+                      </div>
                     ) : null}
                   </div>
                 );
@@ -2336,108 +2420,222 @@ export function AgentWorkspace({
               ) : null}
             </div>
           ) : null}
-          {intakeScreenshots.length > 0 || canAddAttachments ? (
+          {intakeScreenshots.length > 0 || canAddAttachments || (isJobOrderApprovalRequest && !isJobOrderExecutionOpen) ? (
             <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800/80">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-500">
-                    {isAcaRequest ? "Related documents" : "Attachments"}
-                  </p>
-                  {(acaApprovalMeta?.relatedTicketIds?.length ?? 0) > 0 && isAcaRequest ? (
-                    <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                      Ticket refs: {acaApprovalMeta!.relatedTicketIds!.join(", ")}
+              {isJobOrderApprovalRequest ? (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-500">
+                      Attachments
                     </p>
-                  ) : null}
-                  {canAddAttachments ? (
                     <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                      {isJobOrderApprovalRequest && isJobOrderGreenLit
-                        ? `Assignee and co-workers can add images or documents while this request is open (${intakeScreenshots.length}/${MAX_SCREENSHOT_COUNT}).`
-                        : `Add images or documents while this request is open (${intakeScreenshots.length}/${MAX_SCREENSHOT_COUNT}).`}
+                      {isJobOrderExecutionOpen
+                        ? `Planning and Job Output files (${intakeScreenshots.length}/${MAX_SCREENSHOT_COUNT}).`
+                        : "Planning files from intake are shown below. Additional uploads unlock after Noted By and Approved By are complete."}
                     </p>
-                  ) : isJobOrderApprovalRequest && !isJobOrderGreenLit ? (
-                    <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                      Attachments can be added after all Job Order approvals are complete.
-                    </p>
-                  ) : isJobOrderApprovalRequest && isJobOrderGreenLit && !jobOrderExecutionAssigneeId ? (
-                    <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                      Assign an execution assignee before adding attachments.
-                    </p>
-                  ) : null}
-                </div>
-                {canAddAttachments && attachmentSlotsRemaining > 0 ? (
-                  <div className="shrink-0">
-                    <input
-                      key={attachmentInputKey}
-                      ref={attachmentInputRef}
-                      type="file"
-                      accept={INTAKE_ATTACHMENT_ACCEPT}
-                      multiple
-                      className="sr-only"
-                      disabled={attachmentBusy}
-                      onChange={(e) => {
-                        void uploadTicketAttachments(e.target.files);
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={attachmentBusy}
-                      onClick={() => attachmentInputRef.current?.click()}
-                      className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-orange-300/70 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-900 transition hover:bg-orange-100 disabled:opacity-60 dark:border-orange-500/40 dark:bg-orange-950/30 dark:text-orange-100 dark:hover:bg-orange-950/50"
-                    >
-                      {attachmentBusy ? (
-                        <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                      ) : (
-                        <Paperclip className="size-3.5" aria-hidden />
-                      )}
-                      {attachmentBusy ? "Uploading…" : "Add files"}
-                    </button>
                   </div>
-                ) : null}
-              </div>
-              {attachmentError ? (
-                <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">{attachmentError}</p>
-              ) : null}
-              {intakeScreenshots.length > 0 ? (
-                <ul className="mt-2 flex flex-wrap gap-3">
-                  {intakeScreenshots.map((m) => {
-                    const href = `/api/tickets/${ticket.id}/screenshots/${encodeURIComponent(m.storedFileName)}`;
-                    const isImage = isIntakeAttachmentImage(m);
-                    return (
-                      <li key={m.storedFileName} className="w-[5.5rem]">
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="group flex flex-col items-center gap-1.5 rounded-lg p-1 outline-none transition hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-orange-500/40 dark:hover:bg-zinc-800/60"
-                          title={m.originalName}
-                        >
-                          {isImage ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={href}
-                              alt={m.originalName}
-                              className="size-12 rounded-md border border-zinc-200 object-cover object-top dark:border-zinc-700"
-                              loading="lazy"
+                  {attachmentError ? (
+                    <p className="text-xs text-rose-600 dark:text-rose-300">{attachmentError}</p>
+                  ) : null}
+                  {(
+                    [
+                      {
+                        key: "planning" as const,
+                        items: jobOrderAttachmentPartitions.planning,
+                        canUpload: canAddPlanningAttachments,
+                        inputRef: planningAttachmentInputRef,
+                        hint: "Intake files and additional planning documents while this Job Order is running.",
+                      },
+                      {
+                        key: "job_output" as const,
+                        items: jobOrderAttachmentPartitions.jobOutput,
+                        canUpload: canAddJobOutputAttachments,
+                        inputRef: jobOutputAttachmentInputRef,
+                        hint: "Files uploaded by the Execution or Assistance team. Required before the final Approver can mark Done.",
+                      },
+                    ] as const
+                  ).map((section) => (
+                    <div
+                      key={section.key}
+                      className="rounded-lg border border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-700 dark:bg-zinc-950/40"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-400">
+                            {JOB_ORDER_ATTACHMENT_SECTION_LABELS[section.key]}
+                          </p>
+                          <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                            {section.hint}
+                          </p>
+                        </div>
+                        {section.canUpload && attachmentSlotsRemaining > 0 ? (
+                          <div className="shrink-0">
+                            <input
+                              key={`${section.key}-${attachmentInputKey}`}
+                              ref={section.inputRef}
+                              type="file"
+                              accept={INTAKE_ATTACHMENT_ACCEPT}
+                              multiple
+                              className="sr-only"
+                              disabled={attachmentBusy}
+                              onChange={(e) => {
+                                void uploadTicketAttachments(e.target.files, section.key);
+                              }}
                             />
+                            <button
+                              type="button"
+                              disabled={attachmentBusy}
+                              onClick={() => section.inputRef.current?.click()}
+                              className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-orange-300/70 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-900 transition hover:bg-orange-100 disabled:opacity-60 dark:border-orange-500/40 dark:bg-orange-950/30 dark:text-orange-100 dark:hover:bg-orange-950/50"
+                            >
+                              {attachmentBusy ? (
+                                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                              ) : (
+                                <Paperclip className="size-3.5" aria-hidden />
+                              )}
+                              {attachmentBusy ? "Uploading…" : "Add files"}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      {section.items.length > 0 ? (
+                        <ul className="mt-2 flex flex-wrap gap-3">
+                          {section.items.map((m: IntakeScreenshotMetaItem) => {
+                            const href = `/api/tickets/${ticket.id}/screenshots/${encodeURIComponent(m.storedFileName)}`;
+                            const isImage = isIntakeAttachmentImage(m);
+                            return (
+                              <li key={m.storedFileName} className="w-[5.5rem]">
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="group flex flex-col items-center gap-1.5 rounded-lg p-1 outline-none transition hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-orange-500/40 dark:hover:bg-zinc-800/60"
+                                  title={m.originalName}
+                                >
+                                  {isImage ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={href}
+                                      alt={m.originalName}
+                                      className="size-12 rounded-md border border-zinc-200 object-cover object-top dark:border-zinc-700"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <span className="flex size-12 items-center justify-center rounded-md border border-zinc-200 bg-zinc-50 text-orange-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-orange-400">
+                                      <FileText className="size-7" strokeWidth={1.5} aria-hidden />
+                                      <span className="sr-only">Document</span>
+                                    </span>
+                                  )}
+                                  <span className="w-full truncate text-center text-[10px] text-zinc-600 group-hover:text-zinc-900 dark:text-zinc-500 dark:group-hover:text-zinc-200">
+                                    {m.originalName}
+                                  </span>
+                                </a>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                          No {JOB_ORDER_ATTACHMENT_SECTION_LABELS[section.key].toLowerCase()} files yet.
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-500">
+                        {isAcaRequest ? "Related documents" : "Attachments"}
+                      </p>
+                      {(acaApprovalMeta?.relatedTicketIds?.length ?? 0) > 0 && isAcaRequest ? (
+                        <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                          Ticket refs: {acaApprovalMeta!.relatedTicketIds!.join(", ")}
+                        </p>
+                      ) : null}
+                      {canAddAttachments ? (
+                        <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                          {`Add images or documents while this request is open (${intakeScreenshots.length}/${MAX_SCREENSHOT_COUNT}).`}
+                        </p>
+                      ) : null}
+                    </div>
+                    {canAddAttachments && attachmentSlotsRemaining > 0 ? (
+                      <div className="shrink-0">
+                        <input
+                          key={attachmentInputKey}
+                          ref={attachmentInputRef}
+                          type="file"
+                          accept={INTAKE_ATTACHMENT_ACCEPT}
+                          multiple
+                          className="sr-only"
+                          disabled={attachmentBusy}
+                          onChange={(e) => {
+                            void uploadTicketAttachments(e.target.files);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          disabled={attachmentBusy}
+                          onClick={() => attachmentInputRef.current?.click()}
+                          className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-orange-300/70 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-900 transition hover:bg-orange-100 disabled:opacity-60 dark:border-orange-500/40 dark:bg-orange-950/30 dark:text-orange-100 dark:hover:bg-orange-950/50"
+                        >
+                          {attachmentBusy ? (
+                            <Loader2 className="size-3.5 animate-spin" aria-hidden />
                           ) : (
-                            <span className="flex size-12 items-center justify-center rounded-md border border-zinc-200 bg-zinc-50 text-orange-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-orange-400">
-                              <FileText className="size-7" strokeWidth={1.5} aria-hidden />
-                              <span className="sr-only">Document</span>
-                            </span>
+                            <Paperclip className="size-3.5" aria-hidden />
                           )}
-                          <span className="w-full truncate text-center text-[10px] text-zinc-600 group-hover:text-zinc-900 dark:text-zinc-500 dark:group-hover:text-zinc-200">
-                            {m.originalName}
-                          </span>
-                        </a>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : canAddAttachments ? (
-                <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  No files yet. Use Add files to attach supporting documents.
-                </p>
-              ) : null}
+                          {attachmentBusy ? "Uploading…" : "Add files"}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  {attachmentError ? (
+                    <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">{attachmentError}</p>
+                  ) : null}
+                  {intakeScreenshots.length > 0 ? (
+                    <ul className="mt-2 flex flex-wrap gap-3">
+                      {intakeScreenshots.map((m) => {
+                        const href = `/api/tickets/${ticket.id}/screenshots/${encodeURIComponent(m.storedFileName)}`;
+                        const isImage = isIntakeAttachmentImage(m);
+                        return (
+                          <li key={m.storedFileName} className="w-[5.5rem]">
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group flex flex-col items-center gap-1.5 rounded-lg p-1 outline-none transition hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-orange-500/40 dark:hover:bg-zinc-800/60"
+                              title={m.originalName}
+                            >
+                              {isImage ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={href}
+                                  alt={m.originalName}
+                                  className="size-12 rounded-md border border-zinc-200 object-cover object-top dark:border-zinc-700"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <span className="flex size-12 items-center justify-center rounded-md border border-zinc-200 bg-zinc-50 text-orange-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-orange-400">
+                                  <FileText className="size-7" strokeWidth={1.5} aria-hidden />
+                                  <span className="sr-only">Document</span>
+                                </span>
+                              )}
+                              <span className="w-full truncate text-center text-[10px] text-zinc-600 group-hover:text-zinc-900 dark:text-zinc-500 dark:group-hover:text-zinc-200">
+                                {m.originalName}
+                              </span>
+                            </a>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : canAddAttachments ? (
+                    <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                      No files yet. Use Add files to attach supporting documents.
+                    </p>
+                  ) : null}
+                </>
+              )}
             </div>
           ) : isAcaRequest && (acaApprovalMeta?.relatedTicketIds?.length ?? 0) > 0 ? (
             <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800/80">
@@ -2528,12 +2726,13 @@ export function AgentWorkspace({
           <>
         <article className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_12px_32px_rgba(15,23,42,0.08)] sm:p-5 dark:border-zinc-800 dark:bg-surface dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
           <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-500">Request controls</h2>
-          {isJobOrderApprovalRequest && isJobOrderGreenLit ? (
+          {isJobOrderApprovalRequest && isJobOrderExecutionOpen ? (
             <div className="mt-2">
               <JobOrderPostApprovalNav
                 compact
                 showTaskBoard={canCreateJobOrderProject || canRequestJobOrderProject}
                 showExecutionTeam
+                showAssistanceTeam={showJobOrderAssistanceTeam}
                 activeSection={joPostApprovalSection}
                 onSelectSection={setJoPostApprovalSection}
               />
@@ -3245,32 +3444,36 @@ export function AgentWorkspace({
                 </div>
                 {jobOrderApprovalMeta && jobOrderApprovalMeta.proceduralStep !== "DONE" ? (
                   <div className="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-700">
-                    <CompanyUserSearchField
-                      label="Noted By"
-                      users={approvalAgents}
-                      value={jobOrderApprovalDraft.notedByAgentId || ""}
-                      onChange={(id) =>
-                        setJobOrderApprovalDraft((prev) => ({
-                          ...prev,
-                          notedByAgentId: id || null,
-                        }))
-                      }
-                      disabled={busy}
-                      placeholder="Search by name or email…"
-                    />
-                    <CompanyUserSearchField
-                      label="Approved By"
-                      users={approvalAgents}
-                      value={jobOrderApprovalDraft.approvedByAgentId || ""}
-                      onChange={(id) =>
-                        setJobOrderApprovalDraft((prev) => ({
-                          ...prev,
-                          approvedByAgentId: id || null,
-                        }))
-                      }
-                      disabled={busy}
-                      placeholder="Search by name or email…"
-                    />
+                    {!jobOrderApprovalMeta.skipNotedBy ? (
+                      <CompanyUserSearchField
+                        label="Noted By"
+                        users={approvalAgents}
+                        value={jobOrderApprovalDraft.notedByAgentId || ""}
+                        onChange={(id) =>
+                          setJobOrderApprovalDraft((prev) => ({
+                            ...prev,
+                            notedByAgentId: id || null,
+                          }))
+                        }
+                        disabled={busy}
+                        placeholder="Search by name or email…"
+                      />
+                    ) : null}
+                    {!jobOrderApprovalMeta.skipApprovedBy ? (
+                      <CompanyUserSearchField
+                        label="Approved By"
+                        users={approvalAgents}
+                        value={jobOrderApprovalDraft.approvedByAgentId || ""}
+                        onChange={(id) =>
+                          setJobOrderApprovalDraft((prev) => ({
+                            ...prev,
+                            approvedByAgentId: id || null,
+                          }))
+                        }
+                        disabled={busy}
+                        placeholder="Search by name or email…"
+                      />
+                    ) : null}
                     <CompanyUserSearchField
                       label="Approved By"
                       users={approvalAgents}
@@ -3432,7 +3635,7 @@ export function AgentWorkspace({
             ) : null}
 
             {isJobOrderApprovalRequest &&
-            jobOrderApprovalMeta?.proceduralStep === "DONE" &&
+            isJobOrderExecutionOpen &&
             joPostApprovalSection === "task-board" &&
             (canCreateJobOrderProject || canRequestJobOrderProject) ? (
               <JobOrderProjectLinkPanel
@@ -3444,7 +3647,7 @@ export function AgentWorkspace({
             ) : null}
 
             {isJobOrderApprovalRequest &&
-            isJobOrderGreenLit &&
+            isJobOrderExecutionOpen &&
             jobOrderApprovalMeta &&
             joPostApprovalSection === "execution-team" ? (
               <JobOrderWorkersPanel
@@ -3453,9 +3656,26 @@ export function AgentWorkspace({
                 jobOrderApprovalMeta={jobOrderApprovalMeta}
                 assigneeAgentId={jobOrderExecutionAssigneeId}
                 assigneeName={jobOrderExecutionAssigneeName}
+                approvalsComplete={isJobOrderGreenLit}
                 canAssignExecutionAssignee={canAssignJobOrderExecutionAssignee}
                 canManageCoWorkers={canManageJobOrderCoWorkers}
                 canMarkJobDone={canMarkJobOrderDone}
+                jobDoneRecorded={isJobOrderJobDone(jobOrderApprovalMeta)}
+              />
+            ) : null}
+
+            {isJobOrderApprovalRequest &&
+            showJobOrderAssistanceTeam &&
+            jobOrderApprovalMeta &&
+            joPostApprovalSection === "assistance-team" ? (
+              <JobOrderAssistanceTeamPanel
+                ticketId={ticket.id}
+                ticketStatus={ticket.status}
+                jobOrderApprovalMeta={jobOrderApprovalMeta}
+                canManage={canManageJobOrderAssistanceTeam}
+                canMarkJobDone={canMarkJobOrderDone}
+                jobDoneRecorded={isJobOrderJobDone(jobOrderApprovalMeta)}
+                sendToDepartmentName={jobOrderSendToSectionName}
               />
             ) : null}
 

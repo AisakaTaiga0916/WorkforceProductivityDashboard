@@ -34,6 +34,7 @@ import {
   isCurrentAcaStepAssignee,
   isCurrentPaymentStepAssignee,
   isSessionAssigneeOfTicket,
+  isSessionJobOrderTeamMember,
   isTicketAssignee,
   personnelForbiddenForTicket,
 } from "@/lib/ticket-staff-access";
@@ -108,14 +109,28 @@ import {
   JOB_ORDER_APPROVAL_FIELD_LABELS,
   JOB_ORDER_APPROVAL_STEP_LABELS,
   jobOrderProceduralStatusLabel,
+  isJobOrderExecutionWorkspaceOpen,
   isJobOrderProcedureGreenLit,
   applyJobOrderWorkerAgentIds,
+  applyJobOrderAssistanceTeam,
+  isJobOrderAssistanceMember,
   parseJobOrderWorkerAgentIds,
   clearJobOrderExecutionAssignment,
   markJobOrderExecutionAssigned,
+  promoteJobOrderPendingExecutionAssignee,
+  setJobOrderPendingExecutionAssignee,
   canMarkJobOrderDone,
+  isJobOrderJobDone,
+  isJobOrderReadyForConfirmation,
+  markJobOrderJobDone,
   type JobOrderApprovalAssignees,
+  type JobOrderAssistanceScopeMode,
 } from "@/lib/job-order-approval";
+import { hasJobOrderJobOutputUploaded } from "@/lib/job-order-attachments";
+import { parseIntakeScreenshotMeta } from "@/lib/ticket-intake-screenshots-meta";
+import { resolveAgentIdsForOrgChartSection } from "@/lib/org-chart-section-roster";
+import { isViewerOrgChartHeadForSection } from "@/lib/org-chart-section-scope";
+import { isJobOrderExecutionOutsideSendToDepartment } from "@/lib/job-order-assistance-scope";
 import {
   initJobOrderApprovalMetaIfNeeded,
   reconcileJobOrderAwaitingExecutionAssignee,
@@ -277,7 +292,12 @@ export async function GET(
       ticket,
     }) ||
     isCurrentPaymentStepAssignee(ticket, operator?.id) ||
-    isAcaBoardVisibleAssignee(ticket, operator?.id);
+    isAcaBoardVisibleAssignee(ticket, operator?.id) ||
+    (await isSessionJobOrderTeamMember({
+      operatorId: operator?.id,
+      sessionEmail: session.user.email,
+      ticket,
+    }));
   // Cross-company Admins may still read tickets they own as board/RFP/ACA-step assignee
   // (e.g. NOTED BY from the preparer company on a ticket routed to another company).
   if (
@@ -644,10 +664,15 @@ export async function PATCH(
         } else if (requestType === "JOB_ORDER") {
           const meta = await initJobOrderApprovalMetaIfNeeded(id);
           if (meta.proceduralStep !== "DONE") {
+            const hasJobOutput = hasJobOrderJobOutputUploaded(
+              parseIntakeScreenshotMeta(ticket.intakeScreenshotMeta),
+            );
             const gate = canCompleteJobOrderApprovalStep({
               meta,
               actorAgentId: operator?.id ?? null,
               ticketAssignedAgentId: ticket.assignedAgentId,
+              hasJobOutput,
+              hasJobDone: isJobOrderJobDone(meta),
             });
             if (!gate.ok) {
               return NextResponse.json({ error: gate.error }, { status: 403 });
@@ -656,10 +681,9 @@ export async function PATCH(
             const stamped = applyJobOrderApprovalAssignees(meta, {
               [stepField]: ticket.assignedAgentId,
             });
-            const advanced = clearJobOrderExecutionAssignment(
+            let advanced = clearJobOrderExecutionAssignment(
               completeJobOrderApprovalStep(stamped),
             );
-            await saveJobOrderApprovalMeta(id, advanced);
             const completedLabel = JOB_ORDER_APPROVAL_STEP_LABELS[meta.proceduralStep];
             await logActivity(
               id,
@@ -669,6 +693,7 @@ export async function PATCH(
             );
             paymentProceduralNote = jobOrderProceduralStatusLabel(advanced.proceduralStep);
             if (advanced.proceduralStep !== "DONE") {
+              await saveJobOrderApprovalMeta(id, advanced);
               data.status = "IN_PROGRESS";
               data.resolvedAt = null;
               Object.assign(
@@ -693,36 +718,44 @@ export async function PATCH(
                 "Use Ticket Controls → Request approval to send this request to the next role.",
               );
             } else {
+              const promoted = promoteJobOrderPendingExecutionAssignee(advanced);
+              advanced = promoted.meta;
+              await saveJobOrderApprovalMeta(id, advanced);
               data.status = "IN_PROGRESS";
               data.resolvedAt = null;
               const approvalDoneAssigneeWrite = proceduralBoardAssigneeWrite(
-                null,
+                promoted.agentId,
                 ticket.assignedAgentId,
               );
               Object.assign(data, approvalDoneAssigneeWrite);
-              await logActivity(
-                id,
-                "SYSTEM",
-                "Job order approval complete",
-                "All Job Order approval roles are complete. Ready for execution assignment on the Assignment Board.",
-              );
-              if (Object.keys(approvalDoneAssigneeWrite).length > 0) {
+              if (promoted.agentId) {
+                const promotedAgent = await prisma.agent.findUnique({
+                  where: { id: promoted.agentId },
+                  select: { name: true },
+                });
                 await logActivity(
                   id,
                   "SYSTEM",
-                  "Board assignee cleared",
-                  "All Job Order approvals are complete — cleared the Request Board icon for execution assignment.",
+                  "Job order approval complete",
+                  `All Job Order approval roles are complete. Execution assignee ${promotedAgent?.name ?? "selected earlier"} applied to the Request Board.`,
                 );
+              } else {
+                await logActivity(
+                  id,
+                  "SYSTEM",
+                  "Job order approval complete",
+                  "All Job Order approval roles are complete. Ready for execution assignment on the Assignment Board.",
+                );
+                if (Object.keys(approvalDoneAssigneeWrite).length > 0) {
+                  await logActivity(
+                    id,
+                    "SYSTEM",
+                    "Board assignee cleared",
+                    "All Job Order approvals are complete — cleared the Request Board icon for execution assignment.",
+                  );
+                }
               }
             }
-          } else if (!ticket.assignedAgentId?.trim()) {
-            return NextResponse.json(
-              {
-                error:
-                  "Assign an execution assignee before sending this Job Order for customer confirmation.",
-              },
-              { status: 400 },
-            );
           }
         }
       }
@@ -1636,7 +1669,8 @@ export async function PATCH(
           { status: 403 },
         );
       }
-      if (!operator?.id) {
+      // Admins / company admins may reassign without a linked Agent row; assignees still need one.
+      if (!operator?.id && !roleIsAdmin && !roleIsCompanyAdmin) {
         return NextResponse.json({ error: "Your staff profile could not be resolved." }, { status: 400 });
       }
       const requestType = await loadTicketRequestType(id);
@@ -1678,7 +1712,13 @@ export async function PATCH(
       if (!approverId) {
         return NextResponse.json({ error: "Select a company user to request approval from." }, { status: 400 });
       }
-      const companyAnchorId = ticket.assignedAgentId ?? operator.id;
+      const companyAnchorId = ticket.assignedAgentId ?? operator?.id ?? null;
+      if (!companyAnchorId) {
+        return NextResponse.json(
+          { error: "Assign this request first, or select a company user with a staff profile." },
+          { status: 400 },
+        );
+      }
       const requesterCompanyId = await resolveAgentDesignatedCompanyId(companyAnchorId);
       const approverCompanyId = await resolveAgentDesignatedCompanyId(approverId);
       // APPROVED BY may be chosen from any company on create; keep that path open here too.
@@ -1706,7 +1746,18 @@ export async function PATCH(
         return NextResponse.json({ error: uniqueness.error }, { status: 400 });
       }
       const field = assigneeFieldForStep(step);
-      const updatedMeta = applyPaymentApprovalAssignees(meta, { [field]: approver.id });
+      const previousAssigneeId = assigneeIdForStep(meta, step);
+      let updatedMeta = applyPaymentApprovalAssignees(meta, { [field]: approver.id });
+      // Changing Accounting/Finance assignee invalidates any prior Approved ack on that step.
+      if (
+        previousAssigneeId &&
+        previousAssigneeId !== approver.id &&
+        (step === "APPROVED_BY_ACCOUNTING" || step === "APPROVED_BY_FINANCE")
+      ) {
+        const nextAck = { ...updatedMeta.stepApproved };
+        delete nextAck[step];
+        updatedMeta = { ...updatedMeta, stepApproved: nextAck };
+      }
       const saved = await savePaymentApprovalMeta(id, updatedMeta, step);
       if (!saved.ok) {
         return NextResponse.json(
@@ -3097,10 +3148,15 @@ export async function PATCH(
         );
       }
       const meta = await initJobOrderApprovalMetaIfNeeded(id);
+      const hasJobOutput = hasJobOrderJobOutputUploaded(
+        parseIntakeScreenshotMeta(ticket.intakeScreenshotMeta),
+      );
       const gate = canCompleteJobOrderApprovalStep({
         meta,
         actorAgentId: operator?.id ?? null,
         ticketAssignedAgentId: ticket.assignedAgentId,
+        hasJobOutput,
+        hasJobDone: isJobOrderJobDone(meta),
       });
       if (!gate.ok) {
         return NextResponse.json({ error: gate.error }, { status: 403 });
@@ -3122,9 +3178,22 @@ export async function PATCH(
       const stamped = applyJobOrderApprovalAssignees(meta, {
         [stepField]: ticket.assignedAgentId,
       });
-      const advanced = clearJobOrderExecutionAssignment(
+      let advanced = clearJobOrderExecutionAssignment(
         completeJobOrderApprovalStep(stamped),
       );
+
+      const allDone = advanced.proceduralStep === "DONE";
+      let boardAssigneeId = currentJobOrderStepBoardAssigneeId(advanced);
+      let promotedExecutionAgentId: string | null = null;
+      if (allDone) {
+        const promoted = promoteJobOrderPendingExecutionAssignee(advanced);
+        advanced = promoted.meta;
+        promotedExecutionAgentId = promoted.agentId;
+        if (promotedExecutionAgentId) {
+          boardAssigneeId = promotedExecutionAgentId;
+        }
+      }
+
       await saveJobOrderApprovalMeta(id, advanced);
       const completedLabel = JOB_ORDER_APPROVAL_STEP_LABELS[previousStep];
       await logActivity(
@@ -3134,42 +3203,58 @@ export async function PATCH(
         `${completedLabel} marked complete.`,
       );
 
-      const allDone = advanced.proceduralStep === "DONE";
-      const boardAssigneeId = currentJobOrderStepBoardAssigneeId(advanced);
+      const sendForConfirmation = isJobOrderReadyForConfirmation(advanced);
       const assigneeWrite = proceduralBoardAssigneeWrite(boardAssigneeId, ticket.assignedAgentId);
       const updated = await prisma.ticket.update({
         where: { id },
         data: {
-          status: "IN_PROGRESS",
-          resolvedAt: null,
+          status: sendForConfirmation ? "FOR_CONFIRMATION" : "IN_PROGRESS",
+          resolvedAt: sendForConfirmation ? new Date() : null,
           ...assigneeWrite,
         },
         include: { team: true, assignedAgent: true },
       });
 
       if (allDone) {
-        await logActivity(
-          id,
-          "SYSTEM",
-          "Job order approval complete",
-          "All Job Order approval roles are complete. Ready for execution assignment on the Assignment Board.",
-        );
-        if (Object.keys(assigneeWrite).length > 0) {
+        if (promotedExecutionAgentId) {
+          const promotedAgent = await prisma.agent.findUnique({
+            where: { id: promotedExecutionAgentId },
+            select: { name: true },
+          });
           await logActivity(
             id,
             "SYSTEM",
-            "Board assignee cleared",
-            "All Job Order approvals are complete — cleared the Request Board icon for execution assignment.",
+            "Job order approval complete",
+            `All Job Order approval roles are complete. Execution assignee ${promotedAgent?.name ?? "selected earlier"} applied to the Request Board.`,
+          );
+        } else {
+          await logActivity(
+            id,
+            "SYSTEM",
+            "Job order approval complete",
+            "All Job Order approval roles are complete. Ready for execution assignment on the Assignment Board.",
           );
         }
-      } else {
-        const pending = jobOrderProceduralStatusLabel(advanced.proceduralStep);
-        if (pending) {
-          await logActivity(id, "SYSTEM", "Job order approval pending", pending);
-        }
-        if (ticket.status !== "IN_PROGRESS") {
-          await logActivity(id, "AGENT", "Status → IN_PROGRESS", pending ?? undefined);
-        }
+      }
+
+      if (sendForConfirmation) {
+        await logActivity(id, "AGENT", "Status → FOR_CONFIRMATION", "Approved By complete after Job Done.");
+        const smtpRecipient =
+          updated.requestorEmail?.trim() || updated.contactEmail;
+        await sendResolutionEmail({
+          ticketId: updated.id,
+          ticketNumber: updated.ticketNumber,
+          title: updated.title,
+          recipientEmail: smtpRecipient,
+          recipientName: updated.contactName,
+          resolutionNotes: updated.resolutionNotes,
+        });
+        await logActivity(
+          id,
+          "SYSTEM",
+          "Resolution email sent",
+          `Mandatory rating request sent to ${smtpRecipient}.`,
+        );
       }
 
       return NextResponse.json({
@@ -3323,11 +3408,11 @@ export async function PATCH(
         );
       }
       const joMeta = await initJobOrderApprovalMetaIfNeeded(id);
-      if (!isJobOrderProcedureGreenLit(joMeta)) {
+      if (!isJobOrderExecutionWorkspaceOpen(joMeta)) {
         return NextResponse.json(
           {
             error:
-              "Execution assignee can be set only after all Job Order approvals are complete.",
+              "Execution assignee unlocks after Noted By and Approved By are complete (when those seats apply).",
           },
           { status: 400 },
         );
@@ -3352,6 +3437,28 @@ export async function PATCH(
       if (!agent) {
         return NextResponse.json({ error: "Selected personnel was not found." }, { status: 400 });
       }
+
+      // While approvals are still in progress, only stage the pick — do not steal the
+      // current procedural board assignee.
+      if (!isJobOrderProcedureGreenLit(joMeta)) {
+        const pendingMeta = setJobOrderPendingExecutionAssignee(joMeta, agent.id);
+        await saveJobOrderApprovalMeta(id, pendingMeta);
+        await logActivity(
+          id,
+          "AGENT",
+          "Job order execution assignee staged",
+          `${agent.name} selected for execution (applies when approvals finish).`,
+        );
+        const current = await prisma.ticket.findUnique({
+          where: { id },
+          include: { team: true, assignedAgent: true },
+        });
+        return NextResponse.json({
+          ...(current ? await ticketJsonWithAssigneeColor(current) : {}),
+          jobOrderApprovalMeta: pendingMeta,
+        });
+      }
+
       const updated = await prisma.ticket.update({
         where: { id },
         data: {
@@ -3371,7 +3478,9 @@ export async function PATCH(
         "Job order execution assignee set",
         `${agent.name} assigned as execution assignee.`,
       );
-      const markedMeta = markJobOrderExecutionAssigned(joMeta);
+      const markedMeta = markJobOrderExecutionAssigned(
+        setJobOrderPendingExecutionAssignee(joMeta, null),
+      );
       await saveJobOrderApprovalMeta(id, markedMeta);
       return NextResponse.json({
         ...(await ticketJsonWithAssigneeColor(updated)),
@@ -3391,26 +3500,39 @@ export async function PATCH(
         );
       }
       const joMeta = await initJobOrderApprovalMetaIfNeeded(id);
-      if (!isJobOrderProcedureGreenLit(joMeta)) {
+      if (!isJobOrderExecutionWorkspaceOpen(joMeta)) {
         return NextResponse.json(
           {
             error:
-              "Co-workers can be listed only after all Job Order approvals are complete.",
+              "Co-workers unlock after Noted By and Approved By are complete (when those seats apply).",
           },
           { status: 400 },
         );
       }
-      const executionAssigneeId = ticket.assignedAgentId?.trim() || null;
+      const executionAssigneeId =
+        (isJobOrderProcedureGreenLit(joMeta)
+          ? ticket.assignedAgentId?.trim()
+          : null) ||
+        joMeta.pendingExecutionAssigneeAgentId?.trim() ||
+        null;
       if (!executionAssigneeId) {
         return NextResponse.json(
           { error: "Assign an execution assignee before adding co-workers." },
           { status: 400 },
         );
       }
+      const actingAsExecutionAssignee = await isSessionAssigneeOfTicket({
+        operatorId: operator?.id,
+        sessionEmail: session.user.email,
+        ticket,
+      });
+      const actingAsPendingExecutionAssignee =
+        Boolean(operator?.id) && operator!.id === executionAssigneeId;
       const canManageWorkers =
         roleIsAdmin ||
         roleIsCompanyAdmin ||
-        Boolean(operator?.id && operator.id === executionAssigneeId);
+        actingAsExecutionAssignee ||
+        actingAsPendingExecutionAssignee;
       if (!canManageWorkers) {
         return NextResponse.json(
           {
@@ -3462,6 +3584,203 @@ export async function PATCH(
       });
     }
 
+    if (action === "set_job_order_assistance_team") {
+      if (!canStaffMutateTicket) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const requestType = await loadTicketRequestType(id);
+      if (requestType !== "JOB_ORDER") {
+        return NextResponse.json(
+          { error: "Only Job Order requests can set an assistance team." },
+          { status: 400 },
+        );
+      }
+      const joMeta = await initJobOrderApprovalMetaIfNeeded(id);
+      if (!isJobOrderExecutionWorkspaceOpen(joMeta)) {
+        return NextResponse.json(
+          {
+            error:
+              "Assistance team unlocks after Noted By and Approved By are complete (when those seats apply).",
+          },
+          { status: 400 },
+        );
+      }
+      const actingAsCurrentApprover = await isSessionAssigneeOfTicket({
+        operatorId: operator?.id,
+        sessionEmail: session.user.email,
+        ticket,
+      });
+      const sectionRowsForHead = await prisma.$queryRaw<
+        Array<{ org_chart_section_id: string | null }>
+      >`
+        SELECT org_chart_section_id FROM tickets WHERE id = ${id} LIMIT 1
+      `;
+      const sendToSectionIdForHead =
+        sectionRowsForHead[0]?.org_chart_section_id?.trim() || null;
+      const isSendToDepartmentHead = await isViewerOrgChartHeadForSection(
+        session.user.email,
+        sendToSectionIdForHead,
+      );
+      const canManageAssistance =
+        roleIsAdmin ||
+        roleIsCompanyAdmin ||
+        actingAsCurrentApprover ||
+        isSendToDepartmentHead;
+      if (!canManageAssistance) {
+        return NextResponse.json(
+          {
+            error:
+              "Only the Send-to department head, an approver, or Admin can update the assistance team.",
+          },
+          { status: 403 },
+        );
+      }
+
+      if (body.clearAssistanceTeam === true) {
+        const cleared = applyJobOrderAssistanceTeam(joMeta, null);
+        await saveJobOrderApprovalMeta(id, cleared);
+        await logActivity(id, "AGENT", "Job order assistance team cleared", "Removed");
+        const refreshed = await prisma.ticket.findUnique({
+          where: { id },
+          include: { team: true, assignedAgent: true },
+        });
+        return NextResponse.json({
+          ...(refreshed ? await ticketJsonWithAssigneeColor(refreshed) : {}),
+          jobOrderApprovalMeta: cleared,
+        });
+      }
+
+      const scopeMode: JobOrderAssistanceScopeMode =
+        body.scopeMode === "company" ? "company" : "department";
+      const orgChartSectionId =
+        typeof body.orgChartSectionId === "string" ? body.orgChartSectionId.trim() : "";
+      const companyTeamId =
+        typeof body.companyTeamId === "string" ? body.companyTeamId.trim() : "";
+      const assigneeAgentId =
+        typeof body.assigneeAgentId === "string" ? body.assigneeAgentId.trim() : "";
+      const rawWorkerIds: unknown[] = Array.isArray(body.workerAgentIds)
+        ? body.workerAgentIds
+        : [];
+      const workerAgentIds = rawWorkerIds
+        .filter((v): v is string => typeof v === "string" && Boolean(v.trim()))
+        .map((v) => v.trim());
+
+      if (scopeMode === "department" && !orgChartSectionId) {
+        return NextResponse.json(
+          { error: "Select a department for the assistance team scope." },
+          { status: 400 },
+        );
+      }
+      if (scopeMode === "company" && !companyTeamId) {
+        return NextResponse.json(
+          { error: "Select a company for the assistance team scope." },
+          { status: 400 },
+        );
+      }
+
+      const sendToSectionId = sendToSectionIdForHead;
+      const executionAssigneeId =
+        (isJobOrderProcedureGreenLit(joMeta)
+          ? ticket.assignedAgentId?.trim()
+          : null) ||
+        joMeta.pendingExecutionAssigneeAgentId?.trim() ||
+        null;
+      if (sendToSectionId && executionAssigneeId && !isSendToDepartmentHead) {
+        const sectionAgentIds = await resolveAgentIdsForOrgChartSection(sendToSectionId);
+        if (
+          !isJobOrderExecutionOutsideSendToDepartment({
+            executionAssigneeAgentId: executionAssigneeId,
+            sendToOrgChartSectionId: sendToSectionId,
+            sendToSectionAgentIds: sectionAgentIds,
+          })
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "Assistance team is only used when the execution assignee is outside Send request to (department).",
+            },
+            { status: 400 },
+          );
+        }
+      } else if (!executionAssigneeId && !isSendToDepartmentHead) {
+        return NextResponse.json(
+          { error: "Assign an execution assignee before setting an assistance team." },
+          { status: 400 },
+        );
+      }
+
+      let allowedAgentIds: Set<string> | null = null;
+      if (scopeMode === "department") {
+        allowedAgentIds = new Set(await resolveAgentIdsForOrgChartSection(orgChartSectionId));
+      }
+
+      const candidateIds = [
+        ...(assigneeAgentId ? [assigneeAgentId] : []),
+        ...workerAgentIds,
+      ];
+      if (candidateIds.length > 0) {
+        const found = await prisma.agent.findMany({
+          where: { id: { in: candidateIds } },
+          select: { id: true },
+        });
+        if (found.length !== new Set(candidateIds).size) {
+          return NextResponse.json(
+            { error: "One or more selected assistance personnel were not found." },
+            { status: 400 },
+          );
+        }
+        if (scopeMode === "department" && allowedAgentIds) {
+          const outside = found.filter((a) => !allowedAgentIds!.has(a.id));
+          if (outside.length > 0) {
+            return NextResponse.json(
+              { error: "Assistance team members must belong to the selected department." },
+              { status: 400 },
+            );
+          }
+        }
+      }
+
+      const updatedMeta = applyJobOrderAssistanceTeam(joMeta, {
+        scopeMode,
+        orgChartSectionId: scopeMode === "department" ? orgChartSectionId : null,
+        companyTeamId: scopeMode === "company" ? companyTeamId : null,
+        assigneeAgentId: assigneeAgentId || null,
+        workerAgentIds,
+      });
+      await saveJobOrderApprovalMeta(id, updatedMeta);
+      const assist = updatedMeta.assistanceTeam;
+      const ids = [
+        ...(assist?.assigneeAgentId ? [assist.assigneeAgentId] : []),
+        ...(assist?.workerAgentIds ?? []),
+      ];
+      const nameById = new Map(
+        (
+          await prisma.agent.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, name: true },
+          })
+        ).map((a) => [a.id, a.name]),
+      );
+      const detail = [
+        `Scope: ${scopeMode}`,
+        assist?.assigneeAgentId
+          ? `Assignee: ${nameById.get(assist.assigneeAgentId) ?? assist.assigneeAgentId}`
+          : "Assignee: none",
+        assist && assist.workerAgentIds.length > 0
+          ? `Co-workers: ${assist.workerAgentIds.map((wid) => nameById.get(wid) ?? wid).join(", ")}`
+          : "Co-workers: none",
+      ].join(" · ");
+      await logActivity(id, "AGENT", "Job order assistance team updated", detail);
+      const refreshed = await prisma.ticket.findUnique({
+        where: { id },
+        include: { team: true, assignedAgent: true },
+      });
+      return NextResponse.json({
+        ...(refreshed ? await ticketJsonWithAssigneeColor(refreshed) : {}),
+        jobOrderApprovalMeta: updatedMeta,
+      });
+    }
+
     if (action === "complete_job_order_execution") {
       if (!canStaffMutateTicket) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -3474,52 +3793,116 @@ export async function PATCH(
         );
       }
       const joMeta = await initJobOrderApprovalMetaIfNeeded(id);
+      const actingAsExecutionAssignee = await isSessionAssigneeOfTicket({
+        operatorId: operator?.id,
+        sessionEmail: session.user.email,
+        ticket,
+      });
+      const sessionEmail = session.user.email?.trim() ?? "";
+      const sessionAgentIds = sessionEmail
+        ? (
+            await prisma.agent.findMany({
+              where: { email: { equals: sessionEmail, mode: "insensitive" } },
+              select: { id: true },
+            })
+          ).map((a) => a.id)
+        : operator?.id
+          ? [operator.id]
+          : [];
+      const actingAsAssistanceMember = sessionAgentIds.some((agentId) =>
+        isJobOrderAssistanceMember(agentId, joMeta),
+      );
       const gate = canMarkJobOrderDone({
         meta: joMeta,
         ticketStatus: ticket.status,
         ticketAssignedAgentId: ticket.assignedAgentId,
-        actorAgentId: operator?.id ?? null,
+        pendingExecutionAssigneeAgentId: joMeta.pendingExecutionAssigneeAgentId,
+        actorAgentId:
+          actingAsAssistanceMember && sessionAgentIds[0]
+            ? sessionAgentIds.find((id) => isJobOrderAssistanceMember(id, joMeta)) ??
+              operator?.id ??
+              null
+            : operator?.id ?? null,
+        actorIsExecutionAssignee:
+          actingAsExecutionAssignee ||
+          Boolean(
+            operator?.id &&
+              operator.id === (joMeta.pendingExecutionAssigneeAgentId?.trim() || null),
+          ),
         isAdmin: roleIsAdmin || roleIsCompanyAdmin,
       });
       if (!gate.ok) {
-        const status = gate.error.startsWith("Only the execution assignee") ? 403 : 400;
+        const status = gate.error.startsWith("Only the execution") ? 403 : 400;
         return NextResponse.json({ error: gate.error }, { status });
       }
+      const stampedMeta = markJobOrderJobDone(joMeta);
+      await saveJobOrderApprovalMeta(id, stampedMeta);
       await touchFirstResponse(ticket, "AGENT");
-      const updated = await prisma.ticket.update({
-        where: { id },
-        data: {
-          status: "FOR_CONFIRMATION",
-          resolvedAt: new Date(),
-        },
-        include: { team: true, assignedAgent: true },
-      });
       await logActivity(
         id,
         "AGENT",
         "Job order execution complete",
-        "Work marked done — sent for customer confirmation.",
+        "Work marked Job Done.",
       );
-      await logActivity(id, "AGENT", "Status → FOR_CONFIRMATION", "Execution complete.");
-      const smtpRecipient =
-        updated.requestorEmail?.trim() || updated.contactEmail;
-      await sendResolutionEmail({
-        ticketId: updated.id,
-        ticketNumber: updated.ticketNumber,
-        title: updated.title,
-        recipientEmail: smtpRecipient,
-        recipientName: updated.contactName,
-        resolutionNotes: updated.resolutionNotes,
+
+      if (isJobOrderReadyForConfirmation(stampedMeta)) {
+        const updated = await prisma.ticket.update({
+          where: { id },
+          data: {
+            status: "FOR_CONFIRMATION",
+            resolvedAt: new Date(),
+          },
+          include: { team: true, assignedAgent: true },
+        });
+        await logActivity(id, "AGENT", "Status → FOR_CONFIRMATION", "Job Done with approvals complete.");
+        const smtpRecipient =
+          updated.requestorEmail?.trim() || updated.contactEmail;
+        await sendResolutionEmail({
+          ticketId: updated.id,
+          ticketNumber: updated.ticketNumber,
+          title: updated.title,
+          recipientEmail: smtpRecipient,
+          recipientName: updated.contactName,
+          resolutionNotes: updated.resolutionNotes,
+        });
+        await logActivity(
+          id,
+          "SYSTEM",
+          "Resolution email sent",
+          `Mandatory rating request sent to ${smtpRecipient}.`,
+        );
+        return NextResponse.json({
+          ...(await ticketJsonWithAssigneeColor(updated)),
+          jobOrderApprovalMeta: stampedMeta,
+        });
+      }
+
+      const lastApproverId =
+        stampedMeta.proceduralStep !== "DONE"
+          ? currentJobOrderStepBoardAssigneeId(stampedMeta)
+          : null;
+      const assigneeWrite = proceduralBoardAssigneeWrite(lastApproverId, ticket.assignedAgentId);
+      const updated = await prisma.ticket.update({
+        where: { id },
+        data: {
+          status: "IN_PROGRESS",
+          resolvedAt: null,
+          ...assigneeWrite,
+        },
+        include: { team: true, assignedAgent: true },
       });
+      const pending = jobOrderProceduralStatusLabel(stampedMeta.proceduralStep);
       await logActivity(
         id,
         "SYSTEM",
-        "Resolution email sent",
-        `Mandatory rating request sent to ${smtpRecipient}.`,
+        "Awaiting final Approved By",
+        pending
+          ? `Job Done recorded. ${pending}`
+          : "Job Done recorded. Waiting on the final Approved By before customer confirmation.",
       );
       return NextResponse.json({
         ...(await ticketJsonWithAssigneeColor(updated)),
-        jobOrderApprovalMeta: joMeta,
+        jobOrderApprovalMeta: stampedMeta,
       });
     }
 
@@ -3528,11 +3911,11 @@ export async function PATCH(
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
       const joMeta = await initJobOrderApprovalMetaIfNeeded(id);
-      if (!isJobOrderProcedureGreenLit(joMeta)) {
+      if (!isJobOrderExecutionWorkspaceOpen(joMeta)) {
         return NextResponse.json(
           {
             error:
-              "Related Task Board is available only after all Job Order approvals are green-lit.",
+              "Related Task Board unlocks after Noted By and Approved By are complete (when those seats apply).",
           },
           { status: 400 },
         );
@@ -3603,11 +3986,11 @@ export async function PATCH(
         );
       }
       const joMetaForProject = await initJobOrderApprovalMetaIfNeeded(id);
-      if (!isJobOrderProcedureGreenLit(joMetaForProject)) {
+      if (!isJobOrderExecutionWorkspaceOpen(joMetaForProject)) {
         return NextResponse.json(
           {
             error:
-              "Related Task Board is available only after all Job Order approvals are green-lit.",
+              "Related Task Board unlocks after Noted By and Approved By are complete (when those seats apply).",
           },
           { status: 400 },
         );

@@ -83,11 +83,13 @@ export function matchPersonnelCompanyTeam(
   }
   const exact = teams.find((t) => companyKey(t.name) === key);
   if (exact) return { teamId: exact.id, teamName: exact.name };
-  const loose = teams.find((t) => {
-    const tk = companyKey(t.name);
-    return tk.includes(key) || key.includes(tk);
-  });
-  if (loose) return { teamId: loose.id, teamName: loose.name };
+  // Prefer the longest loose match so "MCHISI FAMES" does not land on
+  // "MCHISI LPG" (or vice versa) via a shared brand token like "mchisi".
+  const loose = teams
+    .map((t) => ({ team: t, tk: companyKey(t.name) }))
+    .filter(({ tk }) => tk.includes(key) || key.includes(tk))
+    .sort((a, b) => b.tk.length - a.tk.length)[0];
+  if (loose) return { teamId: loose.team.id, teamName: loose.team.name };
   return { teamId: `company:${key.replace(/\s+/g, "-")}`, teamName: display };
 }
 

@@ -92,6 +92,17 @@ export function orgChartMajorDepartments(
   return sections.filter((s) => s.depth <= 0 || !s.parentId);
 }
 
+/**
+ * Tops of a (possibly filtered) section list: no parent, or parent outside the set.
+ * Used by Group Board so a sub-department head sees their sub as a column, not only majors.
+ */
+export function orgChartScopeRootDepartments(
+  sections: OrgChartSectionOption[],
+): OrgChartSectionOption[] {
+  const idSet = new Set(sections.map((s) => s.id));
+  return sections.filter((s) => !s.parentId || !idSet.has(s.parentId));
+}
+
 /** Resolve company team by walking parents (same rule as server routing). */
 export function orgChartSectionCompanyTeamId(
   sections: Array<Pick<OrgChartSectionOption, "id" | "parentId" | "companyTeamId">>,

@@ -145,14 +145,26 @@ describe("personnelForbiddenForTicket", () => {
     ).toBe(true);
   });
 
-  it("allows company coordinator for ticket company", async () => {
-    portalCompanyAdminPrivilegesForEmailMock.mockResolvedValue(true);
-    resolveStaffCompanyTeamIdMock.mockResolvedValue("company-a");
+  it("allows Job Order Seek Assistance assignee", async () => {
     expect(
       await personnelForbiddenForTicket({
-        email: "coord@ex.com",
-        operatorId: "op-coord",
-        ticket: { teamId: "company-a", assignedAgentId: "op-1" },
+        email: "helper@ex.com",
+        operatorId: "assist-1",
+        ticket: {
+          teamId: "t1",
+          assignedAgentId: "op-1",
+          jobOrderApprovalMeta: {
+            proceduralStep: "APPROVED_BY_2",
+            completed: {},
+            assistanceTeam: {
+              scopeMode: "department",
+              orgChartSectionId: "sec-1",
+              companyTeamId: null,
+              assigneeAgentId: "assist-1",
+              workerAgentIds: [],
+            },
+          },
+        },
       }),
     ).toBe(false);
   });

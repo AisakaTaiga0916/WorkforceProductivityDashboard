@@ -9,6 +9,10 @@ import {
 import { parseKpiRangeFromQuery } from "@/lib/kpis";
 import { normalizeTimeZone } from "@/lib/kpi-recurrence";
 import { prisma } from "@/lib/prisma";
+import {
+  resolveViewerOrgChartSectionScope,
+  roleShowsDesignatedDepartmentLabel,
+} from "@/lib/org-chart-section-scope";
 import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
 import { parseTaskMetricsCadence } from "@/lib/task-metrics-range";
 
@@ -20,7 +24,12 @@ function rangeToYmd(from: Date, to: Date): { fromYmd: string; toYmd: string } {
 
 export async function GET(req: Request) {
   const startedAt = Date.now();
-  const { session, unauthorized } = await requireRole(["SuperAdmin", "HighAdmin", "Admin", "Personnel"]);
+  const { session, unauthorized } = await requireRole([
+    "SuperAdmin",
+    "HighAdmin",
+    "Admin",
+    "Personnel",
+  ]);
   if (unauthorized) return unauthorized;
 
   const { searchParams } = new URL(req.url);
@@ -30,11 +39,12 @@ export async function GET(req: Request) {
     searchParams.get("helpdeskCadence") ?? searchParams.get("metricsCadence"),
   );
   const timeZone = normalizeTimeZone(searchParams.get("tz"));
+  const role = session?.user?.role;
 
   const companyId =
-    session?.user?.role === "Admin"
+    role === "Admin"
       ? (await resolveStaffCompanyTeamId(session.user.email)) ?? "__none__"
-      : isElevatedUserRole(session?.user?.role)
+      : isElevatedUserRole(role)
         ? searchParams.get("companyId")?.trim() || null
         : null;
 
@@ -43,7 +53,9 @@ export async function GET(req: Request) {
   }
 
   let onlyMergedSourceUserId: string | null = null;
-  if (session?.user?.role === "Personnel") {
+  let allowedSectionIds: string[] | null = null;
+
+  if (role === "Personnel") {
     const email = session.user.email?.trim();
     if (!email) {
       return NextResponse.json({ sections: [], hiddenSectionIds: [] });
@@ -56,6 +68,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ sections: [], hiddenSectionIds: [] });
     }
     onlyMergedSourceUserId = portal.mergedSourceUserId.toString();
+  } else if (roleShowsDesignatedDepartmentLabel(role)) {
+    // Admin: designated org-chart departments (membership + headed sections + descendants).
+    const sectionScope = await resolveViewerOrgChartSectionScope(session.user.email);
+    if (sectionScope.sectionIds.length === 0) {
+      return NextResponse.json({ sections: [], hiddenSectionIds: [] });
+    }
+    allowedSectionIds = sectionScope.sectionIds;
   }
 
   const [payload, visibility] = await Promise.all([
@@ -65,6 +84,7 @@ export async function GET(req: Request) {
       metricsCadence,
       timeZone,
       companyTeamId: companyId && companyId !== "ALL" ? companyId : null,
+      allowedSectionIds,
       onlyMergedSourceUserId,
     }),
     getDepartmentMetricsVisibility(),

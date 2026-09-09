@@ -460,7 +460,7 @@ function InsightsPageInner() {
     let cancelled = false;
     async function loadRequestDepartments() {
       try {
-        const res = await fetch("/api/org-chart-sections", { cache: "no-store" });
+        const res = await fetch("/api/org-chart-sections?scope=viewer", { cache: "no-store" });
         if (!res.ok) {
           if (!cancelled) setRequestOrgChartSections([]);
           return;
@@ -1673,7 +1673,7 @@ function TaskMetricsPanel({
     let cancelled = false;
     async function loadOrgChartDepartments() {
       try {
-        const res = await fetch("/api/org-chart-sections", { cache: "no-store" });
+        const res = await fetch("/api/org-chart-sections?scope=viewer", { cache: "no-store" });
         if (!res.ok) {
           if (!cancelled) {
             setOrgChartSections([]);
@@ -1903,6 +1903,8 @@ function TaskMetricsPanel({
                       showEmptyPillars={!isRequests}
                       canExtendView={canExtendView}
                       taskType={section.value}
+                      companyId={selectedCompany || undefined}
+                      reportingTimeZone={reportingTimeZone}
                     />
                   </div>
                 );
@@ -1923,6 +1925,8 @@ function TaskMetricsPanel({
               }
               canExtendView={canExtendView}
               taskType={taskType}
+              companyId={selectedCompany || undefined}
+              reportingTimeZone={reportingTimeZone}
             />
           )
         ) : metricsViewMode === "departments" ? (

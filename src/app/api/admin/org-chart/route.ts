@@ -121,6 +121,7 @@ export async function GET() {
   if (denied) return denied;
   const nodes = await prismaPrimary.orgChartNode.findMany({
     include: {
+      section: { select: { name: true } },
       sectionMemberships: {
         select: {
           sectionId: true,
@@ -132,7 +133,78 @@ export async function GET() {
     },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
-  return NextResponse.json(nodes);
+
+  // Keep node company labels in sync with HRIS (e.g. FAMES vs stale LPG).
+  const mergedIds = [
+    ...new Set(nodes.map((n) => n.mergedSourceUserId.trim()).filter(Boolean)),
+  ]
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+
+  if (mergedIds.length > 0) {
+    const people = await prismaSecondary.mergedUser.findMany({
+      where: { sourceUserId: { in: mergedIds.map((id) => BigInt(id)) }, isActive: true },
+      select: {
+        sourceUserId: true,
+        name: true,
+        role: true,
+        position: true,
+        department: true,
+        companyName: true,
+      },
+    });
+    const byMerged = new Map(
+      people.map((person) => {
+        const mapped = mapHrisToPortalRole({
+          hrisRole: person.role,
+          position: person.position,
+          department: person.department,
+        });
+        return [
+          person.sourceUserId.toString(),
+          {
+            personName: person.name,
+            personRole: mapped.portalRole,
+            companyName: resolveRosterCompanyName(person.companyName) ?? person.companyName,
+          },
+        ] as const;
+      }),
+    );
+
+    const refreshOps: Prisma.PrismaPromise<unknown>[] = [];
+    for (const node of nodes) {
+      const snap = byMerged.get(node.mergedSourceUserId.trim());
+      if (!snap) continue;
+      let nextCompany = snap.companyName ?? null;
+      if (/fames/i.test(node.section?.name ?? "")) {
+        nextCompany = "MCHISI FAMES";
+      }
+      const companyChanged = (node.companyName ?? null) !== nextCompany;
+      const nameChanged = node.personName !== snap.personName;
+      const roleChanged = (node.personRole ?? null) !== (snap.personRole ?? null);
+      if (!companyChanged && !nameChanged && !roleChanged) continue;
+      refreshOps.push(
+        prismaPrimary.orgChartNode.update({
+          where: { id: node.id },
+          data: {
+            companyName: nextCompany,
+            personName: snap.personName,
+            personRole: snap.personRole,
+          },
+        }),
+      );
+      node.companyName = nextCompany;
+      node.personName = snap.personName;
+      node.personRole = snap.personRole;
+    }
+    if (refreshOps.length > 0) {
+      await prismaPrimary.$transaction(refreshOps);
+    }
+  }
+
+  // Preserve prior response shape (section was only loaded for label sync).
+  const payload = nodes.map(({ section: _section, ...rest }) => rest);
+  return NextResponse.json(payload);
 }
 
 export async function POST(req: Request) {
