@@ -217,15 +217,6 @@ export async function PATCH(req: Request) {
         { status: 403 },
       );
     }
-    if (role === "Admin" || role === "Personnel") {
-      return NextResponse.json(
-        {
-          error:
-            "Personnel and Admin are set from org-chart department and sub-department heads (Workforce → Sectioning).",
-        },
-        { status: 400 },
-      );
-    }
     data.role = role;
     data.headPrivileges = false;
     if (role !== "Customer") {

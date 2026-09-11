@@ -243,6 +243,10 @@ export const FilterIcon = ({
     case "Departments":
     case "Section":
       return <Network className="size-3.5" />;
+    case "Sent by":
+      return <Building2 className="size-3.5" />;
+    case "Received":
+      return <Network className="size-3.5" />;
     case "Request type":
       return <FileText className="size-3.5" />;
     case "Assigned":

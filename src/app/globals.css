@@ -1035,11 +1035,13 @@ html:not(.dark) .stoic-label {
 .org-chart-flow {
   --org-line: #a8a29e;
   --org-line-strong: #78716c;
+  --org-tree-line: #1e3a5f;
 }
 
 html.dark .org-chart-flow {
   --org-line: #57534e;
   --org-line-strong: #a8a29e;
+  --org-tree-line: #93c5fd;
 }
 
 .org-chart-flow .react-flow__edges {
@@ -1051,8 +1053,9 @@ html.dark .org-chart-flow {
 
 .org-chart-flow .react-flow__edge-path {
   stroke: var(--org-line-strong);
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke-width: 2;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
 }
 
 .org-chart-flow .react-flow__edge.selected .react-flow__edge-path,

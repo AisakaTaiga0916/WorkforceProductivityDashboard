@@ -254,7 +254,7 @@ export function CompanyKanban({
   boardLayer = "company",
   breadcrumb = [],
   overviewHref,
-  sectionHrefTemplate,
+  sectionHrefTemplate: _sectionHrefTemplate,
 }: {
   columns: CompanyBoardColumn[];
   refreshSeconds?: number;
@@ -263,17 +263,40 @@ export function CompanyKanban({
   /** Link back to department majors (clears section). */
   overviewHref?: string;
   /**
-   * Department drill URL with `__SECTION__` placeholder for the section id
-   * (server components cannot pass functions to client components).
+   * @deprecated Drill URLs are built on the client now. Kept for call-site compat.
    */
   sectionHrefTemplate?: string;
 }) {
+  void _sectionHrefTemplate;
   const router = useRouter();
-  const sectionHref = (sectionId: string) => {
-    if (!sectionHrefTemplate) return overviewHref ?? "/agent?board=company&layer=department";
-    return sectionHrefTemplate.replaceAll("__SECTION__", encodeURIComponent(sectionId));
-  };
-  const canDrillSections = Boolean(sectionHrefTemplate);
+  /** Client-built drill URL (ignore server `__SECTION__` template — encoding broke navigation). */
+  const sectionHref = useCallback((sectionId: string) => {
+    const qs = new URLSearchParams();
+    qs.set("board", "company");
+    qs.set("layer", "department");
+    qs.set("section", sectionId);
+    if (typeof window !== "undefined") {
+      const current = new URLSearchParams(window.location.search);
+      const company = current.get("company");
+      if (company && company !== "ALL") qs.set("company", company);
+      const priority = current.get("priority");
+      if (priority && priority !== "ALL") qs.set("priority", priority);
+      const requestType = current.get("requestType");
+      if (requestType && requestType !== "ALL") qs.set("requestType", requestType);
+      const sentBy = current.get("sentBy");
+      if (sentBy && sentBy !== "ALL") qs.set("sentBy", sentBy);
+      const received = current.get("received");
+      if (received && received !== "ALL") qs.set("received", received);
+    }
+    return `/agent?${qs.toString()}`;
+  }, []);
+  const drillToSection = useCallback(
+    (sectionId: string) => {
+      router.push(sectionHref(sectionId));
+    },
+    [router, sectionHref],
+  );
+  const canDrillSections = boardLayer === "department";
   const [modalState, setModalState] = useState<PriorityModalState | null>(null);
   const [savedOrderIds, setSavedOrderIds] = useState<string[]>([]);
   const [draftOrderIds, setDraftOrderIds] = useState<string[]>([]);
@@ -353,7 +376,6 @@ export function CompanyKanban({
     setDropTargetId(null);
   };
 
-  const entityLabel = boardLayer === "department" ? "department" : "company";
   const emptyLabel =
     boardLayer === "department" ? "No departments in view" : "No companies in view";
 
@@ -473,7 +495,6 @@ export function CompanyKanban({
             <CompanyCard
               key={col.teamId}
               col={col}
-              entityLabel={entityLabel}
               reorderEnabled={editing}
               dragging={editing && draggingId === col.teamId}
               dropTarget={editing && dropTargetId === col.teamId && draggingId !== col.teamId}
@@ -483,11 +504,16 @@ export function CompanyKanban({
               onActivate={() => {
                 if (editing) return;
                 if (boardLayer === "department" && col.canDrillDown && canDrillSections) {
-                  router.push(sectionHref(col.teamId));
+                  drillToSection(col.teamId);
                   return;
                 }
                 setKanbanFocusId(col.teamId);
               }}
+              onDrillDown={
+                boardLayer === "department" && col.canDrillDown && canDrillSections
+                  ? () => drillToSection(col.teamId)
+                  : undefined
+              }
               onDragStartCard={() => {
                 if (!editing) return;
                 setDraggingId(col.teamId);
@@ -662,7 +688,8 @@ function CompanyFocusKanban({
                 {col.companyName}
               </p>
               <p className="text-[11px] text-zinc-600 dark:text-zinc-500">
-                {allTickets.length} request{allTickets.length === 1 ? "" : "s"} · kanban by status
+                Requests sent to this {boardLayer === "department" ? "department" : "company"} ·{" "}
+                {allTickets.length} request{allTickets.length === 1 ? "" : "s"}
                 {flowActive ? " · drag enabled" : ""}
               </p>
             </div>
@@ -843,9 +870,9 @@ function CompanyLogoMark({
 
 function CompanyCard({
   col,
-  entityLabel,
   onOpenPriority,
   onActivate,
+  onDrillDown,
   reorderEnabled,
   dragging,
   dropTarget,
@@ -856,9 +883,9 @@ function CompanyCard({
   onDropCard,
 }: {
   col: CompanyBoardColumn;
-  entityLabel: string;
   onOpenPriority: (priority: TicketPriority, tickets: CompanyTicketCard[]) => void;
   onActivate: () => void;
+  onDrillDown?: () => void;
   reorderEnabled: boolean;
   dragging: boolean;
   dropTarget: boolean;
@@ -882,7 +909,8 @@ function CompanyCard({
       onDoubleClick={(e) => {
         if (reorderEnabled) return;
         const target = e.target as HTMLElement | null;
-        if (target?.closest("button")) return;
+        if (target?.closest("button, a")) return;
+        e.preventDefault();
         onActivate();
       }}
       title={
@@ -890,7 +918,7 @@ function CompanyCard({
           ? undefined
           : col.canDrillDown
             ? `Double-click to open sub-departments of ${col.companyName}`
-            : `Double-click for ${entityLabel} kanban view`
+            : `Double-click to view requests sent to ${col.companyName}`
       }
       className={cn(
         "flex min-h-[8.5rem] flex-col overflow-hidden rounded-2xl border bg-white shadow-[0_8px_28px_rgba(0,0,0,0.06)] transition dark:bg-surface dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)]",
@@ -899,10 +927,20 @@ function CompanyCard({
           : "border-dashed border-zinc-300 dark:border-zinc-700",
         dragging && "opacity-50 ring-2 ring-orange-400/50",
         dropTarget && "border-orange-400 ring-2 ring-orange-400/40 dark:border-orange-500",
-        !reorderEnabled && "cursor-pointer",
+        !reorderEnabled && "cursor-pointer select-none",
       )}
     >
-      <div className="flex items-center gap-2 border-b border-zinc-200 px-3 py-3 dark:border-zinc-800 sm:gap-3 sm:px-4">
+      <div
+        className="flex items-center gap-2 border-b border-zinc-200 px-3 py-3 dark:border-zinc-800 sm:gap-3 sm:px-4"
+        onDoubleClick={(e) => {
+          if (reorderEnabled) return;
+          const target = e.target as HTMLElement | null;
+          if (target?.closest("button, a")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onActivate();
+        }}
+      >
         {reorderEnabled ? (
           <button
             type="button"
@@ -935,6 +973,20 @@ function CompanyCard({
             {col.canDrillDown ? " · has sub-departments" : ""}
           </p>
         </div>
+        {onDrillDown && !reorderEnabled ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDrillDown();
+            }}
+            className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-sky-800 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-200 dark:hover:bg-sky-900/60"
+            title={`Open sub-departments of ${col.companyName}`}
+          >
+            Subs
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        ) : null}
       </div>
 
       <div className="flex flex-1 flex-col gap-2 p-3">

@@ -13,6 +13,7 @@ import {
   resolveOrgChartSectionIdsForMergedUser,
   resolveAgentIdsForOrgChartSection,
 } from "@/lib/org-chart-section-roster";
+import { loadHrisAssignableStaff } from "@/lib/hris-staff-roster";
 import { isElevatedUserRole } from "@/lib/auth";
 import { hasSubKpiAssignedTo } from "@/lib/kpi-subkpis";
 import { normalizePortalRole } from "@/lib/staff-role";
@@ -41,6 +42,42 @@ export function collectOrgChartDescendantIds(
       out.add(id);
       stack.push(...(childrenByParent.get(id) ?? []));
     }
+  }
+  return [...out];
+}
+
+/**
+ * Person reports-to downline: root node ids plus everyone who reports to them
+ * (transitively) via OrgChartNode.parentId.
+ */
+export function collectOrgChartPersonDownlineNodeIds(
+  rootNodeIds: string[],
+  nodes: Array<{ id: string; parentId: string | null }>,
+): string[] {
+  const nodeIds = new Set(nodes.map((n) => n.id));
+  const roots = [
+    ...new Set(
+      rootNodeIds
+        .map((id) => id.trim())
+        .filter((id) => id && nodeIds.has(id)),
+    ),
+  ];
+  if (roots.length === 0) return [];
+
+  const childrenByParent = new Map<string | null, string[]>();
+  for (const n of nodes) {
+    const list = childrenByParent.get(n.parentId) ?? [];
+    list.push(n.id);
+    childrenByParent.set(n.parentId, list);
+  }
+
+  const out = new Set<string>();
+  const stack = [...roots];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (out.has(id)) continue;
+    out.add(id);
+    stack.push(...(childrenByParent.get(id) ?? []));
   }
   return [...out];
 }
@@ -303,25 +340,130 @@ export async function ensurePortalAdminForAllOrgChartSectionHeads(): Promise<num
 }
 
 export type ViewerSectionScope = {
-  /** Direct memberships + descendants. Empty if the user has no org-chart section. */
+  /**
+   * Department memberships / headed sections / org-chart downline departments
+   * (including nested sub-departments). Empty when the user has no chart placement.
+   */
   sectionIds: string[];
-  /** Agent ids of people in those sections (for task-board filtering). */
+  /** Agent ids in those sections plus people in the viewer's reports-to downline. */
   agentIds: string[];
 };
+
+/**
+ * Departments and people under the viewer's org-chart reports-to tree.
+ * Lets chart-only individuals (no department membership) still see their downline
+ * in tasks / requests — sections that report to them or their reports, plus
+ * departments their reports belong to, and agent ids for those people.
+ */
+export async function resolveOrgChartDownlineScopeForMergedUser(
+  mergedSourceUserId: string | null | undefined,
+): Promise<ViewerSectionScope> {
+  const key = (mergedSourceUserId ?? "").trim();
+  if (!key) return { sectionIds: [], agentIds: [] };
+
+  const [nodes, sections, memberships, staff] = await Promise.all([
+    prisma.orgChartNode.findMany({
+      select: {
+        id: true,
+        parentId: true,
+        sectionId: true,
+        mergedSourceUserId: true,
+      },
+    }),
+    prisma.orgChartSection.findMany({
+      select: {
+        id: true,
+        parentId: true,
+        reportsToNodeId: true,
+        headNodeId: true,
+      },
+    }),
+    prisma.orgChartNodeSectionMembership.findMany({
+      select: { sectionId: true, nodeId: true },
+    }),
+    loadHrisAssignableStaff({}),
+  ]);
+
+  const rootNodeIds = nodes
+    .filter((n) => (n.mergedSourceUserId ?? "").trim() === key)
+    .map((n) => n.id);
+  if (rootNodeIds.length === 0) return { sectionIds: [], agentIds: [] };
+
+  const downlineNodeIds = collectOrgChartPersonDownlineNodeIds(rootNodeIds, nodes);
+  const downlineSet = new Set(downlineNodeIds);
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+  const sectionRoots = new Set<string>();
+  for (const s of sections) {
+    if (s.reportsToNodeId && downlineSet.has(s.reportsToNodeId)) {
+      sectionRoots.add(s.id);
+    }
+    if (s.headNodeId && downlineSet.has(s.headNodeId)) {
+      sectionRoots.add(s.id);
+    }
+  }
+  for (const n of nodes) {
+    if (!downlineSet.has(n.id)) continue;
+    if (n.sectionId) sectionRoots.add(n.sectionId);
+  }
+  for (const m of memberships) {
+    if (downlineSet.has(m.nodeId)) sectionRoots.add(m.sectionId);
+  }
+
+  const sectionIds = collectOrgChartDescendantIds([...sectionRoots], sections);
+  const sectionIdSet = new Set(sectionIds);
+
+  const agentByMerged = new Map<string, string>();
+  for (const row of staff) {
+    if (row.mergedSourceUserId && row.agentId) {
+      agentByMerged.set(row.mergedSourceUserId, row.agentId);
+    }
+  }
+
+  const agentIds = new Set<string>();
+  for (const nodeId of downlineNodeIds) {
+    const merged = (nodeById.get(nodeId)?.mergedSourceUserId ?? "").trim();
+    if (!merged) continue;
+    const agentId = agentByMerged.get(merged);
+    if (agentId) agentIds.add(agentId);
+  }
+  for (const m of memberships) {
+    if (!sectionIdSet.has(m.sectionId)) continue;
+    const merged = (nodeById.get(m.nodeId)?.mergedSourceUserId ?? "").trim();
+    if (!merged) continue;
+    const agentId = agentByMerged.get(merged);
+    if (agentId) agentIds.add(agentId);
+  }
+  for (const s of sections) {
+    if (!sectionIdSet.has(s.id) || !s.headNodeId) continue;
+    const merged = (nodeById.get(s.headNodeId)?.mergedSourceUserId ?? "").trim();
+    if (!merged) continue;
+    const agentId = agentByMerged.get(merged);
+    if (agentId) agentIds.add(agentId);
+  }
+
+  return { sectionIds, agentIds: [...agentIds] };
+}
 
 export async function resolveViewerOrgChartSectionScope(
   email: string | null | undefined,
 ): Promise<ViewerSectionScope> {
   const mergedId = await resolveMergedSourceUserIdForSessionEmail(email);
-  const membershipIds = await resolveOrgChartSectionIdsForMergedUser(mergedId);
-  const sectionIds = await expandOrgChartSectionIdsWithDescendants(membershipIds);
-  if (sectionIds.length === 0) {
+  const [membershipIds, downline] = await Promise.all([
+    resolveOrgChartSectionIdsForMergedUser(mergedId),
+    resolveOrgChartDownlineScopeForMergedUser(mergedId),
+  ]);
+  const fromMembership = await expandOrgChartSectionIdsWithDescendants(membershipIds);
+  const sectionIds = [...new Set([...fromMembership, ...downline.sectionIds])];
+  if (sectionIds.length === 0 && downline.agentIds.length === 0) {
     return { sectionIds: [], agentIds: [] };
   }
   const agentIdSets = await Promise.all(
     sectionIds.map((id) => resolveAgentIdsForOrgChartSection(id)),
   );
-  const agentIds = [...new Set(agentIdSets.flat())];
+  const agentIds = [
+    ...new Set([...agentIdSets.flat(), ...downline.agentIds]),
+  ];
   return { sectionIds, agentIds };
 }
 

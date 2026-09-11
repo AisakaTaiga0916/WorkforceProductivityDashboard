@@ -15,6 +15,11 @@ import {
   roleShowsDesignatedDepartmentLabel,
   sectionScopedTicketWhere,
 } from "@/lib/org-chart-section-scope";
+import {
+  formatDepartmentDesignationWithExecutiveTitle,
+  resolveExecutiveTitle,
+} from "@/lib/org-chart-executive-titles";
+import { resolveMergedSourceUserIdForSessionEmail } from "@/lib/approval-position-resolver";
 import { countTaskBoardLanes } from "@/lib/task-board-lane-counts";
 import { withTtlCache } from "@/lib/ttl-cache";
 import { getWorkforceViewVisibility } from "@/lib/workforce-view-visibility-db";
@@ -54,11 +59,12 @@ async function resolveDesignations(input: {
   }
 
   const email = (input.email ?? "").trim();
-  const [companyTeamId, departmentDesignation] = await Promise.all([
+  const [companyTeamId, departmentScopeLabel, mergedId] = await Promise.all([
     resolveStaffCompanyTeamId(email),
     roleShowsDesignatedDepartmentLabel(input.role)
       ? resolveViewerDepartmentScopeLabel(email)
       : Promise.resolve(null),
+    resolveMergedSourceUserIdForSessionEmail(email),
   ]);
 
   let companyDesignation: string | null = null;
@@ -75,6 +81,7 @@ async function resolveDesignations(input: {
       select: {
         staffDesignatedCompany: { select: { name: true } },
         company: { select: { name: true } },
+        name: true,
       },
     });
     companyDesignation =
@@ -82,6 +89,31 @@ async function resolveDesignations(input: {
       portal?.company?.name?.trim() ||
       null;
   }
+
+  let personName: string | null = null;
+  if (mergedId) {
+    const node = await prisma.orgChartNode.findFirst({
+      where: { mergedSourceUserId: mergedId },
+      select: { personName: true },
+    });
+    personName = node?.personName ?? null;
+  }
+  if (!personName && email) {
+    const portal = await prisma.portalAccount.findFirst({
+      where: { email: { equals: email, mode: "insensitive" } },
+      select: { name: true },
+    });
+    personName = portal?.name ?? null;
+  }
+
+  const executiveTitle = resolveExecutiveTitle({
+    mergedSourceUserId: mergedId,
+    personName,
+  });
+  const departmentDesignation = formatDepartmentDesignationWithExecutiveTitle(
+    executiveTitle,
+    departmentScopeLabel,
+  );
 
   return { companyDesignation, departmentDesignation };
 }

@@ -62,19 +62,6 @@ export async function PATCH(req: Request) {
         { status: 403 },
       );
     }
-    if (
-      portalRole === "Admin" ||
-      portalRole === "Personnel" ||
-      portalRole === "HighAdmin"
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Personnel, Admin, and HighAdmin are set from the Org Chart (Workforce → Org. Chart). Use ListView for SuperAdmin / Personnel-Guard / Customer.",
-        },
-        { status: 400 },
-      );
-    }
 
     const mergedSourceUserId = BigInt(mergedIdRaw);
     const sourceTags = resolveHrisSourceTags();
@@ -203,7 +190,9 @@ export async function PATCH(req: Request) {
     }
 
     const wasSuper = isPlatformSuperAdminPortalRole(portal.role);
-    // Portal is the live role SoT for sessions; apply SuperAdmin choice first.
+    // Portal is the live role SoT for sessions.
+    // Manual Admin from ListView does not set headPrivileges — org-chart reconcile
+    // only demotes Admins that were promoted via department headship.
     await prismaPrimary.portalAccount.update({
       where: { id: portal.id },
       data: {

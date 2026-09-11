@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   collectOrgChartDescendantIds,
+  collectOrgChartPersonDownlineNodeIds,
   kpiRowInSectionAgentScope,
   roleUsesCompanyDepartmentTaskAssignScope,
   roleUsesOrgChartSectionBoardScope,
@@ -39,6 +40,33 @@ describe("collectOrgChartDescendantIds (request Departments filter)", () => {
     expect(collectOrgChartDescendantIds(["gs", "acct"], tree).sort()).toEqual(
       ["acct", "gs"].sort(),
     );
+  });
+});
+
+describe("collectOrgChartPersonDownlineNodeIds (chart-only manager scope)", () => {
+  const people = [
+    { id: "ceo", parentId: null },
+    { id: "coo", parentId: "ceo" },
+    { id: "peer", parentId: null },
+    { id: "mgr", parentId: "coo" },
+    { id: "staff", parentId: "mgr" },
+  ];
+
+  it("includes the manager and everyone who reports to them transitively", () => {
+    expect(collectOrgChartPersonDownlineNodeIds(["ceo"], people).sort()).toEqual(
+      ["ceo", "coo", "mgr", "staff"].sort(),
+    );
+  });
+
+  it("does not include peers outside the reports-to tree", () => {
+    const ids = collectOrgChartPersonDownlineNodeIds(["coo"], people);
+    expect(ids.sort()).toEqual(["coo", "mgr", "staff"].sort());
+    expect(ids).not.toContain("ceo");
+    expect(ids).not.toContain("peer");
+  });
+
+  it("returns empty when the root is unknown", () => {
+    expect(collectOrgChartPersonDownlineNodeIds(["missing"], people)).toEqual([]);
   });
 });
 

@@ -351,6 +351,32 @@ export async function PATCH(req: Request) {
 
   const body = await req.json();
 
+  // Batch lock / unlock reports-to (Shift-click multi-select).
+  if (
+    body.ids !== undefined &&
+    body.parentLocked !== undefined &&
+    body.parentId === undefined &&
+    body.parentEitherOrLinkId === undefined
+  ) {
+    const rawIds: unknown = body.ids;
+    const ids = Array.isArray(rawIds)
+      ? [...new Set(rawIds.map((x: unknown) => String(x)).filter(Boolean))]
+      : [];
+    if (ids.length === 0) {
+      return NextResponse.json({ error: "At least one node id is required." }, { status: 400 });
+    }
+    const parentLocked = Boolean(body.parentLocked);
+    const result = await prismaPrimary.orgChartNode.updateMany({
+      where: { id: { in: ids } },
+      data: { parentLocked },
+    });
+    return NextResponse.json({
+      updatedCount: result.count,
+      ids,
+      parentLocked,
+    });
+  }
+
   // Batch re-parent: move several nodes under a single new manager (or root)
   // in one operation. Each moved node's direct reports re-attach to that node's
   // former parent (the next head up), same rule as single-node reparent.

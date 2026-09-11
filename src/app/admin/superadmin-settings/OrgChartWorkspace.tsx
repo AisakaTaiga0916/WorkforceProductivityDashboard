@@ -35,6 +35,7 @@ import {
   orgChartOutlineById,
   orgChartReportsToOptions,
   orgChartSectionsLayoutKey,
+  ORG_CHART_OUTSIDE_SECTIONS_ID,
   parseReportsToValue,
   sortOrgNodesByLayer,
 } from "./org-chart-layers";
@@ -234,6 +235,13 @@ export function OrgChartWorkspace({
   const [addParentId, setAddParentId] = useState<string>("");
   /** Optional department to place new/queued people into when adding. */
   const [addSectionId, setAddSectionId] = useState<string>("");
+  /** Ask the diagram to open a department (after add, or when Add form changes). */
+  const [focusSectionRequest, setFocusSectionRequest] = useState<{
+    sectionId: string;
+    token: number;
+  } | null>(null);
+  /** Persist department drill across chart remounts / lock updates. */
+  const [drillStack, setDrillStack] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [eitherOrPickerOpen, setEitherOrPickerOpen] = useState(false);
   const [eitherOrPersonA, setEitherOrPersonA] = useState("");
@@ -264,26 +272,13 @@ export function OrgChartWorkspace({
     if (!addSectionId) return new Set<string>();
     const ids = new Set<string>();
     for (const n of nodes) {
-      if (n.sectionMemberships.some((m) => m.sectionId === addSectionId)) {
-        ids.add(n.mergedSourceUserId);
-      }
+      const inSection =
+        n.sectionId === addSectionId ||
+        n.sectionMemberships.some((m) => m.sectionId === addSectionId);
+      if (inSection) ids.add(n.mergedSourceUserId);
     }
     return ids;
   }, [nodes, addSectionId]);
-
-  const departmentOptions = useMemo(() => {
-    return [...sections]
-      .map((s) => ({
-        id: s.id,
-        label: sectionNameById.get(s.id) ?? s.name,
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [sections, sectionNameById]);
-
-  const addSectionLabel = useMemo(() => {
-    if (!addSectionId) return null;
-    return sectionNameById.get(addSectionId) ?? sections.find((s) => s.id === addSectionId)?.name ?? "department";
-  }, [addSectionId, sectionNameById, sections]);
 
   /** Prefer the department head; else its reports-to person; else walk parents. */
   function reportsToForDepartment(sectionId: string): string {
@@ -303,6 +298,60 @@ export function OrgChartWorkspace({
     }
     return "";
   }
+
+  const requestFocusSection = useCallback((sectionId: string) => {
+    const id = sectionId.trim();
+    if (!id) return;
+    setFocusSectionRequest((prev) => ({
+      sectionId: id,
+      token: (prev?.token ?? 0) + 1,
+    }));
+  }, []);
+
+  const applyAddSectionId = useCallback(
+    (next: string, opts?: { focus?: boolean }) => {
+      setAddSectionId(next);
+      if (next) {
+        setAddParentId(reportsToForDepartment(next));
+        if (opts?.focus !== false) requestFocusSection(next);
+      } else if (sections.length > 0 && opts?.focus !== false) {
+        // Chart-only individuals appear on the department overview.
+        setDrillStack([]);
+      }
+    },
+    // reportsToForDepartment closes over sections/nodes; re-bind when those change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sections, nodes, requestFocusSection],
+  );
+
+  const handleDiagramSectionChange = useCallback(
+    (sectionId: string | null) => {
+      if (!sectionId) return;
+      if (sectionId === ORG_CHART_OUTSIDE_SECTIONS_ID) {
+        if (addSectionId) setAddSectionId("");
+        return;
+      }
+      if (addSectionId === sectionId) return;
+      setAddSectionId(sectionId);
+      setAddParentId(reportsToForDepartment(sectionId));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [addSectionId, sections, nodes],
+  );
+
+  const departmentOptions = useMemo(() => {
+    return [...sections]
+      .map((s) => ({
+        id: s.id,
+        label: sectionNameById.get(s.id) ?? s.name,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [sections, sectionNameById]);
+
+  const addSectionLabel = useMemo(() => {
+    if (!addSectionId) return null;
+    return sectionNameById.get(addSectionId) ?? sections.find((s) => s.id === addSectionId)?.name ?? "department";
+  }, [addSectionId, sectionNameById, sections]);
 
   useEffect(() => {
     if (!addSectionId) return;
@@ -463,17 +512,18 @@ export function OrgChartWorkspace({
 
   const load = useCallback(async () => {
     const [nodesRes, linksRes] = await Promise.all([
-      fetch("/api/admin/org-chart"),
-      fetch("/api/admin/org-chart-either-or"),
+      fetch("/api/admin/org-chart", { cache: "no-store" }),
+      fetch("/api/admin/org-chart-either-or", { cache: "no-store" }),
     ]);
     if (!nodesRes.ok) {
       setError("Could not load the chart.");
-      return;
+      return false;
     }
     setNodes(await nodesRes.json());
     if (linksRes.ok) {
       setEitherOrLinks(await linksRes.json());
     }
+    return true;
   }, [setError, setNodes]);
 
   const run = useCallback(
@@ -488,7 +538,8 @@ export function OrgChartWorkspace({
           setError(body?.error ?? "Request failed.");
           return false;
         }
-        await load();
+        const loaded = await load();
+        if (!loaded) return false;
         setMessage(success);
         return true;
       } finally {
@@ -564,7 +615,13 @@ export function OrgChartWorkspace({
     };
     if (addSectionId) body.sectionId = addSectionId;
     const count = toAdd.length;
-    const deptNote = addSectionLabel ? ` in “${addSectionLabel}”` : "";
+    const deptNote = addSectionLabel
+      ? ` in “${addSectionLabel}”`
+      : sections.length > 0
+        ? " as an individual (no department)"
+        : "";
+    const targetSectionId = addSectionId;
+    const reloadSectionCounts = Boolean(addSectionId);
     void run(
       () =>
         fetch("/api/admin/org-chart", {
@@ -575,16 +632,22 @@ export function OrgChartWorkspace({
       count === 1
         ? `${toAdd[0]!.name} added under ${reportsToParentLabel}${deptNote}.`
         : `${count} members added under ${reportsToParentLabel}${deptNote}.`,
-    ).then(async () => {
+    ).then(async (ok) => {
+      if (!ok) return;
       setPendingAdds([]);
       setQuery("");
       setPickerOpen(false);
-      if (addSectionId) {
-        try {
-          await reloadSections();
-        } catch {
-          /* chart reload already ran via run() */
+      if (targetSectionId) {
+        requestFocusSection(targetSectionId);
+        if (reloadSectionCounts) {
+          try {
+            await reloadSections();
+          } catch {
+            /* chart reload already ran via run() */
+          }
         }
+      } else if (sections.length > 0) {
+        setDrillStack([]);
       }
     });
   }
@@ -732,21 +795,72 @@ export function OrgChartWorkspace({
     [sections, nodes, reloadSections, load, setBusy, setError, setMessage],
   );
 
-  const toggleParentLock = useCallback(
-    (id: string, locked: boolean) => {
-      void run(
-        () =>
-          fetch("/api/admin/org-chart", {
+  const setParentLockedMany = useCallback(
+    (ids: string[], locked: boolean) => {
+      const uniqueIds = [...new Set(ids.filter(Boolean))];
+      if (uniqueIds.length === 0) return;
+      void (async () => {
+        setBusy(true);
+        setError(null);
+        try {
+          const res = await fetch("/api/admin/org-chart", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id, parentLocked: locked }),
-          }),
-        locked
-          ? "Member locked to their current manager."
-          : "Member unlocked — reports-to can be changed.",
-      );
+            body: JSON.stringify(
+              uniqueIds.length === 1
+                ? { id: uniqueIds[0], parentLocked: locked }
+                : { ids: uniqueIds, parentLocked: locked },
+            ),
+          });
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            parentLocked?: boolean;
+          };
+          if (!res.ok) {
+            setError(body.error ?? "Could not update lock.");
+            return;
+          }
+          const nextLocked = body.parentLocked ?? locked;
+          const idSet = new Set(uniqueIds);
+          setNodes(
+            nodes.map((n) =>
+              idSet.has(n.id) ? { ...n, parentLocked: nextLocked } : n,
+            ),
+          );
+          setMessage(
+            uniqueIds.length === 1
+              ? nextLocked
+                ? "Member locked to their current manager."
+                : "Member unlocked — reports-to can be changed."
+              : nextLocked
+                ? `Locked ${uniqueIds.length} members to their current managers.`
+                : `Unlocked ${uniqueIds.length} members.`,
+          );
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Could not update lock.");
+        } finally {
+          setBusy(false);
+        }
+      })();
     },
-    [run],
+    [nodes, setBusy, setError, setMessage, setNodes],
+  );
+
+  const toggleParentLock = useCallback(
+    (id: string, locked: boolean) => {
+      const ids =
+        chartSelectedIds.length > 1 && chartSelectedIds.includes(id)
+          ? chartSelectedIds
+          : [id];
+      setParentLockedMany(ids, locked);
+    },
+    [chartSelectedIds, setParentLockedMany],
+  );
+
+  const bulkLockedCount = useMemo(
+    () =>
+      chartSelectedIds.filter((id) => nodes.find((n) => n.id === id)?.parentLocked).length,
+    [chartSelectedIds, nodes],
   );
 
   function applyBulkReportsTo() {
@@ -755,6 +869,11 @@ export function OrgChartWorkspace({
       return;
     }
     reparentMany(bulkMovableIds, bulkReportsTo);
+  }
+
+  function applyBulkLock(locked: boolean) {
+    if (chartSelectedIds.length === 0) return;
+    setParentLockedMany(chartSelectedIds, locked);
   }
 
   const move = useCallback(
@@ -976,10 +1095,10 @@ export function OrgChartWorkspace({
               </h2>
             </div>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
-              Search the roster and click several people to queue them. Choose a department to
-              place them in — Reports to fills with that department&apos;s head, or its assigned
-              reports-to person when there is no head. You can still change Reports to before
-              adding.
+              Search the roster and click several people to queue them. Leave Department as{" "}
+              <span className="font-medium">None (chart only)</span> to add them as individuals on
+              the org chart, or choose a department — Reports to fills with that department&apos;s
+              head when available. You can still change Reports to before adding.
             </p>
           </div>
         </div>
@@ -1097,13 +1216,7 @@ export function OrgChartWorkspace({
               </span>
               <select
                 value={addSectionId}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setAddSectionId(next);
-                  if (next) {
-                    setAddParentId(reportsToForDepartment(next));
-                  }
-                }}
+                onChange={(e) => applyAddSectionId(e.target.value)}
                 className="h-10 w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 text-sm font-medium text-zinc-900 outline-none transition focus:border-orange-500/60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               >
                 <option value="">— None (chart only) —</option>
@@ -1113,6 +1226,12 @@ export function OrgChartWorkspace({
                   </option>
                 ))}
               </select>
+              {!addSectionId && sections.length > 0 ? (
+                <p className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                  Chart only — appears as an individual person card on the org chart (no
+                  department).
+                </p>
+              ) : null}
               {addSectionId && !addParentId ? (
                 <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
                   No head or reports-to on this department — Reports to stays top level until you
@@ -1360,6 +1479,9 @@ export function OrgChartWorkspace({
                 onApply={applyBulkReportsTo}
                 busy={busy}
                 options={bulkReportsToOptions as BulkReportsToOptions}
+                lockedSelectedCount={bulkLockedCount}
+                onLockSelected={() => applyBulkLock(true)}
+                onUnlockSelected={() => applyBulkLock(false)}
               />
             </div>
           ) : null}
@@ -1390,7 +1512,7 @@ export function OrgChartWorkspace({
                   {chartSelectedIds.length} boxes selected
                   <span className="font-normal opacity-80">
                     {" "}
-                    · use Bulk move above
+                    · use Bulk move / Lock above
                     {chartSelectedIds.length === 2
                       ? " · or Link either / or"
                       : ""}{" "}
@@ -1480,7 +1602,8 @@ export function OrgChartWorkspace({
 
         {chartSelectedIds.length < 2 && !readOnly ? (
           <p className="mt-3 text-[11px] text-zinc-500">
-            Tip: drag a department onto another to nest it. Open a department, then Shift-click
+            Tip: drag a department onto another (including another major department) to nest it.
+            Reorder siblings with the gaps above/below. Open a department, then Shift-click
             members. Use Add / Remove for membership. Link either / or opens a Person A / Person B
             picker.
           </p>
@@ -1553,6 +1676,13 @@ export function OrgChartWorkspace({
               onBulkApply={applyBulkReportsTo}
               bulkReportsToOptions={bulkReportsToOptions}
               bulkMovableCount={bulkMovableIds.length}
+              bulkLockedCount={bulkLockedCount}
+              onBulkLock={() => applyBulkLock(true)}
+              onBulkUnlock={() => applyBulkLock(false)}
+              focusSectionRequest={focusSectionRequest}
+              onCurrentSectionChange={handleDiagramSectionChange}
+              drillStack={drillStack}
+              onDrillStackChange={setDrillStack}
               onRemoveSelected={(ids) => {
                 if (ids.length > 1) removeMany(ids);
                 else if (ids.length === 1) {

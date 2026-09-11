@@ -1,5 +1,8 @@
 import type { OrgChartNode } from "@prisma/client/primary";
 
+/** Virtual drill id for org-chart members with no department membership. */
+export const ORG_CHART_OUTSIDE_SECTIONS_ID = "__outside_sections__";
+
 export type OrgChartLayerNode = Pick<OrgChartNode, "id" | "parentId">;
 
 export type OrgChartOutlineNode = Pick<

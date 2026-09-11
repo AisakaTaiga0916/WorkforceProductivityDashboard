@@ -240,6 +240,26 @@ export function OrgChartSectionsPanel({
     [sections, editId, sectionOutlineById],
   );
 
+  const sectionPathById = useMemo(() => {
+    const byId = new Map(sections.map((s) => [s.id, s]));
+    const cache = new Map<string, string>();
+    function pathFor(id: string, visiting = new Set<string>()): string {
+      const cached = cache.get(id);
+      if (cached) return cached;
+      if (visiting.has(id)) return byId.get(id)?.name ?? id;
+      visiting.add(id);
+      const s = byId.get(id);
+      if (!s) return id;
+      const label = s.parentId
+        ? `${pathFor(s.parentId, visiting)} › ${s.name}`
+        : s.name;
+      cache.set(id, label);
+      return label;
+    }
+    for (const s of sections) pathFor(s.id);
+    return cache;
+  }, [sections]);
+
   const peopleForReportsToPicker = useMemo(
     () =>
       [...nodes].sort((a, b) =>
@@ -331,13 +351,10 @@ export function OrgChartSectionsPanel({
         reorderSiblingDepartmentsRef.current(endTarget.parentId, itemId, null);
         return;
       }
-      // Same parent → rearrange before that sibling. Different parent → nest under it.
-      const dragParent = sectionParentIdRef.current.get(itemId) ?? null;
-      const targetParent = sectionParentIdRef.current.get(column) ?? null;
-      if (dragParent === targetParent) {
-        reorderSiblingDepartmentsRef.current(dragParent, itemId, column);
-        return;
-      }
+      // Drop onto another department always nests under it (including major → major).
+      // Sibling reorder uses the before/end drop zones only.
+      if (column === itemId) return;
+      if (isSectionDescendantOfRef.current(itemId, column)) return;
       moveSectionRef.current(itemId, column);
     },
     onDragEnd: () => {
@@ -711,6 +728,25 @@ export function OrgChartSectionsPanel({
     const grandparentId = sectionById.get(section.parentId)?.parentId ?? null;
     void moveSection(sectionId, grandparentId);
   }
+
+  /** Eligible parents for nesting (excludes self + descendants; skips current parent). */
+  function nestUnderOptionsFor(section: OrgChartSectionRow): OrgChartSectionRow[] {
+    return [...sections]
+      .filter((s) => {
+        if (s.id === section.id) return false;
+        if (s.id === section.parentId) return false;
+        if (isSectionDescendantOf(section.id, s.id)) return false;
+        return true;
+      })
+      .sort((a, b) =>
+        (sectionPathById.get(a.id) ?? a.name).localeCompare(
+          sectionPathById.get(b.id) ?? b.name,
+          undefined,
+          { sensitivity: "base" },
+        ),
+      );
+  }
+
   moveSectionRef.current = (sectionId, newParentId) => {
     void moveSection(sectionId, newParentId);
   };
@@ -1325,18 +1361,15 @@ export function OrgChartSectionsPanel({
     const isMemberDropTarget = dropSectionId === section.id && !dragSectionId;
     const isReorderTarget =
       dropSectionBeforeId === section.id ||
-      (Boolean(sectionDrag.draggingItemId) &&
-        sectionDrag.hoverColumn === section.id &&
-        (sectionParentIdRef.current.get(sectionDrag.draggingItemId!) ?? null) ===
-          (section.parentId ?? null) &&
-        sectionDrag.draggingItemId !== section.id) ||
       sectionDrag.hoverColumn === beforeDropId(section.id);
-    const isNestDropTarget =
-      sectionDrag.hoverColumn === section.id &&
-      Boolean(sectionDrag.draggingItemId) &&
-      sectionDrag.draggingItemId !== section.id &&
-      (sectionParentIdRef.current.get(sectionDrag.draggingItemId!) ?? null) !==
-        (section.parentId ?? null);
+    const draggingSectionId = sectionDrag.draggingItemId;
+    const isNestDropTarget = Boolean(
+      draggingSectionId &&
+        sectionDrag.hoverColumn === section.id &&
+        draggingSectionId !== section.id &&
+        !isSectionDescendantOf(draggingSectionId, section.id) &&
+        (sectionParentIdRef.current.get(draggingSectionId) ?? null) !== section.id,
+    );
     const isDraggingThis =
       sectionDrag.draggingItemId === section.id || dragSectionId === section.id;
     const totalInTree = countMembersInSubtree(section.id);
@@ -1395,11 +1428,11 @@ export function OrgChartSectionsPanel({
             if (dragSectionId) {
               const dragged = sectionById.get(dragSectionId);
               if (!dragged || dragged.id === section.id) return;
-              if ((dragged.parentId ?? null) !== (siblingParentId ?? null)) return;
+              if (isSectionDescendantOf(dragged.id, section.id)) return;
               e.preventDefault();
               e.stopPropagation();
               e.dataTransfer.dropEffect = "move";
-              setDropSectionBeforeId(section.id);
+              setDropSectionId(section.id);
               return;
             }
             if (!dragNodeId) return;
@@ -1422,16 +1455,13 @@ export function OrgChartSectionsPanel({
               if (
                 dragged &&
                 dragged.id !== section.id &&
-                (dragged.parentId ?? null) === (siblingParentId ?? null)
+                !isSectionDescendantOf(dragged.id, section.id)
               ) {
-                void reorderSiblingDepartments(
-                  siblingParentId ?? null,
-                  sectionDragId,
-                  section.id,
-                );
+                void moveSection(sectionDragId, section.id);
               }
               setDragSectionId(null);
               setDropSectionBeforeId(null);
+              setDropSectionId(null);
               return;
             }
             const id = e.dataTransfer.getData("text/org-node-id") || dragNodeId;
@@ -1545,6 +1575,40 @@ export function OrgChartSectionsPanel({
               </Button>
             </>
           ) : null}
+          {(() => {
+            const nestOptions = nestUnderOptionsFor(section);
+            if (nestOptions.length === 0 && isMain) return null;
+            return (
+              <label className="inline-flex h-8 items-center">
+                <span className="sr-only">Nest {section.name} under</span>
+                <select
+                  disabled={busy}
+                  defaultValue=""
+                  aria-label={`Nest ${section.name} under another department`}
+                  title="Move this department under another (including other major departments)"
+                  className="h-8 max-w-[12rem] rounded-lg border border-zinc-300 bg-white px-2 text-xs outline-none focus:border-orange-500/60 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    e.target.value = "";
+                    if (!next) return;
+                    if (next === "__main__") {
+                      void moveSection(section.id, null);
+                      return;
+                    }
+                    void moveSection(section.id, next);
+                  }}
+                >
+                  <option value="">Nest under…</option>
+                  {!isMain ? <option value="__main__">— Make main —</option> : null}
+                  {nestOptions.map((s) => (
+                    <option key={`nest-${section.id}-${s.id}`} value={s.id}>
+                      {sectionPathById.get(s.id) ?? s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          })()}
           <Button
             type="button"
             variant="outline"
@@ -1652,9 +1716,11 @@ export function OrgChartSectionsPanel({
               ? "Browse your department and sub-department members. Portal roles are managed by SuperAdmin."
               : (
                 <>
-                  Drag the <span className="font-medium">grip</span> to rearrange departments at the same
-                  level, or drop onto a different department to nest it. Use{" "}
-                  <span className="font-medium">Move up</span> /{" "}
+                  Drag the <span className="font-medium">grip</span> to rearrange at the same
+                  level (use the gaps above/below), or drop onto another department — including
+                  another major department — to nest it. Use{" "}
+                  <span className="font-medium">Nest under…</span>,{" "}
+                  <span className="font-medium">Move up</span>, or{" "}
                   <span className="font-medium">Make main</span> to change nesting. Add people from{" "}
                   <span className="font-medium">Add or remove member</span> (choose a department), or use{" "}
                   <span className="font-medium">Add selected</span> for chart members. Pick a head and
@@ -1937,7 +2003,7 @@ export function OrgChartSectionsPanel({
         >
           Drop here to make a <span className="font-semibold">main section</span>
           <span className="mt-0.5 block text-xs opacity-80">
-            Or drop on another group to nest · drop on a sibling to reorder
+            Or drop onto another department to nest · use gaps to reorder siblings
           </span>
         </div>
 

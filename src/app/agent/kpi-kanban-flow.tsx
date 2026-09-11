@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, GripVertical, ListChecks, Maximize2, Pencil, X } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -511,6 +511,8 @@ export function AgentKpiKanbanFlow({
   const [operatorAgentId, setOperatorAgentId] = useState<string | null>(null);
   const [operatorAgentName, setOperatorAgentName] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  /** Screenshot up/down only — must not freeze board drag or unrelated controls. */
+  const [mediaBusyId, setMediaBusyId] = useState<string | null>(null);
   /** Card id whose inline assignee search is open (toggled by clicking the assignee field). */
   const [editingAssigneeId, setEditingAssigneeId] = useState<string | null>(null);
   /** Sub-task key ("<recordId>:<subKpiId>") whose inline assignee search is open. */
@@ -952,7 +954,47 @@ export function AgentKpiKanbanFlow({
     return () => {
       cancelled = true;
     };
-  }, [activeTaskId, busyId]);
+  }, [activeTaskId]);
+
+  function applyUpdatedKpiRow(updated: KpiRecord) {
+    startTransition(() => {
+      setRows((prev) =>
+        prev.map((row) => {
+          if (row.id !== updated.id) return row;
+          return {
+            ...row,
+            ...updated,
+            // PATCH returns the Prisma row; keep list-only enrichments from GET.
+            assignedAgent: updated.assignedAgent ?? row.assignedAgent,
+            isFieldAssignment: updated.isFieldAssignment ?? row.isFieldAssignment,
+            travelOrderSummary: updated.travelOrderSummary ?? row.travelOrderSummary,
+            linkedJobOrders: updated.linkedJobOrders ?? row.linkedJobOrders,
+          };
+        }),
+      );
+    });
+  }
+
+  function refreshActiveTaskAudit(taskId: string) {
+    if (activeTaskId !== taskId) return;
+    void fetch(`/api/kpi-maintenance/${encodeURIComponent(taskId)}/activity?take=40`, {
+      cache: "no-store",
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          rows?: Array<{
+            id: string;
+            author: string;
+            summary: string;
+            detail: string | null;
+            createdAt: string;
+          }>;
+        };
+        if (Array.isArray(data.rows)) setTaskAuditLog(data.rows);
+      })
+      .catch(() => undefined);
+  }
 
   function taskLabel(r: KpiRecord) {
     return kpiMainTaskLabel(r);
@@ -1307,7 +1349,7 @@ export function AgentKpiKanbanFlow({
         return;
       }
     }
-    setBusyId(recordId);
+    setMediaBusyId(recordId);
     setError(null);
     try {
       const fd = new FormData();
@@ -1326,9 +1368,11 @@ export function AgentKpiKanbanFlow({
         setError(body.error ?? "Could not upload task screenshot.");
         return;
       }
-      await load();
+      const updated = (await res.json()) as KpiRecord;
+      applyUpdatedKpiRow(updated);
+      refreshActiveTaskAudit(recordId);
     } finally {
-      setBusyId(null);
+      setMediaBusyId(null);
     }
   }
 
@@ -1350,7 +1394,7 @@ export function AgentKpiKanbanFlow({
         return;
       }
     }
-    setBusyId(recordId);
+    setMediaBusyId(recordId);
     setError(null);
     try {
       const fd = new FormData();
@@ -1369,14 +1413,16 @@ export function AgentKpiKanbanFlow({
         setError(body.error ?? "Could not upload pillar screenshot.");
         return;
       }
-      await load();
+      const updated = (await res.json()) as KpiRecord;
+      applyUpdatedKpiRow(updated);
+      refreshActiveTaskAudit(recordId);
     } finally {
-      setBusyId(null);
+      setMediaBusyId(null);
     }
   }
 
   async function removePillarScreenshot(recordId: string, slot: TaskScreenshotSlot, storedFileName: string) {
-    setBusyId(recordId);
+    setMediaBusyId(recordId);
     setError(null);
     try {
       const res = await fetch(`/api/kpi-maintenance?tz=${encodeURIComponent(tz)}`, {
@@ -1392,9 +1438,11 @@ export function AgentKpiKanbanFlow({
         setError(body.error ?? "Could not remove pillar screenshot.");
         return;
       }
-      await load();
+      const updated = (await res.json()) as KpiRecord;
+      applyUpdatedKpiRow(updated);
+      refreshActiveTaskAudit(recordId);
     } finally {
-      setBusyId(null);
+      setMediaBusyId(null);
     }
   }
 
@@ -1404,7 +1452,7 @@ export function AgentKpiKanbanFlow({
     slot: TaskScreenshotSlot,
     storedFileName: string,
   ) {
-    setBusyId(recordId);
+    setMediaBusyId(recordId);
     setError(null);
     try {
       const res = await fetch(`/api/kpi-maintenance?tz=${encodeURIComponent(tz)}`, {
@@ -1420,9 +1468,11 @@ export function AgentKpiKanbanFlow({
         setError(body.error ?? "Could not remove task screenshot.");
         return;
       }
-      await load();
+      const updated = (await res.json()) as KpiRecord;
+      applyUpdatedKpiRow(updated);
+      refreshActiveTaskAudit(recordId);
     } finally {
-      setBusyId(null);
+      setMediaBusyId(null);
     }
   }
 
@@ -2552,6 +2602,7 @@ export function AgentKpiKanbanFlow({
     const canUpload = editable || canAssignWork;
     const canRemove = canUpload && !taskCardDone(r);
     const remainingSlots = Math.max(0, MAX_TASK_SCREENSHOTS_PER_SLOT - screenshots.length);
+    const mediaBusy = mediaBusyId === r.id || busyId === r.id;
     return (
       <div className="rounded-lg border border-orange-200 bg-orange-50/60 p-2 dark:border-orange-800/50 dark:bg-orange-950/20">
         <p className="text-[10px] font-bold uppercase tracking-wide text-orange-800 dark:text-orange-200">{label}</p>
@@ -2570,7 +2621,7 @@ export function AgentKpiKanbanFlow({
                 {canRemove ? (
                   <button
                     type="button"
-                    disabled={busyId === r.id}
+                    disabled={mediaBusy}
                     onClick={(e) => {
                       e.stopPropagation();
                       void removePillarScreenshot(r.id, slot, meta.storedFileName);
@@ -2591,15 +2642,15 @@ export function AgentKpiKanbanFlow({
           onPointerDown={(e) => e.stopPropagation()}
           className={cn(
             "mt-2 inline-flex cursor-pointer rounded-full bg-orange-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-orange-500",
-            (!canUpload || busyId === r.id || remainingSlots === 0) && "cursor-not-allowed opacity-60 hover:bg-orange-600",
+            (!canUpload || mediaBusy || remainingSlots === 0) && "cursor-not-allowed opacity-60 hover:bg-orange-600",
           )}
         >
-          Choose File
+          {mediaBusyId === r.id ? "Uploading…" : "Choose File"}
           <input
             type="file"
             multiple
             accept={TASK_SCREENSHOT_ACCEPT}
-            disabled={!canUpload || busyId === r.id || remainingSlots === 0}
+            disabled={!canUpload || mediaBusy || remainingSlots === 0}
             onChange={(e) => {
               e.stopPropagation();
               const files = Array.from(e.target.files ?? []);
@@ -2688,6 +2739,7 @@ export function AgentKpiKanbanFlow({
     const canUpload = editable || canAssignWork;
     const canRemove = canUpload && !s.done && !taskCardDone(r);
     const remainingSlots = Math.max(0, MAX_TASK_SCREENSHOTS_PER_SLOT - screenshots.length);
+    const mediaBusy = mediaBusyId === r.id || busyId === r.id;
     return (
       <div className="rounded-lg border border-zinc-200 bg-white/60 p-2 dark:border-zinc-700 dark:bg-zinc-950/40">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2708,7 +2760,7 @@ export function AgentKpiKanbanFlow({
                 {canRemove ? (
                   <button
                     type="button"
-                    disabled={busyId === r.id}
+                    disabled={mediaBusy}
                     onClick={(e) => {
                       e.stopPropagation();
                       void removeSubKpiScreenshot(r.id, s.id, slot, meta.storedFileName);
@@ -2729,15 +2781,15 @@ export function AgentKpiKanbanFlow({
           onPointerDown={(e) => e.stopPropagation()}
           className={cn(
             "mt-2 inline-flex cursor-pointer rounded-full bg-orange-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-orange-500",
-            (!canUpload || busyId === r.id || remainingSlots === 0) && "cursor-not-allowed opacity-60 hover:bg-orange-600",
+            (!canUpload || mediaBusy || remainingSlots === 0) && "cursor-not-allowed opacity-60 hover:bg-orange-600",
           )}
         >
-          Choose File
+          {mediaBusyId === r.id ? "Uploading…" : "Choose File"}
           <input
             type="file"
             multiple
             accept={TASK_SCREENSHOT_ACCEPT}
-            disabled={!canUpload || busyId === r.id || remainingSlots === 0}
+            disabled={!canUpload || mediaBusy || remainingSlots === 0}
             onChange={(e) => {
               e.stopPropagation();
               const files = Array.from(e.target.files ?? []);
@@ -4994,6 +5046,7 @@ export function AgentKpiKanbanFlow({
                           className={cn(
                             "min-w-0 rounded-xl border border-zinc-200/90 bg-white p-2.5 shadow-sm transition hover:border-orange-300 hover:bg-white dark:border-zinc-700/90 dark:bg-[#1a1a1a] dark:hover:border-orange-700/70 dark:hover:bg-[#1f1f1f] md:p-3",
                             busyId === r.id && "opacity-50",
+                            mediaBusyId === r.id && busyId !== r.id && "ring-1 ring-orange-300/50",
                             editable && kpiStatusDrag.draggingItemId === r.id && "ring-1 ring-orange-400/40",
                           )}
                           role="button"

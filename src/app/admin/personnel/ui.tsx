@@ -825,9 +825,9 @@ export function PersonnelClient({
         ) : (
           <>
             <p className="text-[11px] text-zinc-600 dark:text-zinc-500">
-              HRIS roster from {secondaryDatabaseName} · Personnel / Admin / HighAdmin are set on the
-              Org Chart (Workforce → Org. Chart). ListView can set SuperAdmin / Personnel-Guard /
-              Customer and company queue.
+              HRIS roster from {secondaryDatabaseName} · Set any portal technical role here
+              (Personnel, Admin, HighAdmin, SuperAdmin, Personnel-Guard, Customer). Org Chart
+              headship can still promote department heads to Admin on reconcile.
             </p>
 
             <RegistryFiltersBar
@@ -891,16 +891,10 @@ export function PersonnelClient({
                                 void updateMergedUserRole(row.mergedSourceUserId, e.target.value)
                               }
                               className={teamSelectClass}
-                              title="Personnel / Admin / HighAdmin are set on the Org Chart. Use this for SuperAdmin / Personnel-Guard / Customer."
+                              title="Change portal technical role"
                             >
                               {PORTAL_ROLES.map((r) => (
-                                <option
-                                  key={r}
-                                  value={r}
-                                  disabled={
-                                    r === "Admin" || r === "Personnel" || r === "HighAdmin"
-                                  }
-                                >
+                                <option key={r} value={r}>
                                   {r}
                                 </option>
                               ))}

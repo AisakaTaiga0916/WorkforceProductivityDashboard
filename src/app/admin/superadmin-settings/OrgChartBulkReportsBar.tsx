@@ -23,6 +23,9 @@ export function OrgChartBulkReportsBar({
   busy,
   options,
   className = "",
+  onLockSelected,
+  onUnlockSelected,
+  lockedSelectedCount = 0,
 }: {
   selectedCount: number;
   movableCount: number;
@@ -32,9 +35,13 @@ export function OrgChartBulkReportsBar({
   busy: boolean;
   options: BulkReportsToOptions;
   className?: string;
+  onLockSelected?: () => void;
+  onUnlockSelected?: () => void;
+  lockedSelectedCount?: number;
 }) {
   const applyCount = movableCount || selectedCount;
   const outlineById = options.outlineById;
+  const unlockedSelectedCount = Math.max(0, selectedCount - lockedSelectedCount);
   return (
     <div className={`flex flex-wrap items-end gap-2 ${className}`}>
       <label className="min-w-[12rem] flex-1">
@@ -77,6 +84,30 @@ export function OrgChartBulkReportsBar({
       >
         Apply to {applyCount}
       </Button>
+      {onLockSelected ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9 shrink-0 rounded-lg px-3 text-xs font-semibold"
+          disabled={busy || unlockedSelectedCount === 0}
+          title="Lock selected members to their current managers"
+          onClick={onLockSelected}
+        >
+          Lock {unlockedSelectedCount > 0 ? unlockedSelectedCount : selectedCount}
+        </Button>
+      ) : null}
+      {onUnlockSelected ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9 shrink-0 rounded-lg border-amber-300 px-3 text-xs font-semibold text-amber-900 dark:border-amber-700 dark:text-amber-200"
+          disabled={busy || lockedSelectedCount === 0}
+          title="Unlock selected members"
+          onClick={onUnlockSelected}
+        >
+          Unlock {lockedSelectedCount > 0 ? lockedSelectedCount : selectedCount}
+        </Button>
+      ) : null}
     </div>
   );
 }

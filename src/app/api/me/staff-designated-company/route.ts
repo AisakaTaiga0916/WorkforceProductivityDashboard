@@ -9,7 +9,7 @@ export async function GET() {
   }
 
   const role = session.user.role;
-  if (role !== "Admin" && role !== "Personnel") {
+  if (role !== "Admin" && role !== "Personnel" && role !== "HighAdmin") {
     return NextResponse.json({ designatedCompanyTeamId: null, designatedCompanyName: null }, { status: 200 });
   }
 

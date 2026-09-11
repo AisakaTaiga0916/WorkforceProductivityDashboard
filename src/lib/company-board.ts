@@ -17,15 +17,94 @@ import {
   orgChartMajorDepartments,
   orgChartRootSectionId,
   orgChartScopeRootDepartments,
+  orgChartSectionCompanyTeamId,
   type OrgChartSectionOption,
 } from "@/lib/org-chart-section-display";
 import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
-import { resolveViewerOrgChartSectionScope } from "@/lib/org-chart-section-scope";
+import { resolveMergedSourceUserIdForSessionEmail } from "@/lib/approval-position-resolver";
+import {
+  resolveOrgChartDownlineScopeForMergedUser,
+  resolveViewerOrgChartSectionScope,
+} from "@/lib/org-chart-section-scope";
+import {
+  applyGroupBoardDirectionFilters,
+  type GroupBoardDirectionFilter,
+} from "@/lib/group-board-direction-filters";
 
 function mergeTeamWhereWithRoster(base?: Prisma.TeamWhereInput): Prisma.TeamWhereInput {
   const roster = rosterTeamNameFilter();
   if (!base) return roster;
   return { AND: [base, roster] };
+}
+
+/**
+ * Companies linked to an org-chart department scope: section companyTeamId
+ * (walking parents) plus staff designated companies of people in those sections.
+ */
+async function resolveCompanyTeamIdsForOrgChartSections(
+  sectionIds: string[],
+): Promise<string[]> {
+  const ids = [...new Set(sectionIds.map((s) => s.trim()).filter(Boolean))];
+  if (ids.length === 0) return [];
+
+  const [sections, memberships, headed] = await Promise.all([
+    prisma.orgChartSection.findMany({
+      select: { id: true, parentId: true, companyTeamId: true, headNodeId: true },
+    }),
+    prisma.orgChartNodeSectionMembership.findMany({
+      where: { sectionId: { in: ids } },
+      select: { nodeId: true },
+    }),
+    prisma.orgChartSection.findMany({
+      where: { id: { in: ids }, headNodeId: { not: null } },
+      select: { headNodeId: true },
+    }),
+  ]);
+
+  const companyIds = new Set<string>();
+  for (const sid of ids) {
+    const teamId = orgChartSectionCompanyTeamId(sections, sid);
+    if (teamId) companyIds.add(teamId);
+  }
+
+  const nodeIds = new Set<string>();
+  for (const m of memberships) nodeIds.add(m.nodeId);
+  for (const h of headed) {
+    if (h.headNodeId) nodeIds.add(h.headNodeId);
+  }
+
+  if (nodeIds.size > 0) {
+    const nodes = await prisma.orgChartNode.findMany({
+      where: { id: { in: [...nodeIds] } },
+      select: { mergedSourceUserId: true },
+    });
+    const mergedBigints: bigint[] = [];
+    for (const n of nodes) {
+      const key = (n.mergedSourceUserId ?? "").trim();
+      if (!key || !/^\d+$/.test(key)) continue;
+      try {
+        mergedBigints.push(BigInt(key));
+      } catch {
+        /* ignore */
+      }
+    }
+    if (mergedBigints.length > 0) {
+      const portals = await prisma.portalAccount.findMany({
+        where: { mergedSourceUserId: { in: mergedBigints } },
+        select: { staffDesignatedCompanyId: true },
+      });
+      for (const portal of portals) {
+        if (portal.staffDesignatedCompanyId) companyIds.add(portal.staffDesignatedCompanyId);
+      }
+    }
+  }
+
+  if (companyIds.size === 0) return [];
+  const roster = await prisma.team.findMany({
+    where: { AND: [rosterTeamNameFilter(), { id: { in: [...companyIds] } }] },
+    select: { id: true },
+  });
+  return roster.map((t) => t.id);
 }
 
 export type CompanyBoardCardMode = "staff" | "personnel";
@@ -88,6 +167,10 @@ type CompanyBoardScopeOpts = {
   priorityFilter?: TicketPriority | "ALL";
   companyTeamIds?: string[];
   requestTypeFilter?: string | "ALL";
+  /** Group Board: requestor company/department filter. */
+  sentByFilter?: GroupBoardDirectionFilter | null;
+  /** Group Board: send-to company/department filter. */
+  receivedFilter?: GroupBoardDirectionFilter | null;
 };
 
 type CompanyBoardScope =
@@ -113,7 +196,8 @@ type CompanyBoardScope =
 
 async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<CompanyBoardScope> {
   await ensureRosterTeamsInDb();
-  const { session, searchQuery, priorityFilter, companyTeamIds, requestTypeFilter } = opts;
+  const { session, searchQuery, priorityFilter, companyTeamIds, requestTypeFilter, sentByFilter, receivedFilter } =
+    opts;
   const q = (searchQuery ?? "").trim();
   const role = session.user.role;
   const companyAdminPrivileges = await portalCompanyAdminPrivilegesForEmail(session.user.email);
@@ -125,14 +209,43 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
     isElevatedUserRole(role) || role === "Admin" || companyAdminPrivileges ? "staff" : "personnel";
 
   const isAdminScope = !isElevatedUserRole(role) && (role === "Admin" || companyAdminPrivileges);
+  /** HighAdmin Group Board: companies from report-to depts; dept view = those depts only. */
+  const isHighAdminGroupScope = role === "HighAdmin";
 
   let teamWhere: Prisma.TeamWhereInput | undefined;
   let excludedTeamIds: string[] = [];
   let scopeBySendToCompany = false;
   let sendToCompanyTeamId: string | null = null;
+  /** Pre-resolved HighAdmin downline — applied after teams load. */
+  let highAdminRestrictSectionIds: string[] | null = null;
+  let highAdminCompanyTeamIds: string[] | null = null;
 
-  if (isElevatedUserRole(role)) {
+  if (role === "SuperAdmin") {
     teamWhere = undefined;
+  } else if (isHighAdminGroupScope) {
+    const mergedId = await resolveMergedSourceUserIdForSessionEmail(session.user.email);
+    const downline = await resolveOrgChartDownlineScopeForMergedUser(mergedId);
+    if (downline.sectionIds.length === 0) {
+      return {
+        ok: false,
+        cardMode,
+        emptyHint:
+          "No departments report to you on the org chart. Ask a SuperAdmin to set department Reports-to.",
+      };
+    }
+    const companyIds = await resolveCompanyTeamIdsForOrgChartSections(downline.sectionIds);
+    if (companyIds.length === 0) {
+      return {
+        ok: false,
+        cardMode,
+        emptyHint:
+          "Departments that report to you have no linked companies yet. Set company on those departments or staff designated companies.",
+      };
+    }
+    highAdminRestrictSectionIds = downline.sectionIds;
+    highAdminCompanyTeamIds = companyIds;
+    teamWhere = { id: { in: companyIds } };
+    excludedTeamIds = [];
   } else if (isAdminScope) {
     if (!staffCompanyId) {
       return {
@@ -220,10 +333,51 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
     ticketWhereBase.assignedAgentId = operator?.id ?? "__none__";
   }
 
+  await applyGroupBoardDirectionFilters(ticketWhereBase, {
+    sentBy: sentByFilter ?? null,
+    received: receivedFilter ?? null,
+  });
+
+  if (highAdminRestrictSectionIds && highAdminCompanyTeamIds) {
+    ticketWhereBase.OR = [{ orgChartSectionId: { in: highAdminRestrictSectionIds } }];
+    const allowedTeamIds = teams.map((t) => t.id);
+    const displayTeamIds = highAdminCompanyTeamIds.filter((id) => allowedTeamIds.includes(id));
+    if (displayTeamIds.length === 0) {
+      return {
+        ok: false,
+        cardMode,
+        emptyHint:
+          "Departments that report to you have no linked companies yet. Set company on those departments or staff designated companies.",
+      };
+    }
+    // Optional company filter from the UI still applies within HighAdmin scope.
+    const filteredDisplay =
+      filterBySpecificCompany
+        ? displayTeamIds.filter((id) => selectedNonAll.includes(id))
+        : displayTeamIds;
+    if (filterBySpecificCompany && filteredDisplay.length === 0) {
+      return { ok: false, cardMode, emptyHint: "No matching company filter in your scope." };
+    }
+    return {
+      ok: true,
+      cardMode,
+      ticketWhereBase,
+      displayTeamIds: filteredDisplay,
+      teams,
+      groupByRequestor: false,
+      excludedTeamIds,
+      outsideId: outsideTeamRow.id,
+      scopeBySendToCompany: false,
+      sendToCompanyTeamId: null,
+      restrictSectionIds: highAdminRestrictSectionIds,
+    };
+  }
+
   if (scopeBySendToCompany && sendToCompanyTeamId) {
-    const viewerScope = await resolveViewerOrgChartSectionScope(session.user.email);
     let restrictSectionIds: string[] | null = null;
     let sendToSectionIds: string[] = [];
+
+    const viewerScope = await resolveViewerOrgChartSectionScope(session.user.email);
 
     if (viewerScope.sectionIds.length > 0) {
       // Same rule as Assign Requests: department membership is the primary gate.
@@ -393,8 +547,18 @@ export async function loadCompanyBoard(opts: CompanyBoardScopeOpts): Promise<{
     outsideId,
     scopeBySendToCompany,
     sendToCompanyTeamId,
+    restrictSectionIds,
   } = scope;
   const teamById = new Map(teams.map((t) => [t.id, t]));
+
+  const sectionCompanyById = new Map<string, string>();
+  if (restrictSectionIds && restrictSectionIds.length > 0) {
+    const allSections = await listOrgChartSectionOptions();
+    for (const sid of restrictSectionIds) {
+      const companyId = orgChartSectionCompanyTeamId(allSections, sid);
+      if (companyId) sectionCompanyById.set(sid, companyId);
+    }
+  }
 
   const rawTickets = await prisma.ticket.findMany({
     where: ticketWhereBase,
@@ -403,6 +567,7 @@ export async function loadCompanyBoard(opts: CompanyBoardScopeOpts): Promise<{
     select: {
       id: true,
       teamId: true,
+      orgChartSectionId: true,
       ticketNumber: true,
       title: true,
       description: true,
@@ -480,6 +645,17 @@ export async function loadCompanyBoard(opts: CompanyBoardScopeOpts): Promise<{
       }
     } else if (scopeBySendToCompany && sendToCompanyTeamId) {
       teamIdForColumn = sendToCompanyTeamId;
+    } else if (restrictSectionIds && restrictSectionIds.length > 0) {
+      // HighAdmin (and similar): place under ticket company when in scope, else
+      // the send-to department's linked company.
+      if (x.teamId && displayTeamIds.includes(x.teamId)) {
+        teamIdForColumn = x.teamId;
+      } else {
+        const sectionId = (x.orgChartSectionId ?? "").trim();
+        const fromSection = sectionId ? sectionCompanyById.get(sectionId) : undefined;
+        teamIdForColumn =
+          fromSection && displayTeamIds.includes(fromSection) ? fromSection : null;
+      }
     } else {
       teamIdForColumn = x.teamId;
     }
@@ -629,7 +805,10 @@ export async function loadDepartmentBoard(
     }
     breadcrumb.push(...chain);
 
-    columnSections = orgChartDirectChildren(sections, parent.id);
+    columnSections = orgChartDirectChildren(allSections, parent.id);
+    if (restrictSectionIdSet) {
+      columnSections = columnSections.filter((s) => restrictSectionIdSet.has(s.id));
+    }
     // Include the parent as its own card for requests sent directly to it.
     columnSections = [parent, ...columnSections];
   } else {
@@ -648,11 +827,17 @@ export async function loadDepartmentBoard(
     const isParentSelfCard = Boolean(parentId && section.id === parentId);
     const treeIds = isParentSelfCard
       ? new Set([section.id])
-      : collectOrgChartSectionDescendantIds(section.id, sections);
+      : collectOrgChartSectionDescendantIds(section.id, allSections);
     // When showing children under a parent, exclude the parent id from child trees
     // (parent has its own card for direct tickets only).
     if (parentId && section.id !== parentId) {
       treeIds.delete(parentId);
+    }
+    // Scope ticket rollups to sections the viewer is allowed to see.
+    if (restrictSectionIdSet) {
+      for (const id of [...treeIds]) {
+        if (!restrictSectionIdSet.has(id)) treeIds.delete(id);
+      }
     }
     treeIdsByColumn.set(section.id, treeIds);
     columnsBySection.set(section.id, {
@@ -662,7 +847,8 @@ export async function loadDepartmentBoard(
       hasLogo: false,
       logoTeamId: section.companyTeamId,
       entityKind: "department",
-      canDrillDown: !isParentSelfCard && sectionHasChildren(sections, section.id),
+      // Use full chart for children detection so majors with nested subs always drill.
+      canDrillDown: !isParentSelfCard && sectionHasChildren(allSections, section.id),
       buckets: emptyBuckets(),
     });
   }

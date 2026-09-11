@@ -38,8 +38,15 @@ import {
   roleUsesOrgChartSectionBoardScope,
   sectionScopedTicketWhere,
   resolveViewerOrgChartSectionScope,
+  resolveOrgChartDownlineScopeForMergedUser,
   ticketWhereForOrgChartSectionFilter,
 } from "@/lib/org-chart-section-scope";
+import {
+  buildGroupBoardDirectionFilterOptions,
+  encodeGroupBoardDirectionFilter,
+  parseGroupBoardDirectionFilter,
+} from "@/lib/group-board-direction-filters";
+import { resolveMergedSourceUserIdForSessionEmail } from "@/lib/approval-position-resolver";
 import { MyRequestsBoard } from "@/components/my-requests/MyRequestsBoard";
 import { AgentKanban, type KanbanTicket } from "./agent-kanban";
 import {
@@ -147,6 +154,8 @@ export default async function AgentHome({
     requestType?: string | string[];
     pane?: string | string[];
     submitted?: string | string[];
+    sentBy?: string | string[];
+    received?: string | string[];
   }>;
 }) {
   const session = await requireSession();
@@ -189,6 +198,10 @@ export default async function AgentHome({
   const selectedSection = sectionParam || "ALL";
   const departmentParentSectionId =
     companyBoardLayer === "department" && selectedSection !== "ALL" ? selectedSection : null;
+  const sentByRaw = isCompanyBoard ? firstQuery(params.sentBy)?.trim() ?? "ALL" : "ALL";
+  const receivedRaw = isCompanyBoard ? firstQuery(params.received)?.trim() ?? "ALL" : "ALL";
+  const sentByFilter = isCompanyBoard ? parseGroupBoardDirectionFilter(sentByRaw) : null;
+  const receivedFilter = isCompanyBoard ? parseGroupBoardDirectionFilter(receivedRaw) : null;
   const viewMode = session.user.role === "Personnel" ? "board" : requestedViewMode;
   const isBoard = viewMode === "board";
   if (paneMine && (boardTab !== "ticket" || !isBoard)) {
@@ -278,6 +291,49 @@ export default async function AgentHome({
           })()
         : await listOrgChartSectionOptions()
       : [];
+
+  /** Departments available for Group Board Sent by / Received filters. */
+  const orgChartSectionsForGroupBoardFilter = isCompanyBoard
+    ? await (async () => {
+        const all = await listOrgChartSectionOptions();
+        if (session.user.role === "HighAdmin") {
+          const mergedId = await resolveMergedSourceUserIdForSessionEmail(session.user.email);
+          const downline = await resolveOrgChartDownlineScopeForMergedUser(mergedId);
+          if (downline.sectionIds.length === 0) return [];
+          const allowed = new Set(downline.sectionIds);
+          return all.filter((s) => allowed.has(s.id));
+        }
+        if (session.user.role === "Admin" || companyCoordinator) {
+          const scope =
+            viewerSectionScopeForFilter ??
+            (await resolveViewerOrgChartSectionScope(session.user.email));
+          if (scope.sectionIds.length === 0) return [];
+          const allowed = new Set(scope.sectionIds);
+          return all.filter((s) => allowed.has(s.id));
+        }
+        return all;
+      })()
+    : [];
+  const groupBoardDirectionFilterOptions = isCompanyBoard
+    ? buildGroupBoardDirectionFilterOptions({
+        companies: rosterTeamsForFilter,
+        sections: orgChartSectionsForGroupBoardFilter,
+      })
+    : [{ value: "ALL", label: "All" }];
+  const groupBoardDirectionValueSet = new Set(
+    groupBoardDirectionFilterOptions.map((o) => o.value),
+  );
+  const sentByEncoded = encodeGroupBoardDirectionFilter(sentByFilter);
+  const receivedEncoded = encodeGroupBoardDirectionFilter(receivedFilter);
+  const selectedSentBy =
+    sentByEncoded && groupBoardDirectionValueSet.has(sentByEncoded) ? sentByEncoded : "ALL";
+  const selectedReceived =
+    receivedEncoded && groupBoardDirectionValueSet.has(receivedEncoded) ? receivedEncoded : "ALL";
+  const effectiveSentByFilter =
+    selectedSentBy === "ALL" ? null : parseGroupBoardDirectionFilter(selectedSentBy);
+  const effectiveReceivedFilter =
+    selectedReceived === "ALL" ? null : parseGroupBoardDirectionFilter(selectedReceived);
+
   const selectedSectionValid =
     selectedSection === "ALL" ||
     (boardTab === "ticket"
@@ -296,6 +352,8 @@ export default async function AgentHome({
       priorityFilter: priorityForCompany,
       companyTeamIds: selectedCompany === "ALL" ? [] : [selectedCompany],
       requestTypeFilter: selectedRequestType,
+      sentByFilter: effectiveSentByFilter,
+      receivedFilter: effectiveReceivedFilter,
     } as const;
     if (companyBoardLayer === "department") {
       const [dep, agg, logs] = await Promise.all([
@@ -351,8 +409,14 @@ export default async function AgentHome({
 
   const whereBase: Prisma.TicketWhereInput = {};
   if (session.user.role === "Admin") {
-    /** Admin Request Board: only tickets assigned to this account. */
-    Object.assign(whereBase, await personnelRequestBoardWhere(operator?.id));
+    /** Admin Request Board: assigned to me OR send-to in my org-chart / downline tree. */
+    Object.assign(
+      whereBase,
+      await sectionScopedTicketWhere({
+        email: session.user.email,
+        agentId: operator?.id,
+      }),
+    );
   } else if (session.user.role === "Personnel") {
     Object.assign(whereBase, await sectionScopedTicketWhere({
       email: session.user.email,
@@ -647,6 +711,12 @@ export default async function AgentHome({
     if (boardTab !== "ticket") qs.set("board", boardTab);
     if (isCompanyBoard && selectedCompany !== "ALL") {
       qs.set("company", selectedCompany);
+    }
+    if (isCompanyBoard && selectedSentBy !== "ALL") {
+      qs.set("sentBy", selectedSentBy);
+    }
+    if (isCompanyBoard && selectedReceived !== "ALL") {
+      qs.set("received", selectedReceived);
     }
 
     for (const [key, value] of Object.entries(next)) {
@@ -1067,6 +1137,16 @@ export default async function AgentHome({
                       })),
                     ],
                   }}
+                  sentBy={{
+                    visible: isCompanyBoard,
+                    value: selectedSentBy,
+                    options: groupBoardDirectionFilterOptions,
+                  }}
+                  received={{
+                    visible: isCompanyBoard,
+                    value: selectedReceived,
+                    options: groupBoardDirectionFilterOptions,
+                  }}
                   assigned={{
                     visible: ticketAssignedFilterActive,
                     value: effectiveAssigned,
@@ -1148,7 +1228,10 @@ export default async function AgentHome({
                     {companyBoardLayer === "department"
                       ? "Department cards roll up major + sub-department requests. Double-click a major for sub-departments. "
                       : "Company cards with priority breakdowns. Double-click a company for a status kanban. "}
-                    Use <span className="font-medium text-zinc-700 dark:text-zinc-300">Kanban flow</span> to choose
+                    Filter by <span className="font-medium text-zinc-700 dark:text-zinc-300">Sent by</span> or{" "}
+                    <span className="font-medium text-zinc-700 dark:text-zinc-300">Received</span>{" "}
+                    (company or department). Use{" "}
+                    <span className="font-medium text-zinc-700 dark:text-zinc-300">Kanban flow</span> to choose
                     company or department grouping on Assign Requests drag-and-drop.
                   </p>
                 ) : null}

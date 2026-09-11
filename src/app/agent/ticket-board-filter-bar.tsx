@@ -30,19 +30,35 @@ type TicketBoardFilterBarProps = {
   priority: FilterField;
   requestType: FilterField;
   status: FilterField;
+  /** Group Board: requestor company/department. */
+  sentBy?: FilterField;
+  /** Group Board: send-to company/department. */
+  received?: FilterField;
   savedFilterStorageKey?: string;
 };
 
-type FieldId = "company" | "section" | "assigned" | "priority" | "requestType" | "status";
+type FieldId =
+  | "company"
+  | "section"
+  | "assigned"
+  | "priority"
+  | "requestType"
+  | "status"
+  | "sentBy"
+  | "received";
 
 const FIELD_DEFS: Array<{ id: FieldId; type: string; param: string }> = [
   { id: "company", type: "Company", param: "company" },
   { id: "section", type: "Departments", param: "section" },
+  { id: "sentBy", type: "Sent by", param: "sentBy" },
+  { id: "received", type: "Received", param: "received" },
   { id: "assigned", type: "Assigned", param: "assigned" },
   { id: "priority", type: "Priority", param: "priority" },
   { id: "requestType", type: "Request type", param: "requestType" },
   { id: "status", type: "Status", param: "status" },
 ];
+
+const HIDDEN_FIELD: FilterField = { visible: false, value: "ALL", options: [] };
 
 /**
  * Search + filter bar for the Request Board. Active filters render as chips
@@ -75,6 +91,8 @@ export function TicketBoardFilterBar(props: TicketBoardFilterBarProps) {
     priority: props.priority,
     requestType: props.requestType,
     status: props.status,
+    sentBy: props.sentBy ?? HIDDEN_FIELD,
+    received: props.received ?? HIDDEN_FIELD,
   };
 
   function optionLabel(field: FilterField, value: string) {
