@@ -7,11 +7,13 @@ export async function resolveOpsPermissions(session: {
 }) {
   const role = session.user.role;
   const isAdminRole = isElevatedPlatformRole(role) || role === "Admin";
-  const operator = await findSessionAgentWithTeam({
-    email: session.user.email,
-    name: session.user.name,
-  });
-  const isCompanyAdminRole = await portalCompanyAdminPrivilegesForEmail(session.user.email);
+  const [operator, isCompanyAdminRole] = await Promise.all([
+    findSessionAgentWithTeam({
+      email: session.user.email,
+      name: session.user.name,
+    }),
+    portalCompanyAdminPrivilegesForEmail(session.user.email),
+  ]);
   const canAssignWork = isAdminRole || isCompanyAdminRole;
   return {
     operator,

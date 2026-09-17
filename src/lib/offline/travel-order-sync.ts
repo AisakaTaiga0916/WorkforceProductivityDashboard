@@ -329,6 +329,7 @@ async function ensurePendingCreateOpsFromDrafts(): Promise<void> {
       localDraftId: draft.localId,
       payload: travelOrderDraftToFieldAssignmentPayload({
         draft: draft.draft,
+        workPlanDraft: draft.workPlanDraft,
         mainTaskName: draft.mainTaskName,
         scopedCompanyTeamId: draft.scopedCompanyTeamId,
       }),
@@ -388,7 +389,10 @@ export async function flushTravelOrderPendingQueue(): Promise<TravelOrderSyncPro
 }
 
 export async function queueFieldAssignmentCreate(input: {
-  draftRow: OfflineTravelOrderDraft;
+  draftRow: Omit<OfflineTravelOrderDraft, "createdAt" | "updatedAt"> & {
+    createdAt?: string;
+    updatedAt?: string;
+  };
   payload: Record<string, string>;
   attachments?: Array<{ name: string; type: string; dataUrl: string }>;
 }): Promise<void> {

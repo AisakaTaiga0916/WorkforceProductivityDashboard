@@ -12,6 +12,7 @@ import {
   findTravelOrderById,
   serializeTravelOrder,
 } from "@/lib/travel-order-db";
+import { isWorkPlanOrder } from "@/lib/work-plan";
 
 const MAX_LOCATIONS_PER_ORDER = 30;
 
@@ -41,6 +42,15 @@ export async function POST(
   const order = await findTravelOrderById(travelOrderId);
   if (!order || order.kpiMaintenanceId !== id) {
     return NextResponse.json({ error: "Travel order not found." }, { status: 404 });
+  }
+
+  if (isWorkPlanOrder(order)) {
+    return NextResponse.json(
+      {
+        error: "Locations are not used on Travel Orders for Management Approval.",
+      },
+      { status: 400 },
+    );
   }
 
   const operatorId = perms.operator?.id ?? null;

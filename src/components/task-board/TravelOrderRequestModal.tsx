@@ -1,17 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Plus, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { TaskBoardPopup } from "@/components/task-board/TaskBoardPopup";
-import {
-  TravelOrderPageNav,
-  type TravelOrderFormPage,
-} from "@/components/task-board/TravelOrderPageNav";
-import { TravelOrderGatePassFields } from "@/components/task-board/TravelOrderGatePassFields";
-import { TravelOrderApprovalRecommendationGuide } from "@/components/task-board/TravelOrderApprovalRecommendationGuide";
+import { WorkPlanApprovalRecommendationGuide } from "@/components/task-board/WorkPlanApprovalRecommendationGuide";
+import { WorkPlanFormFields } from "@/components/task-board/WorkPlanFormFields";
+import { WorkPlanSectionChecklist } from "@/components/task-board/WorkPlanSectionChecklist";
 import { CompanyUserSearchField } from "@/components/tickets/CompanyUserSearchField";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/cn";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { TravelOrderOfflineBanner } from "@/components/offline/TravelOrderOfflineBanner";
 import {
@@ -23,83 +19,60 @@ import {
   offlineDraftHasContent,
   saveOfflineDraft,
 } from "@/lib/offline/travel-order-offline-db";
-import { isBrowserOnline, queueFieldAssignmentCreate, fetchTravelOrderWithTimeout, isTravelOrderNetworkFailure } from "@/lib/offline/travel-order-sync";
 import {
-  INTAKE_ATTACHMENT_ACCEPT,
-  MAX_SCREENSHOT_BYTES,
-  isAllowedIntakeAttachment,
-} from "@/lib/ticket-intake-screenshots-constants";
+  isBrowserOnline,
+  queueFieldAssignmentCreate,
+  fetchTravelOrderWithTimeout,
+  isTravelOrderNetworkFailure,
+} from "@/lib/offline/travel-order-sync";
+import { type TravelOrderApprovalLevelDraft } from "@/lib/travel-order";
 import {
-  agentIdsFromApprovalLevels,
-  approvalLevelsAllowOptional,
-  buildApprovalLevelsFromOrgChartPath,
-  buildEmptyApprovalLevels,
-  emptyGatePassDraft,
-  emptyTravelLocation,
-  emptyTravelOrderDraft,
-  normalizeTravelOrderDraft,
-  travelOrderApprovalSeatCountFromRequestorLayer,
-  travelOrderApprovedByLabel,
-  TRAVEL_ORDER_VEHICLE_OPTIONS,
-  validateTravelOrderDraft,
-  validateTravelOrderGatePass,
-  MAX_TRAVEL_ORDER_ATTACHMENTS,
-  type TravelOrderDraft,
-  type TravelOrderLocationDraft,
-  type TravelOrderOrgChartPathSeat,
-} from "@/lib/travel-order";
-import type { TravelOrderRecommendedConfirmer } from "@/lib/travel-order-org-chart-path";
+  WORK_PLAN_APPROVAL_TOP_ORG_LAYER,
+  WORK_PLAN_WIZARD_STEPS,
+  buildWorkPlanApprovalLevelsFromSeats,
+  deriveWorkPlanOrderRequest,
+  emptyWorkPlanDraft,
+  emptyPersonnelRow,
+  applyWorkPlanRequestorDefaults,
+  formatWorkPlanAmount,
+  isWorkPlanSectionComplete,
+  sumWorkPlanBudgetLines,
+  validateWorkPlanDraft,
+  workPlanVenueLabels,
+  type WorkPlanDraft,
+  type WorkPlanSectionId,
+} from "@/lib/work-plan";
+import { collapseDuplicateDesignation } from "@/lib/org-chart-executive-titles";
+import type { WorkPlanOrgChartApprovalPath } from "@/lib/work-plan-org-chart-path";
 
 type AgentOption = {
   id: string;
   name: string;
   email?: string | null;
-  /** Org-chart depth when this person is on the chart (Layer 1 = top). */
   orgChartLayer?: number | null;
+  subtitle?: string | null;
 };
-
-const personnelPickerListClass =
-  "picker-scroll overflow-y-auto rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950 dark:scheme-dark";
-const personnelPickerSearchClass =
-  "w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:scheme-dark";
-const personnelPickerEmailClass = "text-[11px] text-zinc-500 dark:text-zinc-400";
-
-function agentMatchesQuery(agent: AgentOption, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  return (
-    agent.name.toLowerCase().includes(q) || (agent.email ?? "").toLowerCase().includes(q)
-  );
-}
-
-function isOnOrgChart(agent: AgentOption): boolean {
-  return typeof agent.orgChartLayer === "number" && agent.orgChartLayer >= 1;
-}
 
 type TravelOrderRequestModalProps = {
   open: boolean;
-  /** @deprecated Task groups removed — title is derived from the Field Assignment label. */
   taskGroupTitle?: string;
-  /** Main task / field assignment name. */
   mainTaskName?: string;
   scopedCompanyTeamId?: string | null;
-  /** Current operator agent id — used as the automatic requester/traveler, not to lock pickers. */
   companyScopeAgentId?: string | null;
-  /** Allow editing the travel order name inside the modal (standalone create). */
   allowEditDetails?: boolean;
-  /** Resume a previously saved local draft (IndexedDB localId). */
   resumeLocalId?: string | null;
   onClose: () => void;
-  onCreated: (payload: { kpiId: string; offlineQueued?: boolean }) => void;
-  /** Called after an explicit Save draft (modal closes). */
+  onCreated: (payload: {
+    kpiId: string;
+    travelOrderId?: string | null;
+    offlineQueued?: boolean;
+  }) => void;
   onDraftSaved?: () => void;
 };
 
 /**
- * Create-time Travel Order form (three pages):
- * Page 1: Purpose of travel → Travelers → Vehicle → Location(s)
- * Page 2: To be Approved by → To be Confirmed by
- * Page 3: Gate Pass (optional)
+ * Create Work Plan for Management Approval (Field Assignment):
+ * Wizard intake — sections I–VI and approvals up to Layer 2.
  */
 export function TravelOrderRequestModal({
   open,
@@ -114,42 +87,127 @@ export function TravelOrderRequestModal({
   onDraftSaved,
 }: TravelOrderRequestModalProps) {
   void _unusedTaskGroupTitle;
+  void _allowEditDetails;
   const online = useOnlineStatus();
   const [localDraftId, setLocalDraftId] = useState(() => newTravelOrderOfflineId("todraft"));
-  const [draft, setDraft] = useState<TravelOrderDraft>(() => emptyTravelOrderDraft());
+  const [draft, setDraft] = useState<WorkPlanDraft>(() => emptyWorkPlanDraft());
   const [allAgents, setAllAgents] = useState<AgentOption[]>([]);
-  const [agentQuery, setAgentQuery] = useState("");
-  const [confirmQuery, setConfirmQuery] = useState("");
-  const [travelerQuery, setTravelerQuery] = useState("");
-  const [driverQuery, setDriverQuery] = useState("");
-  const [levelPickerQuery, setLevelPickerQuery] = useState("");
-  const [assigningLevel, setAssigningLevel] = useState<number | null>(null);
-  const [levelsPromptOpen, setLevelsPromptOpen] = useState(false);
-  const [levelsCountInput, setLevelsCountInput] = useState("2");
-  const [formPage, setFormPage] = useState<TravelOrderFormPage>(1);
   const [busy, setBusy] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draftNotice, setDraftNotice] = useState<string | null>(null);
-  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
-  const [attachmentInputKey, setAttachmentInputKey] = useState(0);
-  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const [queuedOffline, setQueuedOffline] = useState(false);
   const [confirmDiscardDraft, setConfirmDiscardDraft] = useState(false);
-  const [recommendedPath, setRecommendedPath] = useState<TravelOrderOrgChartPathSeat[]>([]);
-  const [recommendedPathLayer, setRecommendedPathLayer] = useState<number | null>(null);
-  const [recommendedPathLoading, setRecommendedPathLoading] = useState(false);
-  const [recommendedPathError, setRecommendedPathError] = useState<string | null>(null);
-  const [recommendedPathUsedFallback, setRecommendedPathUsedFallback] = useState(false);
-  const [recommendedConfirmation, setRecommendedConfirmation] =
-    useState<TravelOrderRecommendedConfirmer | null>(null);
+  const [orgPath, setOrgPath] = useState<WorkPlanOrgChartApprovalPath | null>(null);
+  const [orgPathLoading, setOrgPathLoading] = useState(false);
+  const [orgPathError, setOrgPathError] = useState<string | null>(null);
+  const [wizardStepId, setWizardStepId] = useState<WorkPlanSectionId>("general");
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const quietAutosaveClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const hierarchical = draft.approvalLevels.length > 0;
-  /** Internal KPI mainTask — derived from purpose of travel (no separate name field). */
   const effectiveMainTask =
-    draft.orderRequest.trim().slice(0, 160) ||
+    deriveWorkPlanOrderRequest(draft.workPlan).slice(0, 160) ||
     mainTaskName.trim() ||
-    "Travel Order";
+    "Travel Order for Management Approval";
+
+  /** Prefer org-chart members at Layer 2 and below (Layer 1 is excluded). */
+  const approvalAgents = useMemo(() => {
+    const designationById = new Map<string, string>();
+    for (const seat of orgPath?.seats ?? []) {
+      const id = seat.agentId?.trim();
+      const designation = seat.hint?.trim();
+      if (id && designation) designationById.set(id, designation);
+    }
+    const withDesignation = (agent: AgentOption): AgentOption => ({
+      ...agent,
+      subtitle:
+        collapseDuplicateDesignation(
+          designationById.get(agent.id) || agent.subtitle || "",
+        ) || null,
+    });
+    const onChart = allAgents
+      .filter(
+        (a) =>
+          typeof a.orgChartLayer === "number" &&
+          a.orgChartLayer >= WORK_PLAN_APPROVAL_TOP_ORG_LAYER,
+      )
+      .map(withDesignation);
+    return onChart.length > 0 ? onChart : allAgents.map(withDesignation);
+  }, [allAgents, orgPath]);
+
+  const personnelCount = draft.workPlan.personnel.filter((p) => p.name.trim()).length;
+  const budgetTotal = sumWorkPlanBudgetLines(draft.workPlan.budgetLines);
+  const approvalLevels =
+    draft.approvalLevels.length > 0
+      ? draft.approvalLevels
+      : [{ level: 1, agentId: "", optional: false }];
+  const approversFilled = approvalLevels.filter((l) => l.agentId.trim()).length;
+  const approversTotal = approvalLevels.length;
+
+  const completeById = useMemo(() => {
+    const map: Partial<Record<WorkPlanSectionId, boolean>> = {};
+    for (const item of WORK_PLAN_WIZARD_STEPS) {
+      map[item.id] = isWorkPlanSectionComplete(item.id, draft);
+    }
+    return map;
+  }, [draft]);
+
+  const wizardIndex = Math.max(
+    0,
+    WORK_PLAN_WIZARD_STEPS.findIndex((s) => s.id === wizardStepId),
+  );
+  const wizardStep = WORK_PLAN_WIZARD_STEPS[wizardIndex] ?? WORK_PLAN_WIZARD_STEPS[0]!;
+  const isFirstStep = wizardIndex <= 0;
+  const isLastStep = wizardIndex >= WORK_PLAN_WIZARD_STEPS.length - 1;
+  const wizardProgress = Math.round(((wizardIndex + 1) / WORK_PLAN_WIZARD_STEPS.length) * 100);
+
+  const periodVenueShort = [
+    draft.workPlan.implementationPeriod.trim(),
+    workPlanVenueLabels(draft.workPlan).join(" · "),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  function goToStep(id: WorkPlanSectionId) {
+    setWizardStepId(id);
+    setError(null);
+  }
+
+  function goBack() {
+    if (isFirstStep) return;
+    const prev = WORK_PLAN_WIZARD_STEPS[wizardIndex - 1];
+    if (prev) goToStep(prev.id);
+  }
+
+  function goNext() {
+    if (!isWorkPlanSectionComplete(wizardStep.id, draft)) {
+      setError(`Complete ${wizardStep.title} before continuing.`);
+      return;
+    }
+    if (isLastStep) return;
+    const next = WORK_PLAN_WIZARD_STEPS[wizardIndex + 1];
+    if (next) goToStep(next.id);
+  }
+
+  function firstIncompleteStepId(): WorkPlanSectionId | null {
+    for (const step of WORK_PLAN_WIZARD_STEPS) {
+      if (!isWorkPlanSectionComplete(step.id, draft)) return step.id;
+    }
+    return null;
+  }
+
+  function levelsWithLabels(
+    levels: TravelOrderApprovalLevelDraft[],
+    seats: WorkPlanOrgChartApprovalPath["seats"] | null | undefined,
+  ) {
+    return levels.map((lvl) => {
+      const seat = seats?.find((s) => s.sequenceLevel === lvl.level);
+      return {
+        ...lvl,
+        label: "Approved by",
+      };
+    });
+  }
 
   function parseAgentList(list: unknown): AgentOption[] {
     if (!Array.isArray(list)) return [];
@@ -167,759 +225,376 @@ export function TravelOrderRequestModal({
             typeof r.orgChartLayer === "number" && Number.isFinite(r.orgChartLayer)
               ? Math.floor(r.orgChartLayer)
               : null,
+          subtitle: collapseDuplicateDesignation(
+            typeof r.departmentDesignation === "string"
+              ? r.departmentDesignation
+              : typeof r.subtitle === "string"
+                ? r.subtitle
+                : "",
+          ) || null,
         };
       })
       .filter(Boolean) as AgentOption[];
   }
 
-  function mergeRecommendedAgents(
-    seats: TravelOrderOrgChartPathSeat[],
-    confirmer?: TravelOrderRecommendedConfirmer | null,
-  ) {
-    setAllAgents((prev) => {
-      const byId = new Map(prev.map((a) => [a.id, a]));
-      for (const seat of seats) {
-        const id = seat.agentId?.trim() || "";
-        if (id && !byId.has(id)) {
-          byId.set(id, {
-            id,
-            name: seat.agentName?.trim() || "Approver",
-            email: null,
-            orgChartLayer: seat.orgChartLayer,
-          });
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setError(null);
+    setDraftNotice(null);
+    setQueuedOffline(false);
+    setConfirmDiscardDraft(false);
+    setOrgPath(null);
+    setOrgPathError(null);
+    setWizardStepId("general");
+
+    // Warm-compile create + org-chart path while the user fills the form
+    // (dev cold compile often exceeds the short travel-order fetch timeout).
+    if (isBrowserOnline()) {
+      void fetch("/api/kpi-maintenance/field-assignment", {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+      }).catch(() => undefined);
+      void fetch("/api/travel-orders/work-plan-org-chart-path", {
+        cache: "no-store",
+        credentials: "same-origin",
+      }).catch(() => undefined);
+    }
+
+    void (async () => {
+      if (resumeLocalId) {
+        const existing = await getOfflineDraft(resumeLocalId).catch(() => undefined);
+        if (cancelled) return;
+        if (existing?.workPlanDraft) {
+          setLocalDraftId(existing.localId);
+          setDraft(emptyWorkPlanDraft(existing.workPlanDraft));
+        } else {
+          setLocalDraftId(newTravelOrderOfflineId("todraft"));
+          setDraft(emptyWorkPlanDraft());
         }
-        for (const alt of seat.alternateAgents) {
-          const altId = alt.agentId?.trim() || "";
-          if (altId && !byId.has(altId)) {
-            byId.set(altId, {
-              id: altId,
-              name: alt.agentName?.trim() || "Approver",
-              email: null,
-              orgChartLayer: seat.orgChartLayer,
-            });
+      } else {
+        setLocalDraftId(newTravelOrderOfflineId("todraft"));
+        setDraft(emptyWorkPlanDraft());
+      }
+
+      if (isBrowserOnline()) {
+        void fetch("/api/me/staff-designated-company", {
+          cache: "no-store",
+          credentials: "same-origin",
+        })
+          .then(async (res) => {
+            if (!res.ok || cancelled) return;
+            const body = (await res.json().catch(() => ({}))) as {
+              designatedCompanyName?: string | null;
+            };
+            const name = body.designatedCompanyName?.trim() || "";
+            if (!name) return;
+            setDraft((prev) =>
+              applyWorkPlanRequestorDefaults(prev, { designatedCompanyName: name }),
+            );
+          })
+          .catch(() => undefined);
+      }
+
+      try {
+        if (isBrowserOnline()) {
+          const res = await fetchTravelOrderWithTimeout(
+            "/api/agents?anyCompany=1&lite=1&includeOrgChartLayer=1",
+            { cache: "no-store" },
+            15000,
+          );
+          const raw = (await res.json().catch(() => null)) as unknown;
+          const list = parseAgentList(
+            Array.isArray(raw) ? raw : (raw as { agents?: unknown })?.agents,
+          );
+          if (!cancelled && list.length > 0) {
+            setAllAgents(list);
+            void cacheAgents(
+              list.map((a) => ({
+                ...a,
+                cachedAt: new Date().toISOString(),
+              })),
+            ).catch(() => undefined);
+            return;
           }
         }
+      } catch {
+        /* fall through to cache */
       }
-      const confirmId = confirmer?.agentId?.trim() || "";
-      if (confirmId && !byId.has(confirmId)) {
-        byId.set(confirmId, {
-          id: confirmId,
-          name: confirmer?.agentName?.trim() || "Confirmer",
-          email: null,
-        });
-      }
-      return [...byId.values()];
-    });
-  }
+      const cached = await listCachedAgents().catch(() => []);
+      if (!cancelled) setAllAgents(cached);
+    })();
 
-  function applyRecommendedConfirmer(confirmer: TravelOrderRecommendedConfirmer | null | undefined) {
-    if (resumeLocalId?.trim()) return;
-    const id = confirmer?.agentId?.trim() || "";
-    if (!id) return;
-    setDraft((prev) => {
-      if (prev.confirmationByAgentId.trim()) return prev;
-      return { ...prev, confirmationByAgentId: id };
-    });
-  }
-
-  function ensureHierarchicalApprovalLayout(preferredCount?: number) {
-    setDraft((prev) => {
-      if (prev.approvalLevels.length > 0) return prev;
-      const n = Math.max(1, Math.min(20, preferredCount && preferredCount > 0 ? preferredCount : 1));
-      const next = buildEmptyApprovalLevels(n);
-      return {
-        ...prev,
-        approvalLevels: next,
-        approvedByAgentIds: agentIdsFromApprovalLevels(next),
-      };
-    });
-    if (preferredCount && preferredCount > 0) {
-      setLevelsCountInput(String(preferredCount));
-    }
-  }
-
-  function applyRecommendedPathSeats(seats: TravelOrderOrgChartPathSeat[]) {
-    if (resumeLocalId?.trim()) return;
-    if (seats.length < 1) {
-      ensureHierarchicalApprovalLayout(1);
-      return;
-    }
-    const next = buildApprovalLevelsFromOrgChartPath(seats);
-    setDraft((prev) => {
-      // Always adopt the full recommended seat list unless the user already filled
-      // a matching chain (same length + at least one assigned approver).
-      const hasAssignedApprover = prev.approvalLevels.some((lvl) => lvl.agentId.trim());
-      if (hasAssignedApprover && prev.approvalLevels.length === next.length) {
-        return prev;
-      }
-      return {
-        ...prev,
-        approvalLevels: next,
-        approvedByAgentIds: agentIdsFromApprovalLevels(next),
-      };
-    });
-    setLevelsCountInput(String(seats.length));
-  }
-
-  async function loadOrgChartApprovalPath(requestorAgentId: string | null | undefined) {
-    if (!isBrowserOnline()) {
-      setRecommendedPath([]);
-      setRecommendedPathLayer(null);
-      setRecommendedPathUsedFallback(false);
-      setRecommendedConfirmation(null);
-      setRecommendedPathLoading(false);
-      setRecommendedPathError("Connect to load approval recommendations from the org chart.");
-      ensureHierarchicalApprovalLayout(1);
-      return;
-    }
-    const id = requestorAgentId?.trim() || "";
-    setRecommendedPathLoading(true);
-    setRecommendedPathError(null);
-    try {
-      const qs = id ? `?agentId=${encodeURIComponent(id)}` : "";
-      const res = await fetchTravelOrderWithTimeout(
-        `/api/travel-orders/org-chart-approval-path${qs}`,
-        { cache: "no-store" },
-      );
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setRecommendedPath([]);
-        setRecommendedPathLayer(null);
-        setRecommendedPathUsedFallback(false);
-        setRecommendedConfirmation(null);
-        setRecommendedPathError(body.error ?? "Could not load approval recommendations.");
-        ensureHierarchicalApprovalLayout(1);
-        return;
-      }
-      const payload = (await res.json()) as {
-        requestorOrgLayer?: number | null;
-        seats?: TravelOrderOrgChartPathSeat[];
-        usedFallback?: boolean;
-        recommendedConfirmation?: TravelOrderRecommendedConfirmer;
-      };
-      const seats = Array.isArray(payload.seats) ? payload.seats : [];
-      const confirmer = payload.recommendedConfirmation ?? null;
-      setRecommendedPath(seats);
-      setRecommendedPathLayer(
-        typeof payload.requestorOrgLayer === "number" ? payload.requestorOrgLayer : null,
-      );
-      setRecommendedPathUsedFallback(payload.usedFallback === true);
-      setRecommendedConfirmation(confirmer);
-      mergeRecommendedAgents(seats, confirmer);
-      applyRecommendedPathSeats(seats);
-      applyRecommendedConfirmer(confirmer);
-    } catch {
-      setRecommendedPath([]);
-      setRecommendedPathLayer(null);
-      setRecommendedPathUsedFallback(false);
-      setRecommendedConfirmation(null);
-      setRecommendedPathError("Could not load approval recommendations.");
-      ensureHierarchicalApprovalLayout(1);
-    } finally {
-      setRecommendedPathLoading(false);
-    }
-  }
-
-  function applyRequestorLayerSeats(agents: AgentOption[]) {
-    if (resumeLocalId?.trim()) return;
-    const requestor = companyScopeAgentId
-      ? agents.find((a) => a.id === companyScopeAgentId)
-      : null;
-    const n = travelOrderApprovalSeatCountFromRequestorLayer(requestor?.orgChartLayer);
-    if (n < 1) return;
-    setDraft((prev) => {
-      if (prev.approvalLevels.length > 0) return prev;
-      const next = buildEmptyApprovalLevels(n);
-      return {
-        ...prev,
-        approvalLevels: next,
-        approvedByAgentIds: agentIdsFromApprovalLevels(next),
-      };
-    });
-    setLevelsCountInput(String(n));
-  }
-
-  function findAgent(agentId: string): AgentOption | null {
-    return allAgents.find((a) => a.id === agentId) ?? null;
-  }
+    return () => {
+      cancelled = true;
+    };
+  }, [open, resumeLocalId]);
 
   useEffect(() => {
     if (!open) return;
-    setPendingAttachments([]);
-    setAttachmentInputKey((k) => k + 1);
-    setQueuedOffline(false);
-    setError(null);
-    setDraftNotice(null);
-    setAgentQuery("");
-    setConfirmQuery("");
-    setTravelerQuery("");
-    setDriverQuery("");
-    setLevelPickerQuery("");
-    setAssigningLevel(null);
-    setLevelsPromptOpen(false);
-    setLevelsCountInput("2");
-    setConfirmDiscardDraft(false);
-    setRecommendedPath([]);
-    setRecommendedPathLayer(null);
-    setRecommendedPathLoading(false);
-    setRecommendedPathError(null);
-    setRecommendedPathUsedFallback(false);
-    setRecommendedConfirmation(null);
+    if (!isBrowserOnline()) {
+      setOrgPath(null);
+      return;
+    }
     let cancelled = false;
+    setOrgPathLoading(true);
+    setOrgPathError(null);
+    const requestorId = companyScopeAgentId?.trim() || "";
+    const qs = requestorId
+      ? `?agentId=${encodeURIComponent(requestorId)}`
+      : "";
     void (async () => {
-      const resumeId = resumeLocalId?.trim() || null;
-      if (resumeId) {
-        const saved = await getOfflineDraft(resumeId).catch(() => undefined);
-        if (!cancelled && saved?.syncStatus === "draft") {
-          setLocalDraftId(saved.localId);
-          setDraft(normalizeTravelOrderDraft(saved.draft));
-          setFormPage(1);
-        } else if (!cancelled) {
-          setLocalDraftId(newTravelOrderOfflineId("todraft"));
-          setDraft(emptyTravelOrderDraft());
-          setFormPage(1);
-        }
-      } else if (!cancelled) {
-        setLocalDraftId(newTravelOrderOfflineId("todraft"));
-        setDraft(emptyTravelOrderDraft());
-        setFormPage(1);
+      const url = `/api/travel-orders/work-plan-org-chart-path${qs}`;
+      async function loadOnce(timeoutMs: number) {
+        const res = await fetchTravelOrderWithTimeout(url, { cache: "no-store" }, timeoutMs);
+        const body = (await res.json().catch(() => ({}))) as WorkPlanOrgChartApprovalPath & {
+          error?: string;
+        };
+        return { res, body };
       }
-
-      // Approvers, confirmer, and travelers are never company-locked.
       try {
-        if (!isBrowserOnline()) {
-          const cached = await listCachedAgents();
-          if (!cancelled) {
-            const cachedAgents = cached.map((a) => ({
-              id: a.id,
-              name: a.name,
-              email: a.email,
-              orgChartLayer: a.orgChartLayer ?? null,
-            }));
-            setAllAgents(cachedAgents);
-            applyRequestorLayerSeats(cachedAgents);
-            setRecommendedPathError(
-              "Connect to load approval recommendations from the org chart.",
-            );
-          }
+        let result: Awaited<ReturnType<typeof loadOnce>>;
+        try {
+          result = await loadOnce(45_000);
+        } catch {
+          result = await loadOnce(45_000);
+        }
+        const { res, body } = result;
+        if (cancelled) return;
+        if (!res.ok) {
+          setOrgPathError(body.error ?? "Could not load org-chart recommendations.");
+          setOrgPath(null);
           return;
         }
-        const res = await fetchTravelOrderWithTimeout("/api/agents?anyCompany=1", { cache: "no-store" });
-        const anyList = res.ok ? await res.json() : [];
-        if (cancelled) return;
-        const parsed = parseAgentList(anyList);
-        setAllAgents(parsed);
-        // Always load org-chart recommendations for the Approvals page.
-        // When companyScopeAgentId is unset, the API falls back to the session operator.
-        await loadOrgChartApprovalPath(companyScopeAgentId);
-        if (!companyScopeAgentId) {
-          applyRequestorLayerSeats(parsed);
-        }
-        void cacheAgents(
-          parsed.map((a) => ({
-            id: a.id,
-            name: a.name,
-            email: a.email ?? null,
-            orgChartLayer: a.orgChartLayer ?? null,
-            cachedAt: new Date().toISOString(),
-          })),
-        );
+        setOrgPathError(body.error?.trim() || null);
+        setOrgPath(body);
+        // Ensure recommended people appear in the picker list.
+        setAllAgents((prev) => {
+          const byId = new Map(prev.map((a) => [a.id, a]));
+          for (const seat of body.seats ?? []) {
+            const id = seat?.agentId?.trim() || "";
+            if (!id) continue;
+            const designation =
+              collapseDuplicateDesignation(seat.hint) || null;
+            const existing = byId.get(id);
+            if (existing) {
+              byId.set(id, {
+                ...existing,
+                subtitle:
+                  collapseDuplicateDesignation(
+                    designation || existing.subtitle || "",
+                  ) || null,
+              });
+              continue;
+            }
+            byId.set(id, {
+              id,
+              name: seat.agentName?.trim() || "Approver",
+              email: null,
+              orgChartLayer: seat.orgChartLayer,
+              subtitle: designation,
+            });
+          }
+          const confirmerId = body.recommendedConfirmation?.agentId?.trim() || "";
+          if (confirmerId && !byId.has(confirmerId)) {
+            byId.set(confirmerId, {
+              id: confirmerId,
+              name: body.recommendedConfirmation?.agentName?.trim() || "Confirmer",
+              email: null,
+              subtitle:
+                collapseDuplicateDesignation(
+                  body.recommendedConfirmation?.sectionName ||
+                    body.recommendedConfirmation?.hint ||
+                    "",
+                ) || null,
+            });
+          }
+          const headId = body.defaults?.departmentHeadAgentId?.trim() || "";
+          if (headId && !byId.has(headId)) {
+            byId.set(headId, {
+              id: headId,
+              name: body.defaults?.departmentHeadName?.trim() || "Department head",
+              email: null,
+            });
+          }
+          return [...byId.values()];
+        });
+        // Prefill empty seats once (resume drafts keep their own choices).
+        setDraft((prev) => {
+          let next = applyWorkPlanRequestorDefaults(prev, body.defaults);
+          if (!next.confirmationByAgentId.trim()) {
+            const confirmerId = body.recommendedConfirmation?.agentId?.trim() || "";
+            if (confirmerId) next = { ...next, confirmationByAgentId: confirmerId };
+          }
+          if (next.approvalLevels.some((l) => l.agentId.trim())) return next;
+          const levels = buildWorkPlanApprovalLevelsFromSeats(body.seats ?? []);
+          if (levels.length === 0) return next;
+          return { ...next, approvalLevels: levels };
+        });
       } catch {
-        const cached = await listCachedAgents().catch(() => []);
         if (!cancelled) {
-          const cachedAgents = cached.map((a) => ({
-            id: a.id,
-            name: a.name,
-            email: a.email,
-            orgChartLayer: a.orgChartLayer ?? null,
-          }));
-          setAllAgents(cachedAgents);
-          applyRequestorLayerSeats(cachedAgents);
+          setOrgPathError("Could not load org-chart recommendations.");
+          setOrgPath(null);
         }
+      } finally {
+        if (!cancelled) setOrgPathLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [open, companyScopeAgentId, scopedCompanyTeamId, mainTaskName, resumeLocalId]);
+  }, [open, companyScopeAgentId]);
 
-  // Persist in-progress draft so offline edits survive reloads.
   useEffect(() => {
-    if (!open) return;
-    const t = window.setTimeout(() => {
-      void saveOfflineDraft({
+    if (!open || !companyScopeAgentId) return;
+    setDraft((prev) => {
+      const hasNamedPersonnel = prev.workPlan.personnel.some((p) => p.name.trim());
+      if (hasNamedPersonnel) return prev;
+      const self = allAgents.find((a) => a.id === companyScopeAgentId);
+      if (!self) return prev;
+      const personnel = [
+        emptyPersonnelRow({
+          name: self.name,
+          positionDepartment:
+            (self.subtitle ?? "").trim() ||
+            prev.workPlan.requestingParty,
+          responsibilityRole: "Requestor",
+        }),
+      ];
+      return {
+        ...prev,
+        workPlan: {
+          ...prev.workPlan,
+          personnel,
+          totalPersonnel: 1,
+        },
+      };
+    });
+  }, [open, companyScopeAgentId, allAgents]);
+
+  async function saveDraftLocal(options?: { quiet?: boolean }) {
+    const quiet = options?.quiet === true;
+    setDraftSaving(true);
+    if (!quiet) setError(null);
+    try {
+      await saveOfflineDraft({
         localId: localDraftId,
         mainTaskName: effectiveMainTask,
         scopedCompanyTeamId: scopedCompanyTeamId ?? null,
         companyScopeAgentId,
-        draft,
-        attachmentNames: pendingAttachments.map((f) => f.name),
+        workPlanDraft: draft,
+        draft: null,
+        attachmentNames: [],
         syncStatus: "draft",
-      }).catch(() => undefined);
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [
-    open,
-    localDraftId,
-    effectiveMainTask,
-    scopedCompanyTeamId,
-    companyScopeAgentId,
-    draft,
-    pendingAttachments,
-  ]);
-
-  const orgChartAgents = useMemo(
-    () => allAgents.filter(isOnOrgChart),
-    [allAgents],
-  );
-
-
-
-
-  const approvalRoster = useMemo(
-    () =>
-      allAgents
-        .filter((a) => a.id !== companyScopeAgentId)
-        .map((a) => ({ id: a.id, name: a.name, email: a.email })),
-    [allAgents, companyScopeAgentId],
-  );
-
-  const confirmRoster = useMemo(
-    () => allAgents.map((a) => ({ id: a.id, name: a.name, email: a.email })),
-    [allAgents],
-  );
-
-  const filteredTravelerAgents = useMemo(() => {
-    const q = travelerQuery.trim().toLowerCase();
-    const base = q
-      ? allAgents.filter(
-          (a) =>
-            a.name.toLowerCase().includes(q) ||
-            (a.email ?? "").toLowerCase().includes(q),
-        )
-      : allAgents;
-    return base
-      .filter((a) => a.id !== companyScopeAgentId)
-      .slice(0, 40);
-  }, [allAgents, travelerQuery, companyScopeAgentId]);
-
-  const selectedTravelers = draft.additionalTravelerAgentIds
-    .map((id) => findAgent(id))
-    .filter((a): a is AgentOption => a != null);
-  const creatorAgent = companyScopeAgentId ? findAgent(companyScopeAgentId) : null;
-  const requestorSeatCount = travelOrderApprovalSeatCountFromRequestorLayer(
-    creatorAgent?.orgChartLayer,
-  );
-  const maxApprovalLayers = requestorSeatCount >= 1 ? requestorSeatCount : 20;
-  const travelerOptionsForDriver = (() => {
-    const byId = new Map<string, AgentOption>();
-    if (!draft.exemptRequesterFromTravelers) {
-      if (creatorAgent) {
-        byId.set(creatorAgent.id, creatorAgent);
-      } else if (companyScopeAgentId) {
-        byId.set(companyScopeAgentId, {
-          id: companyScopeAgentId,
-          name: "You (requester)",
-          email: null,
-        });
-      }
-    }
-    for (const agent of selectedTravelers) byId.set(agent.id, agent);
-    return [...byId.values()];
-  })();
-  const filteredDriverAgents = (() => {
-    const q = driverQuery.trim().toLowerCase();
-    const base = q
-      ? travelerOptionsForDriver.filter(
-          (a) =>
-            a.name.toLowerCase().includes(q) ||
-            (a.email ?? "").toLowerCase().includes(q),
-        )
-      : travelerOptionsForDriver;
-    return base.slice(0, 40);
-  })();
-  const selectedDriver = draft.driverAgentId ? findAgent(draft.driverAgentId) : null;
-
-  function toggleApprover(agentId: string) {
-    setDraft((prev) => {
-      const exists = prev.approvedByAgentIds.includes(agentId);
-      return {
-        ...prev,
-        approvedByAgentIds: exists
-          ? prev.approvedByAgentIds.filter((id) => id !== agentId)
-          : [...prev.approvedByAgentIds, agentId],
-      };
-    });
-  }
-
-  function toggleTraveler(agentId: string) {
-    if (
-      companyScopeAgentId &&
-      agentId === companyScopeAgentId &&
-      !draft.exemptRequesterFromTravelers
-    ) {
-      return;
-    }
-    setDraft((prev) => {
-      const exists = prev.additionalTravelerAgentIds.includes(agentId);
-      const additionalTravelerAgentIds = exists
-        ? prev.additionalTravelerAgentIds.filter((id) => id !== agentId)
-        : [...prev.additionalTravelerAgentIds, agentId];
-      const stillTraveler =
-        (!prev.exemptRequesterFromTravelers && agentId === companyScopeAgentId) ||
-        additionalTravelerAgentIds.includes(agentId);
-      return {
-        ...prev,
-        additionalTravelerAgentIds,
-        driverAgentId:
-          !stillTraveler && prev.driverAgentId === agentId ? "" : prev.driverAgentId,
-      };
-    });
-  }
-
-  function applyLevelsCount() {
-    const n = Number.parseInt(levelsCountInput, 10);
-    if (!Number.isFinite(n) || n < 1 || n > maxApprovalLayers) {
-      setError(
-        requestorSeatCount >= 1
-                          ? `Enter a number of approval levels between 1 and ${maxApprovalLayers} (from the level above you up to Level 2).`
-          : "Enter a number of approval layers between 1 and 20.",
-      );
-      return;
-    }
-    setError(null);
-    setDraft((prev) => {
-      // Prefer the org-chart recommended path when seat count matches.
-      if (recommendedPath.length === n) {
-        const nextLevels = buildApprovalLevelsFromOrgChartPath(recommendedPath).map((lvl) => {
-          const existing = prev.approvalLevels.find((e) => e.level === lvl.level);
-          if (existing?.agentId.trim()) {
-            return {
-              ...lvl,
-              agentId: existing.agentId,
-              optional: existing.optional === true ? true : lvl.optional,
-            };
-          }
-          return lvl;
-        });
-        return {
-          ...prev,
-          approvalLevels: nextLevels,
-          approvedByAgentIds: agentIdsFromApprovalLevels(nextLevels),
-        };
-      }
-      const allowOptional = approvalLevelsAllowOptional(n);
-      const nextLevels = buildEmptyApprovalLevels(n).map((lvl) => {
-        const existing = prev.approvalLevels.find((e) => e.level === lvl.level);
-        if (!existing) {
-          const recommended = recommendedPath.find((s) => s.sequenceLevel === lvl.level);
-          if (recommended) {
-            return {
-              level: lvl.level,
-              agentId: recommended.agentId?.trim() || "",
-              optional: allowOptional && recommended.recommendedOptional,
-              alternateAgentIds: recommended.alternateAgents
-                .map((a) => a.agentId?.trim() || "")
-                .filter(Boolean),
-            };
-          }
-          return lvl;
-        }
-        return {
-          ...existing,
-          optional: allowOptional && existing.optional === true,
-        };
       });
-      return {
-        ...prev,
-        approvalLevels: nextLevels,
-        approvedByAgentIds: agentIdsFromApprovalLevels(nextLevels),
-      };
-    });
-    setLevelsPromptOpen(false);
-    setAssigningLevel(null);
-  }
-
-  function applyRecommendedPathNow() {
-    mergeRecommendedAgents(recommendedPath, recommendedConfirmation);
-    const next =
-      recommendedPath.length > 0
-        ? buildApprovalLevelsFromOrgChartPath(recommendedPath)
-        : null;
-    setDraft((prev) => ({
-      ...prev,
-      ...(next
-        ? {
-            approvalLevels: next,
-            approvedByAgentIds: agentIdsFromApprovalLevels(next),
-          }
-        : {}),
-      confirmationByAgentId:
-        recommendedConfirmation?.agentId?.trim() || prev.confirmationByAgentId,
-    }));
-    if (next) setLevelsCountInput(String(recommendedPath.length));
-    setAssigningLevel(null);
-    setError(null);
-  }
-
-  /** Approval seats in sequence order (Immediate → HR → Major), never inverted. */
-  const approvalSeatsInOrder = useMemo(
-    () => [...draft.approvalLevels].sort((a, b) => a.level - b.level),
-    [draft.approvalLevels],
-  );
-
-  function clearLevels() {
-    setDraft((prev) => ({
-      ...prev,
-      approvalLevels: [],
-    }));
-    setAssigningLevel(null);
-    setLevelsPromptOpen(false);
-  }
-
-  function assignLevelAgent(level: number, agentId: string) {
-    setDraft((prev) => {
-      const approvalLevels = prev.approvalLevels.map((lvl) =>
-        lvl.level === level ? { ...lvl, agentId } : lvl,
-      );
-      return {
-        ...prev,
-        approvalLevels,
-        approvedByAgentIds: agentIdsFromApprovalLevels(approvalLevels),
-      };
-    });
-    setAssigningLevel(null);
-    setLevelPickerQuery("");
-  }
-
-  function clearLevelAgent(level: number) {
-    setDraft((prev) => {
-      const approvalLevels = prev.approvalLevels.map((lvl) =>
-        lvl.level === level ? { ...lvl, agentId: "" } : lvl,
-      );
-      return {
-        ...prev,
-        approvalLevels,
-        approvedByAgentIds: agentIdsFromApprovalLevels(approvalLevels),
-      };
-    });
-  }
-
-  function toggleLevelOptional(level: number) {
-    setDraft((prev) => {
-      if (!approvalLevelsAllowOptional(prev.approvalLevels.length)) return prev;
-      const approvalLevels = prev.approvalLevels.map((lvl) =>
-        lvl.level === level ? { ...lvl, optional: !lvl.optional } : lvl,
-      );
-      return { ...prev, approvalLevels };
-    });
-  }
-
-  function patchLocation(clientKey: string, patch: Partial<TravelOrderLocationDraft>) {
-    setDraft((prev) => ({
-      ...prev,
-      locations: prev.locations.map((loc) =>
-        loc.clientKey === clientKey ? { ...loc, ...patch } : loc,
-      ),
-    }));
-  }
-
-  function addLocation() {
-    setDraft((prev) => ({ ...prev, locations: [...prev.locations, emptyTravelLocation()] }));
-  }
-
-  function removeLocation(clientKey: string) {
-    setDraft((prev) => {
-      if (prev.locations.length <= 1) return prev;
-      return {
-        ...prev,
-        locations: prev.locations.filter((loc) => loc.clientKey !== clientKey),
-      };
-    });
-  }
-
-  async function discardDraftAndClose() {
-    if (!confirmDiscardDraft) {
-      setConfirmDiscardDraft(true);
-      window.setTimeout(() => setConfirmDiscardDraft(false), 4000);
-      return;
-    }
-    setConfirmDiscardDraft(false);
-    try {
-      await deleteOfflineDraft(localDraftId);
-    } catch {
-      /* already gone */
-    }
-    onDraftSaved?.();
-    onClose();
-  }
-
-  async function saveDraftAndClose() {
-    const row = {
-      localId: localDraftId,
-      mainTaskName: effectiveMainTask,
-      scopedCompanyTeamId: scopedCompanyTeamId ?? null,
-      companyScopeAgentId,
-      draft,
-      attachmentNames: pendingAttachments.map((f) => f.name),
-      syncStatus: "draft" as const,
-    };
-    if (!offlineDraftHasContent(row)) {
-      setError("Add a purpose, traveler, vehicle, location, or approver before saving a draft.");
-      setFormPage(1);
-      return;
-    }
-    setDraftSaving(true);
-    setError(null);
-    try {
-      await saveOfflineDraft(row);
-      setDraftNotice("Draft saved. You can resume it from Travel Orders.");
-      onDraftSaved?.();
-      onClose();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Could not save draft.");
+      if (quiet) {
+        setDraftNotice("Autosaved");
+        if (quietAutosaveClearRef.current) clearTimeout(quietAutosaveClearRef.current);
+        quietAutosaveClearRef.current = setTimeout(() => {
+          setDraftNotice((prev) => (prev === "Autosaved" ? null : prev));
+        }, 2000);
+        // Quiet autosave must not notify the parent — onDraftSaved closes the create modal.
+      } else {
+        setDraftNotice("Draft saved. You can resume it from Travel Orders.");
+        onDraftSaved?.();
+      }
+    } catch (err) {
+      if (!quiet) {
+        setError(err instanceof Error ? err.message : "Could not save draft.");
+      }
     } finally {
       setDraftSaving(false);
     }
   }
 
-  async function submit(opts?: { skipGatePass?: boolean }) {
-    const draftForSubmit: TravelOrderDraft = opts?.skipGatePass
-      ? { ...draft, gatePass: emptyGatePassDraft() }
-      : {
-          ...draft,
-          gatePass: {
-            ...draft.gatePass,
-            // Submitting from the Gate Pass page includes Gate Pass even when
-            // Est. Departure / Arrival are left blank (optional).
-            included: true,
-          },
-        };
+  // Debounced autosave when draft has content.
+  useEffect(() => {
+    if (!open || busy || draftSaving) return;
+    const hasContent = offlineDraftHasContent({
+      workPlanDraft: draft,
+      draft: null,
+      attachmentNames: [],
+    });
+    if (!hasContent) return;
 
-    const validationError = validateTravelOrderDraft(draftForSubmit);
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      void saveDraftLocal({ quiet: true });
+    }, 2500);
+
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+    // Intentionally depend on draft; saveDraftLocal closes over latest values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- debounce on content changes only
+  }, [open, busy, draft, localDraftId]);
+
+  useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+      if (quietAutosaveClearRef.current) clearTimeout(quietAutosaveClearRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!orgPath?.seats?.length) return;
+    const keep = new Set(orgPath.seats.map((seat) => seat.sequenceLevel));
+    setDraft((current) => {
+      if (current.approvalLevels.length === 0) {
+        return {
+          ...current,
+          approvalLevels: buildWorkPlanApprovalLevelsFromSeats(orgPath.seats),
+        };
+      }
+      const next = current.approvalLevels.filter((level) => keep.has(level.level));
+      if (next.length === current.approvalLevels.length) return current;
+      return { ...current, approvalLevels: next };
+    });
+  }, [orgPath]);
+
+  async function submit() {
+    // Ensure seat structure exists before validate when org path loaded but levels empty.
+    let draftToValidate = draft;
+    if (draft.approvalLevels.length === 0 && orgPath?.seats?.length) {
+      draftToValidate = {
+        ...draft,
+        approvalLevels: buildWorkPlanApprovalLevelsFromSeats(orgPath.seats),
+      };
+      setDraft(draftToValidate);
+    } else if (draft.approvalLevels.length === 0) {
+      draftToValidate = {
+        ...draft,
+        approvalLevels: [{ level: 1, agentId: "", optional: false }],
+      };
+      setDraft(draftToValidate);
+    }
+
+    const validationError = validateWorkPlanDraft(draftToValidate);
     if (validationError) {
       setError(validationError);
-      if (validationError.toLowerCase().includes("gate pass") || validationError.toLowerCase().includes("est.")) {
-        setFormPage(3);
-      } else if (
-        validationError.toLowerCase().includes("approv") ||
-        validationError.toLowerCase().includes("confirm")
-      ) {
-        setFormPage(2);
-      } else {
-        setFormPage(1);
-      }
+      const incomplete = firstIncompleteStepId();
+      if (incomplete) setWizardStepId(incomplete);
       return;
     }
-    if (!effectiveMainTask.trim()) {
-      setError("Enter the purpose of travel.");
-      setFormPage(1);
-      return;
-    }
-    if (pendingAttachments.length > MAX_TRAVEL_ORDER_ATTACHMENTS) {
-      setError(`You can attach at most ${MAX_TRAVEL_ORDER_ATTACHMENTS} files.`);
-      setFormPage(1);
-      return;
-    }
-    for (const file of pendingAttachments) {
-      if (file.size > MAX_SCREENSHOT_BYTES) {
-        setError("Each attachment must be at most 5MB.");
-        setFormPage(1);
-        return;
-      }
-      if (!isAllowedIntakeAttachment(file.type || "", file.name)) {
-        setError("Attachments must be images or documents (PDF, Word, Excel, PowerPoint, CSV, TXT).");
-        setFormPage(1);
-        return;
-      }
-    }
-
-    const approvedByAgentIds = hierarchical
-      ? agentIdsFromApprovalLevels(draftForSubmit.approvalLevels)
-      : draftForSubmit.approvedByAgentIds;
 
     setBusy(true);
     setError(null);
     try {
+      const orderRequest = deriveWorkPlanOrderRequest(draftToValidate.workPlan);
       const form = new FormData();
-      form.set(
-        "title",
-        (effectiveMainTask.trim().replace(/\s+/g, " ").toUpperCase() || "FIELD ASSIGNMENT"),
-      );
+      form.set("title", (effectiveMainTask.trim().replace(/\s+/g, " ").toUpperCase() || "TRAVEL ORDER"));
       form.set("mainTask", effectiveMainTask.trim());
-      form.set("orderRequest", draftForSubmit.orderRequest.trim());
-      form.set("approvedByAgentIds", JSON.stringify(approvedByAgentIds));
-      if (approvedByAgentIds[0]) {
-        form.set("approvedByAgentId", approvedByAgentIds[0]);
+      form.set("orderRequest", orderRequest);
+      form.set("workPlanJson", JSON.stringify(draftToValidate.workPlan));
+      form.set(
+        "approvalLevels",
+        JSON.stringify(levelsWithLabels(draftToValidate.approvalLevels, orgPath?.seats)),
+      );
+      if (draftToValidate.confirmationByAgentId.trim()) {
+        form.set("confirmationByAgentId", draftToValidate.confirmationByAgentId.trim());
       }
-      if (hierarchical) {
-        form.set(
-          "approvalLevels",
-          JSON.stringify(
-            draftForSubmit.approvalLevels.map((lvl) => ({
-              level: lvl.level,
-              agentId: lvl.agentId,
-              optional: lvl.optional === true,
-              ...(Array.isArray(lvl.alternateAgentIds) && lvl.alternateAgentIds.length > 0
-                ? { alternateAgentIds: lvl.alternateAgentIds }
-                : {}),
-            })),
-          ),
-        );
-      }
-      form.set("confirmationByAgentId", draftForSubmit.confirmationByAgentId.trim());
-      form.set(
-        "additionalTravelerAgentIds",
-        JSON.stringify(draftForSubmit.additionalTravelerAgentIds),
-      );
-      form.set(
-        "exemptRequesterFromTravelers",
-        draftForSubmit.exemptRequesterFromTravelers ? "1" : "0",
-      );
-      form.set("vehicle", draftForSubmit.vehicle.trim());
-      form.set("driverPresent", draftForSubmit.driverPresent ? "1" : "0");
-      form.set(
-        "driverAgentId",
-        draftForSubmit.driverPresent ? draftForSubmit.driverAgentId.trim() : "",
-      );
-      form.set(
-        "driverLicenseNo",
-        draftForSubmit.driverPresent ? draftForSubmit.driverLicenseNo.trim() : "",
-      );
       if (scopedCompanyTeamId) form.set("scopedCompanyTeamId", scopedCompanyTeamId);
-      form.set(
-        "locationsJson",
-        JSON.stringify(
-          draftForSubmit.locations.map((loc) => ({
-            label: loc.label.trim(),
-            latitude: null,
-            longitude: null,
-            remarks: null,
-          })),
-        ),
-      );
-      const gp = draftForSubmit.gatePass;
-      form.set(
-        "gatePassJson",
-        JSON.stringify({
-          // Est. times are optional — include Gate Pass even when both are blank.
-          included: gp.included === true,
-          estDepartureAt: gp.estDepartureAt.trim() || null,
-          estArrivalAt: gp.estArrivalAt.trim() || null,
-          // Actual times / guards are captured only after full approval.
-          actualDepartureStartedAt: null,
-          actualDepartureStartedLatitude: null,
-          actualDepartureStartedLongitude: null,
-          actualDepartureEndedAt: null,
-          actualDepartureEndedLatitude: null,
-          actualDepartureEndedLongitude: null,
-          startGuardOnDuty: "",
-          endGuardOnDuty: "",
-        }),
-      );
-      for (const file of pendingAttachments) {
-        form.append("attachment", file);
-      }
 
       const payloadEntries: Record<string, string> = {};
       for (const [k, v] of form.entries()) {
@@ -927,37 +602,19 @@ export function TravelOrderRequestModal({
       }
 
       async function queueOfflineCreate() {
-        const attachments: Array<{ name: string; type: string; dataUrl: string }> = [];
-        for (const file of pendingAttachments) {
-          if (file.size > MAX_SCREENSHOT_BYTES) continue;
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result ?? ""));
-            reader.onerror = () => reject(new Error("Could not read attachment."));
-            reader.readAsDataURL(file);
-          });
-          if (dataUrl) {
-            attachments.push({
-              name: file.name,
-              type: file.type || "application/octet-stream",
-              dataUrl,
-            });
-          }
-        }
         await queueFieldAssignmentCreate({
           draftRow: {
             localId: localDraftId,
             mainTaskName: effectiveMainTask,
             scopedCompanyTeamId: scopedCompanyTeamId ?? null,
             companyScopeAgentId,
-            draft: draftForSubmit,
-            attachmentNames: pendingAttachments.map((f) => f.name),
+            workPlanDraft: draftToValidate,
+            draft: null,
+            attachmentNames: [],
             syncStatus: "pending",
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
           },
           payload: payloadEntries,
-          attachments,
+          attachments: [],
         });
         setQueuedOffline(true);
         onCreated({ kpiId: localDraftId, offlineQueued: true });
@@ -970,17 +627,16 @@ export function TravelOrderRequestModal({
       }
 
       try {
+        // Cold Next.js compile of this route can exceed 8s in dev; match list-fetch budgets.
         const res = await fetchTravelOrderWithTimeout(
           "/api/kpi-maintenance/field-assignment",
-          {
-            method: "POST",
-            body: form,
-          },
-          8000,
+          { method: "POST", body: form },
+          45_000,
         );
         const body = (await res.json().catch(() => ({}))) as {
           error?: string;
           kpi?: { id?: string };
+          travelOrder?: { id?: string };
         };
         if (!res.ok) {
           setError(body.error ?? "Could not create the travel order.");
@@ -992,7 +648,7 @@ export function TravelOrderRequestModal({
           return;
         }
         void deleteOfflineDraft(localDraftId).catch(() => undefined);
-        onCreated({ kpiId });
+        onCreated({ kpiId, travelOrderId: body.travelOrder?.id ?? null });
         onClose();
       } catch (err) {
         if (isTravelOrderNetworkFailure(err)) {
@@ -1012,907 +668,245 @@ export function TravelOrderRequestModal({
     }
   }
 
-  function goToPage(page: TravelOrderFormPage) {
-    if (page === 2 && formPage === 1) {
-      if (!draft.orderRequest.trim()) {
-        setError("Enter the purpose of travel before continuing.");
-        return;
-      }
-      if (!draft.locations.some((loc) => loc.label.trim())) {
-        setError("Add at least one location name before continuing.");
-        return;
-      }
-    }
-    if (page === 3 && formPage === 2) {
-      if (draft.approvalLevels.length > 0) {
-        for (const lvl of draft.approvalLevels) {
-          if (!lvl.agentId.trim()) {
-            setError(`Assign an approver for ${travelOrderApprovedByLabel(lvl.optional === true, lvl.level, draft.approvalLevels.length)} before continuing.`);
-            return;
-          }
-        }
-      } else if (draft.approvedByAgentIds.length === 0) {
-        setError("Select at least one approver before continuing.");
-        return;
-      }
-      if (!draft.confirmationByAgentId.trim()) {
-        setError("Select who will confirm this travel order before continuing.");
-        return;
-      }
-    }
+  function applyOrgChartRecommendations() {
+    if (!orgPath?.seats?.length && !orgPath?.recommendedConfirmation?.agentId) return;
+    const levels = orgPath.seats?.length
+      ? buildWorkPlanApprovalLevelsFromSeats(orgPath.seats)
+      : [];
+    const confirmerId = orgPath.recommendedConfirmation?.agentId?.trim() || "";
+    setDraft((prev) => ({
+      ...prev,
+      approvalLevels: levels.length > 0 ? levels : prev.approvalLevels,
+      confirmationByAgentId: confirmerId || prev.confirmationByAgentId,
+    }));
     setError(null);
-    setFormPage(page);
   }
 
-  if (!open) return null;
+  function updateApprovalLevel(level: number, agentId: string) {
+    setDraft((prev) => ({
+      ...prev,
+      approvalLevels: prev.approvalLevels.map((lvl) =>
+        lvl.level === level ? { ...lvl, agentId } : lvl,
+      ),
+    }));
+  }
+
+  function requestClose() {
+    if (
+      offlineDraftHasContent({
+        workPlanDraft: draft,
+        draft: null,
+        attachmentNames: [],
+      })
+    ) {
+      setConfirmDiscardDraft(true);
+      return;
+    }
+    onClose();
+  }
+
+  const titleTruncated =
+    effectiveMainTask.length > 72 ? `${effectiveMainTask.slice(0, 72)}…` : effectiveMainTask;
 
   return (
     <TaskBoardPopup
       open={open}
-      title="Request for Travel Order"
-  description={`Field Assignment · ${(effectiveMainTask.trim() || "Travel order")}`}
-      onClose={() => {
-        if (!busy) onClose();
-      }}
+      onClose={requestClose}
+      title="Travel Order for Management Approval"
       size="xl"
     >
-      <div className="picker-scroll space-y-5 overflow-y-auto px-1 pb-2 dark:scheme-dark">
-        <TravelOrderOfflineBanner />
-        {!online ? (
-          <p className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
-            You are offline. Approvers use the last cached user list. Submit will queue this Travel Order
-            and sync when you reconnect.
-          </p>
-        ) : null}
-        {queuedOffline ? (
-          <p className="rounded-lg border border-sky-400/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-950 dark:text-sky-100">
-            Travel Order saved offline and queued for sync.
-          </p>
-        ) : null}
-        {error ? (
-          <p className="rounded-lg border border-rose-400/50 bg-rose-500/10 px-3 py-2 text-sm text-rose-800 dark:text-rose-200">
-            {error}
-          </p>
-        ) : null}
+      {!online ? <TravelOrderOfflineBanner /> : null}
+      {queuedOffline ? (
+        <p className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
+          Travel Order saved offline and queued for sync.
+        </p>
+      ) : null}
+      {draftNotice ? (
+        <p className="rounded-lg border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-950 dark:text-emerald-100">
+          {draftNotice}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-sm text-red-800 dark:text-red-200">
+          {error}
+        </p>
+      ) : null}
 
-        <TravelOrderPageNav
-          page={formPage}
-          onPageChange={goToPage}
-          nextDisabled={busy}
-          backDisabled={busy}
-        />
-
-        {formPage === 1 ? (
-          <>
-            <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-500">
-              Purpose of travel
-              <textarea
-                value={draft.orderRequest ?? ""}
-                disabled={busy}
-                rows={4}
-                placeholder="Purpose of travel, scope of work, and other request details…"
-                onChange={(e) => setDraft((prev) => ({ ...prev, orderRequest: e.target.value }))}
-                className="mt-1 resize-y rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-              />
-            </label>
-
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-500">
-                Attachments
+      <div className="sticky top-0 z-10 -mx-1 space-y-2 border-b border-zinc-200 bg-white/95 px-1 py-2 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                {titleTruncated}
               </p>
-              <p className="text-[11px] font-normal normal-case tracking-normal text-zinc-500">
-                Optional supporting images or documents (max {MAX_TRAVEL_ORDER_ATTACHMENTS}, 5MB each).
-              </p>
-              {pendingAttachments.length > 0 ? (
-                <ul className="space-y-1.5">
-                  {pendingAttachments.map((file, index) => (
-                    <li
-                      key={`${file.name}-${file.size}-${index}`}
-                      className="flex items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900/60"
-                    >
-                      <span className="min-w-0 truncate font-medium text-zinc-800 dark:text-zinc-200">
-                        {file.name}
-                        <span className="ml-1 font-normal text-zinc-500">
-                          ({Math.max(1, Math.round(file.size / 1024))} KB)
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          setPendingAttachments((prev) => prev.filter((_, i) => i !== index))
-                        }
-                        className="shrink-0 rounded p-0.5 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
-                        title="Remove file"
-                      >
-                        <X className="size-3.5" aria-hidden />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-              <input
-                key={attachmentInputKey}
-                ref={attachmentInputRef}
-                type="file"
-                multiple
-                accept={INTAKE_ATTACHMENT_ACCEPT}
-                disabled={busy || pendingAttachments.length >= MAX_TRAVEL_ORDER_ATTACHMENTS}
-                className="pointer-events-none absolute h-0 w-0 overflow-hidden opacity-0"
-                tabIndex={-1}
-                aria-hidden
-                onChange={(e) => {
-                  const picked = Array.from(e.target.files ?? []).filter((f) => f.size > 0);
-                  setAttachmentInputKey((k) => k + 1);
-                  if (picked.length === 0) return;
-                  setPendingAttachments((prev) => {
-                    const remaining = MAX_TRAVEL_ORDER_ATTACHMENTS - prev.length;
-                    if (remaining <= 0) {
-                      setError(`You can attach at most ${MAX_TRAVEL_ORDER_ATTACHMENTS} files.`);
-                      return prev;
-                    }
-                    const next = [...prev];
-                    for (const file of picked.slice(0, remaining)) {
-                      if (file.size > MAX_SCREENSHOT_BYTES) {
-                        setError("Each attachment must be at most 5MB.");
-                        continue;
-                      }
-                      if (!isAllowedIntakeAttachment(file.type || "", file.name)) {
-                        setError(
-                          "Attachments must be images or documents (PDF, Word, Excel, PowerPoint, CSV, TXT).",
-                        );
-                        continue;
-                      }
-                      next.push(file);
-                    }
-                    return next;
-                  });
-                }}
-              />
-              <button
-                type="button"
-                disabled={busy || pendingAttachments.length >= MAX_TRAVEL_ORDER_ATTACHMENTS}
-                onClick={() => attachmentInputRef.current?.click()}
-                className={cn(
-                  "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900",
-                  (busy || pendingAttachments.length >= MAX_TRAVEL_ORDER_ATTACHMENTS) &&
-                    "pointer-events-none opacity-50",
-                )}
-              >
-                <Plus className="size-3.5" aria-hidden />
-                Add files
-              </button>
+              <span className="inline-flex shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                Draft
+              </span>
             </div>
-
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-500">
-                Travelers
-              </p>
-              <p className="text-[11px] font-normal normal-case tracking-normal text-zinc-500">
-                {draft.exemptRequesterFromTravelers
-                  ? "You are exempt from the travelers list. Add the people who will travel."
-                  : "You are automatically included as the requester. Optionally add co-travelers from any company."}
-              </p>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-800 dark:text-zinc-200">
-                <input
-                  type="checkbox"
-                  checked={draft.exemptRequesterFromTravelers === true}
-                  disabled={busy}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setDraft((prev) => {
-                      const requesterId = companyScopeAgentId?.trim() || "";
-                      const next = {
-                        ...prev,
-                        exemptRequesterFromTravelers: checked,
-                      };
-                      if (
-                        checked &&
-                        requesterId &&
-                        prev.driverAgentId === requesterId
-                      ) {
-                        next.driverAgentId = "";
-                      }
-                      return next;
-                    });
-                  }}
-                  className="size-4 accent-orange-600"
-                />
-                <span className="font-medium">Exempt Me from Travelers</span>
-              </label>
-              {creatorAgent && !draft.exemptRequesterFromTravelers ? (
-                <p className="text-xs text-zinc-700 dark:text-zinc-300">
-                  Requester:{" "}
-                  <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                    {creatorAgent.name}
-                  </span>
-                  {creatorAgent.email ? ` · ${creatorAgent.email}` : ""}
-                </p>
-              ) : creatorAgent && draft.exemptRequesterFromTravelers ? (
-                <div className="space-y-1 rounded-lg border border-orange-400/40 bg-orange-500/[0.06] px-2.5 py-2 dark:border-orange-500/30 dark:bg-orange-500/[0.08]">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-orange-800 dark:text-orange-200">
-                    Prepared By:
-                  </p>
-                  <p className="text-xs text-zinc-800 dark:text-zinc-200">
-                    <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                      {creatorAgent.name}
-                    </span>
-                    {creatorAgent.email ? (
-                      <span className="text-zinc-500"> · {creatorAgent.email}</span>
-                    ) : null}
-                  </p>
-                  <p className="text-[11px] text-zinc-500">
-                    You are registered as Prepared By and will not appear in the travelers list.
-                  </p>
-                </div>
-              ) : !draft.exemptRequesterFromTravelers ? (
-                <p className="text-xs text-zinc-500">You will be assigned as the requester on save.</p>
-              ) : null}
-              {selectedTravelers.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedTravelers.map((agent) => (
-                    <button
-                      key={`traveler-${agent.id}`}
-                      type="button"
-                      disabled={busy}
-                      onClick={() => toggleTraveler(agent.id)}
-                      className="inline-flex items-center gap-1 rounded-full border border-sky-400/50 bg-sky-500/10 px-2.5 py-1 text-[11px] font-semibold text-sky-900 dark:text-sky-100"
-                      title="Remove traveler"
-                    >
-                      {agent.name}
-                      <span aria-hidden>×</span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              <input
-                type="search"
-                value={travelerQuery}
-                disabled={busy}
-                placeholder="Add traveler — search personnel…"
-                onChange={(e) => setTravelerQuery(e.target.value)}
-                className={personnelPickerSearchClass}
-              />
-              <div className={cn(personnelPickerListClass, "max-h-28")}>
-                {filteredTravelerAgents.length === 0 ? (
-                  <p className="px-3 py-2 text-xs text-zinc-500">No matching personnel.</p>
-                ) : (
-                  filteredTravelerAgents.map((agent) => {
-                    const selected = draft.additionalTravelerAgentIds.includes(agent.id);
-                    return (
-                      <button
-                        key={`add-traveler-${agent.id}`}
-                        type="button"
-                        disabled={busy}
-                        onClick={() => toggleTraveler(agent.id)}
-                        className={cn(
-                          "flex w-full items-start gap-2 border-b border-zinc-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-sky-50 dark:border-zinc-800 dark:hover:bg-sky-950/30",
-                          selected && "bg-sky-50 dark:bg-sky-950/40",
-                        )}
-                      >
-                        <input
-                          type="checkbox"
-                          readOnly
-                          checked={selected}
-                          className="mt-1 size-3.5 accent-sky-600"
-                          tabIndex={-1}
-                          aria-hidden
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-semibold text-zinc-900 dark:text-zinc-100">
-                            {agent.name}
-                          </span>
-                          {agent.email ? (
-                            <span className={personnelPickerEmailClass}>{agent.email}</span>
-                          ) : null}
-                        </span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-
-              <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-zinc-800 dark:text-zinc-200">
-                <input
-                  type="checkbox"
-                  checked={draft.driverPresent === true}
-                  disabled={busy}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setDraft((prev) => ({
-                      ...prev,
-                      driverPresent: checked,
-                      driverAgentId: checked ? prev.driverAgentId : "",
-                      driverLicenseNo: checked ? prev.driverLicenseNo : "",
-                    }));
-                    if (!checked) setDriverQuery("");
-                  }}
-                  className="size-4 accent-orange-600"
-                />
-                <span className="font-medium">Driver present</span>
-              </label>
-
-              {draft.driverPresent ? (
-                <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-700 dark:bg-zinc-950/40">
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-500">
-                      Driver
-                    </p>
-                    <p className="text-[11px] text-zinc-500">
-                      {draft.exemptRequesterFromTravelers
-                        ? "Choose from the travelers on this order."
-                        : "Choose from the travelers on this order (requester + co-travelers)."}
-                    </p>
-                    {selectedDriver ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1 rounded-full border border-orange-400/50 bg-orange-500/10 px-2.5 py-1 text-[11px] font-semibold text-orange-900 dark:text-orange-100">
-                          {selectedDriver.name}
-                          {selectedDriver.email ? ` · ${selectedDriver.email}` : ""}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => {
-                            setDraft((prev) => ({ ...prev, driverAgentId: "" }));
-                            setDriverQuery("");
-                          }}
-                          className="text-[11px] font-semibold text-orange-700 underline dark:text-orange-300"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                    ) : null}
-                    <input
-                      type="search"
-                      value={driverQuery}
-                      disabled={busy}
-                      placeholder="Search travelers…"
-                      onChange={(e) => setDriverQuery(e.target.value)}
-                      className={personnelPickerSearchClass}
-                    />
-                    <div className={cn(personnelPickerListClass, "max-h-28")}>
-                      {travelerOptionsForDriver.length === 0 ? (
-                        <p className="px-3 py-2 text-xs text-zinc-500">
-                          {draft.exemptRequesterFromTravelers
-                            ? "No travelers yet. Add travelers above to choose a driver."
-                            : "No travelers yet. You are included as requester once saved; add co-travelers above to choose among them."}
-                        </p>
-                      ) : filteredDriverAgents.length === 0 ? (
-                        <p className="px-3 py-2 text-xs text-zinc-500">No matching traveler.</p>
-                      ) : (
-                        filteredDriverAgents.map((agent) => (
-                          <button
-                            key={`driver-${agent.id}`}
-                            type="button"
-                            disabled={busy}
-                            onClick={() => {
-                              setDraft((prev) => ({ ...prev, driverAgentId: agent.id }));
-                              setDriverQuery(agent.name);
-                            }}
-                            className={cn(
-                              "flex w-full flex-col items-start border-b border-zinc-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-orange-50 dark:border-zinc-800 dark:hover:bg-orange-950/30",
-                              draft.driverAgentId === agent.id &&
-                                "bg-orange-50 dark:bg-orange-950/40",
-                            )}
-                          >
-                            <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                              {agent.name}
-                            </span>
-                            {agent.email ? (
-                              <span className={personnelPickerEmailClass}>{agent.email}</span>
-                            ) : null}
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-600 dark:text-zinc-500">
-                    <span>
-                      License No.{" "}
-                      <span className="font-semibold normal-case tracking-normal text-zinc-500">
-                        (optional)
-                      </span>
-                    </span>
-                    <input
-                      type="text"
-                      value={draft.driverLicenseNo ?? ""}
-                      disabled={busy}
-                      placeholder="Driver license number (optional)"
-                      onChange={(e) =>
-                        setDraft((prev) => ({ ...prev, driverLicenseNo: e.target.value }))
-                      }
-                      className="mt-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-zinc-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
-                    />
-                  </label>
-                </div>
-              ) : null}
+            {periodVenueShort ? (
+              <p className="truncate text-xs text-zinc-500">{periodVenueShort}</p>
+            ) : null}
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+              <span>
+                Step {wizardIndex + 1} of {WORK_PLAN_WIZARD_STEPS.length}
+              </span>
+              <span>Personnel {personnelCount}</span>
+              <span>Budget ₱{formatWorkPlanAmount(budgetTotal) || "0.00"}</span>
+              <span>
+                Approvers {approversFilled} of {approversTotal}
+              </span>
             </div>
-
-            <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-500">
-              Vehicle
-              <select
-                value={draft.vehicle ?? ""}
-                disabled={busy}
-                onChange={(e) => setDraft((prev) => ({ ...prev, vehicle: e.target.value }))}
-                className="mt-1 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-              >
-                <option value="">Select a vehicle…</option>
-                {TRAVEL_ORDER_VEHICLE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-500">
-                  Location ({draft.locations.length})
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={addLocation}
-                  className="h-8 gap-1 border-orange-500/50 text-xs text-orange-700 dark:text-orange-300"
-                >
-                  <Plus className="size-3.5" aria-hidden />
-                  Add location
-                </Button>
-              </div>
-
-              {draft.locations.map((loc, index) => (
-                <div
-                  key={loc.clientKey}
-                  className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-700 dark:bg-zinc-950/40"
-                >
-                  <div className="flex items-start gap-2">
-                    <label className="flex min-w-0 flex-1 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-600 dark:text-zinc-500">
-                      <span className="mb-1 block">
-                        {draft.locations.length > 1
-                          ? `Location ${index + 1}`
-                          : "Location name / address"}
-                      </span>
-                      <input
-                        type="text"
-                        value={loc.label ?? ""}
-                        disabled={busy}
-                        placeholder="e.g. Client site — Makati"
-                        onChange={(e) => patchLocation(loc.clientKey, { label: e.target.value })}
-                        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-zinc-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      disabled={busy || draft.locations.length <= 1}
-                      onClick={() => removeLocation(loc.clientKey)}
-                      className="mt-5 inline-flex shrink-0 items-center gap-1 rounded-full border border-rose-400/60 px-2 py-1 text-[10px] font-semibold text-rose-700 disabled:opacity-40 dark:text-rose-300"
-                      aria-label={`Remove location ${index + 1}`}
-                    >
-                      <Trash2 className="size-3" aria-hidden />
-                      Remove
-                    </button>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="rounded-lg border border-dashed border-zinc-300 px-2.5 py-2 dark:border-zinc-600">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-                          Start
-                        </p>
-                        <button
-                          type="button"
-                          disabled
-                          className="rounded-lg bg-orange-600/40 px-2.5 py-1.5 text-[11px] font-semibold text-white opacity-60"
-                        >
-                          Start
-                        </button>
-                      </div>
-                      <p className="mt-1 text-[11px] text-zinc-500">
-                        After approval — captures GPS + time on site.
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-dashed border-zinc-300 px-2.5 py-2 dark:border-zinc-600">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-                          End
-                        </p>
-                        <button
-                          type="button"
-                          disabled
-                          className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-800 opacity-60 dark:text-emerald-200"
-                        >
-                          End
-                        </button>
-                      </div>
-                      <p className="mt-1 text-[11px] text-zinc-500">
-                        After Start — marks this stop completed.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : formPage === 2 ? (
-          <>
-            <div className="space-y-3">
-              <TravelOrderApprovalRecommendationGuide
-                seats={recommendedPath}
-                requestorOrgLayer={recommendedPathLayer}
-                confirmation={recommendedConfirmation}
-                loading={recommendedPathLoading}
-                error={recommendedPathError}
-                disabled={busy}
-                usedFallback={recommendedPathUsedFallback}
-                onApply={applyRecommendedPathNow}
-              />
-
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-500">
-                  To be Approved by:
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {hierarchical ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => {
-                        clearLevels();
-                        ensureHierarchicalApprovalLayout(
-                          recommendedPath.length > 0 ? recommendedPath.length : 1,
-                        );
-                      }}
-                      className="h-7 px-2 text-[11px]"
-                    >
-                      Reset seats
-                    </Button>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => {
-                      setLevelsCountInput(
-                        hierarchical
-                          ? String(draft.approvalLevels.length)
-                          : String(
-                              recommendedPath.length > 0
-                                ? recommendedPath.length
-                                : requestorSeatCount >= 1
-                                  ? requestorSeatCount
-                                  : 1,
-                            ),
-                      );
-                      setLevelsPromptOpen((v) => !v);
-                    }}
-                    className="h-7 border-orange-500/50 px-2 text-[11px] text-orange-800 dark:text-orange-200"
-                  >
-                    Set Levels
-                  </Button>
-                </div>
-              </div>
-
-              {levelsPromptOpen ? (
-                <div className="flex flex-wrap items-end gap-2 rounded-xl border border-orange-400/40 bg-orange-500/5 p-3">
-                  <label className="flex min-w-[8rem] flex-1 flex-col gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-600 dark:text-zinc-500">
-                    Number of layers
-                    <input
-                      type="number"
-                      min={1}
-                      max={maxApprovalLayers}
-                      value={levelsCountInput}
-                      disabled={busy}
-                      onChange={(e) => setLevelsCountInput(e.target.value)}
-                      className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-zinc-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
-                    />
-                  </label>
-                  <Button
-                    type="button"
-                    disabled={busy}
-                    onClick={applyLevelsCount}
-                    className="h-9 bg-orange-600 text-white hover:bg-orange-500"
-                  >
-                    Apply
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() => setLevelsPromptOpen(false)}
-                    className="h-9"
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              ) : null}
-
-              <p className="text-[11px] font-normal normal-case tracking-normal text-zinc-500">
-                Recommended path is immediate head → HR team head → major department head. You can
-                assign heads from any department on the org chart (cross-department). Confirmation
-                defaults to the immediate head.
-                {approvalLevelsAllowOptional(draft.approvalLevels.length)
-                  ? " With 3+ levels, middle seats can be marked optional."
-                  : ""}
-              </p>
-
-              {hierarchical ? (
-                <div className="-mx-1 w-[calc(100%+0.5rem)] overflow-x-auto px-1 pb-1">
-                  <div className="flex w-max min-w-full items-stretch gap-3">
-                  {approvalSeatsInOrder.map((lvl, index) => {
-                    const totalLevels = approvalSeatsInOrder.length;
-                    const optional = lvl.optional === true;
-                    const showOptionalToggle = approvalLevelsAllowOptional(totalLevels);
-                    const recommendedSeat = recommendedPath.find(
-                      (s) => s.sequenceLevel === lvl.level,
-                    );
-                    const taken = new Set(
-                      draft.approvalLevels
-                        .filter((other) => other.level !== lvl.level)
-                        .map((other) => other.agentId.trim())
-                        .filter(Boolean),
-                    );
-                    return (
-                      <div
-                        key={`level-${lvl.level}`}
-                        className="flex w-[15.5rem] shrink-0 flex-col sm:w-[16.5rem]"
-                      >
-                        {index > 0 ? (
-                          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
-                            then →
-                          </p>
-                        ) : (
-                          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-transparent select-none">
-                            start
-                          </p>
-                        )}
-                        <div
-                          className={cn(
-                            "isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border p-3",
-                            optional
-                              ? "border-sky-400/40 bg-sky-500/5 dark:border-sky-500/30 dark:bg-sky-950/20"
-                              : "border-zinc-200 bg-zinc-50/60 dark:border-zinc-700 dark:bg-zinc-950/40",
-                          )}
-                        >
-                          <CompanyUserSearchField
-                            label={
-                              recommendedSeat?.label?.trim() ||
-                              travelOrderApprovedByLabel(optional, lvl.level, totalLevels)
-                            }
-                            required={!optional}
-                            users={approvalRoster}
-                            value={lvl.agentId}
-                            excludedIds={taken}
-                            disabled={busy}
-                            placeholder={
-                              approvalRoster.length === 0
-                                ? "Loading personnel…"
-                                : "Search any department head…"
-                            }
-                            emptyMessage={
-                              approvalRoster.length === 0
-                                ? "No personnel loaded yet. Check your connection and reopen this form."
-                                : "No matching users."
-                            }
-                            onChange={(agentId) => assignLevelAgent(lvl.level, agentId)}
-                          />
-                          {recommendedSeat?.agentId && recommendedSeat.agentId === lvl.agentId ? (
-                            <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-300">
-                              From recommendation
-                            </p>
-                          ) : recommendedSeat && !lvl.agentId.trim() ? (
-                            <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
-                              Recommended:{" "}
-                              {recommendedSeat.agentName?.trim() ||
-                                recommendedSeat.label ||
-                                "assign a department head"}
-                            </p>
-                          ) : null}
-                          {showOptionalToggle ? (
-                            <label className="mt-2 flex cursor-pointer items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-300">
-                              <input
-                                type="checkbox"
-                                checked={optional}
-                                disabled={busy}
-                                onChange={() => toggleLevelOptional(lvl.level)}
-                                className="size-3.5 accent-sky-600"
-                              />
-                              Optional
-                            </label>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  <div className="flex w-[15.5rem] shrink-0 flex-col sm:w-[16.5rem]">
-                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-transparent select-none">
-                      start
-                    </p>
-                    <div className="isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-700 dark:bg-zinc-950/40">
-                      <CompanyUserSearchField
-                        label="To be Confirmed by"
-                        required
-                        users={confirmRoster}
-                        value={draft.confirmationByAgentId}
-                        disabled={busy}
-                        placeholder={
-                          confirmRoster.length === 0
-                            ? "Loading personnel…"
-                            : "Search personnel…"
-                        }
-                        emptyMessage={
-                          confirmRoster.length === 0
-                            ? "No personnel loaded yet. Check your connection and reopen this form."
-                            : "No matching users."
-                        }
-                        onChange={(agentId) =>
-                          setDraft((prev) => ({ ...prev, confirmationByAgentId: agentId }))
-                        }
-                      />
-                      {recommendedConfirmation?.agentId &&
-                      recommendedConfirmation.agentId === draft.confirmationByAgentId.trim() ? (
-                        <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-300">
-                          From recommendation
-                        </p>
-                      ) : recommendedConfirmation?.agentName &&
-                        !draft.confirmationByAgentId.trim() ? (
-                        <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
-                          Recommended: {recommendedConfirmation.agentName}
-                        </p>
-                      ) : (
-                        <p className="mt-1 text-[11px] text-zinc-500">
-                          Defaults to immediate head
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-zinc-300 p-3 dark:border-zinc-600">
-                  <p className="text-xs text-zinc-500">
-                    No approval seats yet. Use Set Levels or Apply recommendations.
-                  </p>
-                  <Button
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      ensureHierarchicalApprovalLayout(
-                        recommendedPath.length > 0 ? recommendedPath.length : 1,
-                      )
-                    }
-                    className="mt-2 h-8 bg-orange-600 text-xs text-white hover:bg-orange-500"
-                  >
-                    Add approval seat
-                  </Button>
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <TravelOrderGatePassFields
-            value={draft.gatePass}
-            disabled={busy}
-            showActualTimes={false}
-            onChange={(gatePass) => setDraft((prev) => ({ ...prev, gatePass }))}
-          />
-        )}
-
-        {draftNotice ? (
-          <p className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs text-emerald-800 dark:text-emerald-200">
-            {draftNotice}
-          </p>
-        ) : null}
-
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy || draftSaving}
-            onClick={() => void discardDraftAndClose()}
-            className={
-              confirmDiscardDraft
-                ? "border-rose-400 bg-rose-600 text-white hover:bg-rose-500"
-                : "border-rose-300 text-rose-700 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-950/30"
-            }
-            title="Remove this draft from this device"
-          >
-            {confirmDiscardDraft ? "Confirm remove?" : "Remove draft"}
-          </Button>
-          <div className="flex flex-wrap justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy || draftSaving}
-            onClick={onClose}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy || draftSaving}
-            onClick={() => void saveDraftAndClose()}
-            title="Save this travel order locally and finish it later"
-          >
-            {draftSaving ? (
-              <>
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-                Saving draft…
-              </>
-            ) : (
-              "Save draft"
-            )}
-          </Button>
-          {formPage === 1 ? (
-            <Button
-              type="button"
-              disabled={busy}
-              onClick={() => goToPage(2)}
-              className="bg-orange-600 text-white hover:bg-orange-500"
-            >
-              Next
-            </Button>
-          ) : formPage === 2 ? (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => goToPage(1)}
-              >
-                Back
-              </Button>
-              <Button
-                type="button"
-                disabled={busy}
-                onClick={() => goToPage(3)}
-                className="bg-orange-600 text-white hover:bg-orange-500"
-              >
-                Next
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => goToPage(2)}
-              >
-                Back
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void submit({ skipGatePass: true })}
-              >
-                Continue without Gate Pass
-              </Button>
-              <Button
-                type="button"
-                disabled={busy}
-                onClick={() => void submit()}
-                className="bg-orange-600 text-white hover:bg-orange-500"
-              >
-                {busy ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                    Saving…
-                  </>
-                ) : (
-                  "Submit travel order"
-                )}
-              </Button>
-            </>
-          )}
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy || draftSaving}
+            title="Save this travel order locally and finish it later"
+            onClick={() => void saveDraftLocal()}
+          >
+            {draftSaving ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            Save draft
+          </Button>
+        </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+          <div
+            className="h-full rounded-full bg-orange-600 transition-[width]"
+            style={{ width: `${wizardProgress}%` }}
+          />
+        </div>
+        <WorkPlanSectionChecklist
+          completeById={completeById}
+          activeId={wizardStep.id}
+          onSelect={goToStep}
+        />
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-[11px] font-bold uppercase tracking-[0.14em] text-orange-700 dark:text-orange-300">
+          {wizardStep.title}
+        </h3>
+
+        {wizardStep.id === "general" ||
+        wizardStep.id === "details" ||
+        wizardStep.id === "people" ||
+        wizardStep.id === "budget" ||
+        wizardStep.id === "justification" ||
+        wizardStep.id === "results" ? (
+          <WorkPlanFormFields
+            meta={draft.workPlan}
+            agents={allAgents}
+            disabled={busy}
+            sectionId={wizardStep.id}
+            onChange={(workPlan) => setDraft((prev) => ({ ...prev, workPlan }))}
+          />
+        ) : null}
+
+        {wizardStep.id === "approval" ? (
+          <div className="space-y-3">
+            <WorkPlanApprovalRecommendationGuide
+              seats={orgPath?.seats ?? []}
+              requestorOrgLayer={orgPath?.requestorOrgLayer ?? null}
+              confirmation={
+                orgPath?.recommendedConfirmation?.agentId?.trim() ||
+                orgPath?.recommendedConfirmation?.agentName?.trim()
+                  ? orgPath.recommendedConfirmation
+                  : null
+              }
+              loading={orgPathLoading}
+              error={orgPathError}
+              disabled={busy}
+              usedFallback={orgPath?.usedFallback ?? true}
+              onApply={applyOrgChartRecommendations}
+            />
+            {approvalLevels.map((lvl) => {
+              const label = "Approved by";
+              const excluded = draft.approvalLevels
+                .filter((other) => other.level !== lvl.level && other.agentId.trim())
+                .map((other) => other.agentId.trim());
+              return (
+                <CompanyUserSearchField
+                  key={`wp-appr-${lvl.level}`}
+                  label={label}
+                  users={approvalAgents}
+                  value={lvl.agentId}
+                  disabled={busy}
+                  required={!lvl.optional}
+                  excludedIds={excluded}
+                  selectedFooter="subtitle"
+                  onChange={(agentId) => updateApprovalLevel(lvl.level, agentId)}
+                />
+              );
+            })}
+            <CompanyUserSearchField
+              label="To be Confirmed by"
+              users={approvalAgents}
+              value={draft.confirmationByAgentId}
+              disabled={busy}
+              required
+              selectedFooter="subtitle"
+              onChange={(agentId) =>
+                setDraft((prev) => ({ ...prev, confirmationByAgentId: agentId }))
+              }
+            />
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Approvals are sequential along the org chart from your manager up. The top of
+              the chart is excluded. After every approver signs, the confirmer closes the
+              travel order. You can override any recommended seat.
+            </p>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+        <Button type="button" variant="outline" disabled={busy} onClick={requestClose}>
+          Cancel
+        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" disabled={busy || isFirstStep} onClick={goBack}>
+            <ChevronLeft className="mr-1 h-3.5 w-3.5" />
+            Back
+          </Button>
+          {isLastStep ? (
+            <Button type="button" disabled={busy} onClick={() => void submit()}>
+              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Submit for approval
+            </Button>
+          ) : (
+            <Button type="button" disabled={busy} onClick={goNext}>
+              Next
+              <ChevronRight className="ml-1 h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
+
+      {confirmDiscardDraft ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-950">
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Discard this draft?
+            </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Unsaved changes will be lost unless you save a draft first.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setConfirmDiscardDraft(false)}>
+                Keep editing
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setConfirmDiscardDraft(false);
+                  onClose();
+                }}
+              >
+                Discard
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </TaskBoardPopup>
   );
 }

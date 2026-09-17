@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { PrismaClient as PrismaClientSecondary } from "@prisma/client/secondary";
-import { prismaSecondary } from "@/lib/prisma";
+import { prismaSecondary, withPoolLimit } from "@/lib/prisma";
 import { resolveHrisSourceTags } from "@/lib/merged-database-sources";
 
 import type { PortalRole } from "@/lib/staff-role";
@@ -69,7 +69,7 @@ function liveHrisPrisma(): PrismaClientSecondary {
     try {
       privilegedSecondary = new PrismaClientSecondary({
         log: ["error"],
-        datasources: { db: { url: syncUrl } },
+        datasources: { db: { url: withPoolLimit(syncUrl, 5) } },
       });
     } catch (e) {
       console.warn("[merged-credentials] could not open SECONDARY_SYNC client", e);

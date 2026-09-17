@@ -31,7 +31,9 @@ export default async function SuperAdminSettingsPage({
           ? "intake"
           : tabParam === "workforce"
             ? "workforce"
-            : "alerts";
+            : tabParam === "tasks"
+              ? "tasks"
+              : "alerts";
 
   const [triggers, orgLayerNodes] = await Promise.all([
     prisma.escalationTrigger.findMany({ orderBy: { priority: "asc" } }),

@@ -2,11 +2,13 @@
  * Sync PortalAccount (source of truth) → merged_users + auth_users + agents.
  * Idempotent; supports dry-run.
  */
+import { PrismaClient as PrismaClientSecondary } from "@prisma/client/secondary";
 import { randomUUID } from "node:crypto";
 import { ensureAgentRowForPortalStaff, pickCanonicalAgentForPortal } from "@/lib/admin-roster";
 import { mapPortalRoleToMergedHrisRole } from "@/lib/auth/portal-to-merged-role";
 import { isStaffPortalRole, normalizePortalRole } from "@/lib/staff-role";
-import { prismaAuth, prismaPrimary, prismaSecondary } from "@/lib/prisma";
+import { prismaAuth, prismaPrimary } from "@/lib/prisma";
+import { withSecondaryWriteClient } from "@/lib/prisma-secondary-write";
 import { mergeAgentOwnership } from "@/lib/reconcile-duplicate-agents";
 
 export const PORTAL_MERGE_SOURCE_TAG =
@@ -138,6 +140,7 @@ function personTokens(name: string): Set<string> {
 }
 
 async function upsertMergedUser(
+  db: PrismaClientSecondary | null,
   portal: PortalRow,
   mergedSourceUserId: bigint,
   dryRun: boolean,
@@ -151,9 +154,9 @@ async function upsertMergedUser(
       ? hrisTag
       : PORTAL_MERGE_SOURCE_TAG;
 
-  if (dryRun) return;
+  if (dryRun || !db) return;
 
-  await prismaSecondary.$executeRaw`
+  await db.$executeRaw`
     INSERT INTO merged_users (
       source_user_id,
       source_database,
@@ -457,44 +460,53 @@ export async function runPortalToMergedSync(options?: {
     },
   });
 
-  for (const portal of portals) {
-    result.portalsProcessed++;
-    try {
-      const hadMapping = await prismaPrimary.portalMergeMapping.findUnique({
-        where: { portalAccountId: portal.id },
-      });
-      const mergedSourceUserId = await resolveMergedSourceUserId(portal, dryRun);
-      if (!hadMapping && !portal.mergedSourceUserId && !dryRun) result.mappingsCreated++;
+  const runForPortals = async (secondaryWrite: PrismaClientSecondary | null) => {
+    for (const portal of portals) {
+      result.portalsProcessed++;
+      try {
+        const hadMapping = await prismaPrimary.portalMergeMapping.findUnique({
+          where: { portalAccountId: portal.id },
+        });
+        const mergedSourceUserId = await resolveMergedSourceUserId(portal, dryRun);
+        if (!hadMapping && !portal.mergedSourceUserId && !dryRun) result.mappingsCreated++;
 
-      await upsertMergedUser(portal, mergedSourceUserId, dryRun);
-      result.mergedUpserted++;
+        await upsertMergedUser(secondaryWrite, portal, mergedSourceUserId, dryRun);
+        result.mergedUpserted++;
 
-      result.aliasesRegistered += await registerLegacyAliases(portal, dryRun);
+        result.aliasesRegistered += await registerLegacyAliases(portal, dryRun);
 
-      if (await syncAuthFromPortal(portal, mergedSourceUserId, dryRun)) {
-        result.authUpdated++;
-      }
+        if (await syncAuthFromPortal(portal, mergedSourceUserId, dryRun)) {
+          result.authUpdated++;
+        }
 
-      if (await ensureAgentForPortal(portal, dryRun)) {
-        result.agentsEnsured++;
-      }
+        if (await ensureAgentForPortal(portal, dryRun)) {
+          result.agentsEnsured++;
+        }
 
-      result.agentOwnershipMerged += await mergeLegacyAgentOwnership(portal, dryRun);
+        result.agentOwnershipMerged += await mergeLegacyAgentOwnership(portal, dryRun);
 
-      if (!dryRun) {
-        await upsertPortalMergeMapping({
+        if (!dryRun) {
+          await upsertPortalMergeMapping({
+            portalAccountId: portal.id,
+            mergedSourceUserId,
+            legacyPortalEmail: portal.email,
+            legacyUsername: portal.username,
+          });
+        }
+      } catch (e) {
+        result.errors.push({
           portalAccountId: portal.id,
-          mergedSourceUserId,
-          legacyPortalEmail: portal.email,
-          legacyUsername: portal.username,
+          message: e instanceof Error ? e.message : String(e),
         });
       }
-    } catch (e) {
-      result.errors.push({
-        portalAccountId: portal.id,
-        message: e instanceof Error ? e.message : String(e),
-      });
     }
+  };
+
+  // Writes go through DATABASE_URL_SECONDARY_SYNC — merge_app is SELECT-only.
+  if (dryRun) {
+    await runForPortals(null);
+  } else {
+    await withSecondaryWriteClient((db) => runForPortals(db));
   }
 
   return result;

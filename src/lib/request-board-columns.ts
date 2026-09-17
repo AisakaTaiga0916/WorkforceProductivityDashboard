@@ -397,3 +397,58 @@ export async function loadTicketBoardLaneEnteredAtMap(
   }
   return map;
 }
+
+/** Latest audit-trail timestamp per ticket (Job Order overdue clock). */
+export async function loadTicketLastActivityAtMap(
+  ticketIds: string[],
+): Promise<Map<string, Date>> {
+  const map = new Map<string, Date>();
+  if (ticketIds.length === 0) return map;
+  const rows = await prisma.$queryRawUnsafe<
+    Array<{ ticket_id: string; last_at: Date | string | null }>
+  >(
+    `SELECT ticket_id, MAX(created_at) AS last_at
+     FROM ticket_activities
+     WHERE ticket_id = ANY($1::text[])
+     GROUP BY ticket_id`,
+    ticketIds,
+  );
+  for (const row of rows) {
+    if (!row.last_at) continue;
+    const at = row.last_at instanceof Date ? row.last_at : new Date(row.last_at);
+    if (Number.isFinite(at.getTime())) map.set(row.ticket_id, at);
+  }
+  return map;
+}
+
+/**
+ * When each ticket first entered FOR_CONFIRMATION (from audit trail).
+ * Used as fallback when `resolvedAt` / lane stamp is missing.
+ */
+export async function loadTicketForConfirmationEnteredAtMap(
+  ticketIds: string[],
+): Promise<Map<string, Date>> {
+  const map = new Map<string, Date>();
+  if (ticketIds.length === 0) return map;
+  const rows = await prisma.$queryRawUnsafe<
+    Array<{ ticket_id: string; entered_at: Date | string | null }>
+  >(
+    `SELECT ticket_id, MIN(created_at) AS entered_at
+     FROM ticket_activities
+     WHERE ticket_id = ANY($1::text[])
+       AND summary = 'Status → FOR_CONFIRMATION'
+     GROUP BY ticket_id`,
+    ticketIds,
+  );
+  for (const row of rows) {
+    if (!row.entered_at) continue;
+    const at = row.entered_at instanceof Date ? row.entered_at : new Date(row.entered_at);
+    if (Number.isFinite(at.getTime())) map.set(row.ticket_id, at);
+  }
+  return map;
+}
+
+/** Stamp board lane when a ticket enters FOR_CONFIRMATION (starts confirmation overdue clock). */
+export async function stampForConfirmationBoardLane(ticketId: string, at = new Date()): Promise<void> {
+  await touchTicketBoardLaneEnteredAt(ticketId, at);
+}

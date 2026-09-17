@@ -1,6 +1,9 @@
 import { point } from "@turf/helpers";
 import type { TaskScreenshotMetaItem } from "@/lib/task-screenshot-meta";
 import { isIntakeAttachmentImage } from "@/lib/ticket-intake-screenshots-meta";
+import type { WorkPlanMeta } from "@/lib/work-plan";
+import { deriveWorkPlanOrderRequest, isWorkPlanMeta, parseWorkPlanMeta } from "@/lib/work-plan";
+import type { WorkPlanDraft } from "@/lib/work-plan";
 
 /** Location visit images (JPEG/PNG only). */
 export type TravelOrderAttachment = TaskScreenshotMetaItem;
@@ -209,6 +212,10 @@ export type TravelOrderApprovalLevelDto = {
   /** Either/or peers who may also approve this seat. */
   alternateAgentIds?: string[];
   alternateAgents?: TravelOrderAgentRef[];
+  /** Work Plan seat role (COO / CEO). */
+  roleCode?: string | null;
+  /** Display label (e.g. Chief Operating Officer (COO)). */
+  label?: string | null;
 };
 
 export type TravelOrderLocationDto = {
@@ -292,8 +299,9 @@ export function travelOrderAllLocationsCompleted(
 
 /**
  * Confirm unlock:
- * - With Gate Pass: after Actual Arrival End is captured
- * - Without Gate Pass: after every location visit is completed
+ * - Work Plan: after every required approver has signed (status APPROVED)
+ * - Travel Order with Gate Pass: after Actual Arrival End is captured
+ * - Travel Order without Gate Pass: after every location visit is completed
  */
 export function isTravelOrderConfirmReady(order: {
   status?: string | null;
@@ -304,8 +312,10 @@ export function isTravelOrderConfirmReady(order: {
     endedAt?: string | Date | null;
     checkedAt?: string | Date | null;
   }> | null;
+  workPlanMeta?: unknown;
 }): boolean {
   if (order.status !== TRAVEL_ORDER_STATUS.APPROVED) return false;
+  if (isWorkPlanMeta(order.workPlanMeta)) return true;
   if (travelOrderHasGatePass(order)) {
     return Boolean(order.actualDepartureEndedAt);
   }
@@ -316,6 +326,8 @@ export type TravelOrderDto = {
   id: string;
   kpiMaintenanceId: string;
   orderRequest: string;
+  /** Work Plan for Management Approval fields (null/undefined = legacy Travel Order). */
+  workPlanMeta?: WorkPlanMeta | null;
   /** Order-level supporting files (images + documents). */
   attachments?: TravelOrderFileAttachment[];
   status: string;
@@ -469,26 +481,32 @@ export const TRAVEL_ORDER_APPROVAL_TOP_ORG_LAYER = 2;
 
 /** How many hierarchical seats to create when the requestor sits on this org-chart
  *  layer (Layer 1 = top). The chain starts at the layer immediately above the requestor
- *  and runs up to Layer 2. Returns 0 if they are on Layer 1 or Layer 2, or not on the chart. */
+ *  and runs up to `topOrgLayer` (default Layer 2 for travel orders). */
 export function travelOrderApprovalSeatCountFromRequestorLayer(
   requestorOrgLayer: number | null | undefined,
+  topOrgLayer: number = TRAVEL_ORDER_APPROVAL_TOP_ORG_LAYER,
 ): number {
   if (typeof requestorOrgLayer !== "number" || !Number.isFinite(requestorOrgLayer)) {
     return 0;
   }
+  const top = Math.max(1, Math.floor(topOrgLayer));
   const layer = Math.floor(requestorOrgLayer);
-  if (layer <= TRAVEL_ORDER_APPROVAL_TOP_ORG_LAYER) return 0;
-  return Math.max(0, Math.min(20, layer - TRAVEL_ORDER_APPROVAL_TOP_ORG_LAYER));
+  if (layer <= top) return 0;
+  return Math.max(0, Math.min(20, layer - top));
 }
 
 /**
  * Org-chart layers in the recommended approval path, ordered by approval sequence
- * (immediate manager first → Layer 2 last).
+ * (immediate manager first → top layer last).
  */
 export function travelOrderOrgChartLayersInApprovalPath(
   requestorOrgLayer: number | null | undefined,
+  topOrgLayer: number = TRAVEL_ORDER_APPROVAL_TOP_ORG_LAYER,
 ): number[] {
-  const seats = travelOrderApprovalSeatCountFromRequestorLayer(requestorOrgLayer);
+  const seats = travelOrderApprovalSeatCountFromRequestorLayer(
+    requestorOrgLayer,
+    topOrgLayer,
+  );
   if (seats < 1 || typeof requestorOrgLayer !== "number") return [];
   const start = Math.floor(requestorOrgLayer) - 1;
   return Array.from({ length: seats }, (_, i) => start - i);
@@ -543,8 +561,14 @@ export type TravelOrderOrgChartAncestor = {
 export function buildTravelOrderRecommendedPath(opts: {
   requestorOrgLayer: number | null | undefined;
   ancestors: readonly TravelOrderOrgChartAncestor[];
+  /** Most senior layer included in the chain (default Layer 2). Use 1 to include top/CEO. */
+  topOrgLayer?: number;
 }): TravelOrderOrgChartPathSeat[] {
-  const layers = travelOrderOrgChartLayersInApprovalPath(opts.requestorOrgLayer);
+  const topOrgLayer = opts.topOrgLayer ?? TRAVEL_ORDER_APPROVAL_TOP_ORG_LAYER;
+  const layers = travelOrderOrgChartLayersInApprovalPath(
+    opts.requestorOrgLayer,
+    topOrgLayer,
+  );
   if (layers.length === 0) return [];
 
   const byLayer = new Map<number, TravelOrderOrgChartAncestor>();
@@ -623,13 +647,20 @@ export function travelOrderApprovedByLabel(
   optional?: boolean,
   sequenceLevel?: number,
   totalLevels?: number,
+  levelMeta?: { label?: string | null; roleCode?: string | null } | null,
 ): string {
+  if (levelMeta?.label?.trim()) return levelMeta.label.trim();
+  if (levelMeta?.roleCode === "CEO") return "Chief Executive Officer (CEO)";
+  if (levelMeta?.roleCode === "COO") return "Chief Operating Officer (COO)";
   const seat = optional ? "Approved By (Optional)" : "Approved By (Required)";
   if (typeof sequenceLevel === "number" && Number.isFinite(sequenceLevel) && sequenceLevel >= 1) {
     return `${travelOrderApprovalLayerLabel(sequenceLevel, totalLevels)} · ${seat}`;
   }
   return seat;
 }
+
+export { isWorkPlanMeta, parseWorkPlanMeta };
+export type { WorkPlanMeta };
 
 export function isValidLatLng(lat: unknown, lng: unknown): lat is number {
   if (
@@ -751,6 +782,8 @@ export type TravelOrderApprovalLevelStored = {
   approvedByAgentId: string | null;
   optional?: boolean;
   alternateAgentIds?: string[];
+  roleCode?: string | null;
+  label?: string | null;
 };
 
 type ApprovalLevelLike = {
@@ -816,6 +849,9 @@ export function parseApprovalLevels(raw: unknown): TravelOrderApprovalLevelStore
           ),
         ]
       : [];
+    const roleCode =
+      typeof r.roleCode === "string" && r.roleCode.trim() ? r.roleCode.trim() : null;
+    const label = typeof r.label === "string" && r.label.trim() ? r.label.trim() : null;
     out.push({
       level,
       agentId,
@@ -823,6 +859,8 @@ export function parseApprovalLevels(raw: unknown): TravelOrderApprovalLevelStore
       approvedByAgentId,
       optional,
       ...(alternateAgentIds.length > 0 ? { alternateAgentIds } : {}),
+      ...(roleCode ? { roleCode } : {}),
+      ...(label ? { label } : {}),
     });
   }
   return out.sort((a, b) => a.level - b.level);
@@ -834,6 +872,8 @@ export function normalizeApprovalLevelsForStore(
     agentId?: string | null;
     optional?: boolean;
     alternateAgentIds?: string[] | null;
+    roleCode?: string | null;
+    label?: string | null;
   }>,
 ): TravelOrderApprovalLevelStored[] {
   const normalized = levels
@@ -850,6 +890,9 @@ export function normalizeApprovalLevelsForStore(
             ),
           ]
         : [];
+      const roleCode =
+        typeof row.roleCode === "string" && row.roleCode.trim() ? row.roleCode.trim() : null;
+      const label = typeof row.label === "string" && row.label.trim() ? row.label.trim() : null;
       return {
         level:
           typeof row.level === "number" && Number.isFinite(row.level)
@@ -860,6 +903,8 @@ export function normalizeApprovalLevelsForStore(
         approvedByAgentId: null as string | null,
         optional: row.optional === true,
         ...(alternateAgentIds.length > 0 ? { alternateAgentIds } : {}),
+        ...(roleCode ? { roleCode } : {}),
+        ...(label ? { label } : {}),
       };
     })
     .filter((row) => row.level >= 1)
@@ -881,11 +926,43 @@ export function agentIdsFromApprovalLevels(
 
 /** Rebuild the field-assignment POST fields from a saved offline draft (queue recovery). */
 export function travelOrderDraftToFieldAssignmentPayload(input: {
-  draft: TravelOrderDraft;
+  draft?: TravelOrderDraft | null;
+  workPlanDraft?: WorkPlanDraft | null;
   mainTaskName: string;
   scopedCompanyTeamId?: string | null;
 }): Record<string, string> {
+  const wp = input.workPlanDraft;
+  if (wp) {
+    const orderRequest = deriveWorkPlanOrderRequest(wp.workPlan);
+    const mainTask = input.mainTaskName.trim() || orderRequest.slice(0, 160);
+    const payload: Record<string, string> = {
+      title: mainTask.replace(/\s+/g, " ").toUpperCase() || "TRAVEL ORDER",
+      mainTask,
+      orderRequest,
+      workPlanJson: JSON.stringify(wp.workPlan),
+      approvalLevels: JSON.stringify(
+        wp.approvalLevels.map((lvl) => ({
+          level: lvl.level,
+          agentId: lvl.agentId.trim(),
+          optional: lvl.optional === true,
+          alternateAgentIds: Array.isArray(lvl.alternateAgentIds)
+            ? lvl.alternateAgentIds
+            : [],
+          label: `Level ${lvl.level}`,
+        })),
+      ),
+    };
+    if (input.scopedCompanyTeamId) payload.scopedCompanyTeamId = input.scopedCompanyTeamId;
+    if (wp.confirmationByAgentId?.trim()) {
+      payload.confirmationByAgentId = wp.confirmationByAgentId.trim();
+    }
+    return payload;
+  }
+
   const d = input.draft;
+  if (!d) {
+    throw new Error("Offline draft is missing Travel Order details.");
+  }
   const hierarchical = d.approvalLevels.length > 0;
   const approvedByAgentIds = hierarchical
     ? agentIdsFromApprovalLevels(d.approvalLevels)

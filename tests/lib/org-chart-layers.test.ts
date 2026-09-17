@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildOrgChartChildrenOf,
+  orgChartLayerById,
   orgChartOptionLabel,
   orgChartOutlineById,
   orgChartPersonOutlineFromLayout,
+  orgChartReportingParentByNodeId,
   type OrgChartOutlineNode,
 } from "@/app/admin/superadmin-settings/org-chart-layers";
 
@@ -621,5 +623,31 @@ describe("org chart outline consistency", () => {
     expect(outlineById.get("fin-head")).toBe("1.2");
     expect(peers).toEqual(["satorre", "fin-head"]);
     expect(outlineById.get("other-mgr")).toBe("2");
+  });
+});
+
+describe("orgChartReportingParentByNodeId", () => {
+  it("walks department Reports to for heads that are not nested", () => {
+    const nodes = [
+      { id: "ceo", parentId: null },
+      { id: "coo", parentId: null },
+      { id: "it-head", parentId: null },
+      { id: "staff", parentId: "it-head" },
+    ];
+    const sections = [
+      { headNodeId: "coo", reportsToNodeId: "ceo" },
+      { headNodeId: "it-head", reportsToNodeId: "coo" },
+    ];
+    const parentById = orgChartReportingParentByNodeId(nodes, sections);
+    expect(parentById.get("staff")).toBe("it-head");
+    expect(parentById.get("it-head")).toBe("coo");
+    expect(parentById.get("coo")).toBe("ceo");
+    expect(parentById.get("ceo")).toBeNull();
+
+    const layers = orgChartLayerById(nodes, parentById);
+    expect(layers.get("ceo")).toBe(1);
+    expect(layers.get("coo")).toBe(2);
+    expect(layers.get("it-head")).toBe(3);
+    expect(layers.get("staff")).toBe(4);
   });
 });

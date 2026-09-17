@@ -10,13 +10,13 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 /** Bump when primary schema adds models/fields that existing HMR clients would miss. */
-const PRIMARY_CLIENT_SCHEMA_REV = 4;
+const PRIMARY_CLIENT_SCHEMA_REV = 5;
 
 const logLevels: ("error" | "warn")[] =
   process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"];
 
 /** Cap Prisma pools so three clients (primary/secondary/auth) cannot exhaust Postgres. */
-function withPoolLimit(url: string, limit: number): string {
+export function withPoolLimit(url: string, limit: number): string {
   try {
     const u = new URL(url);
     if (!u.searchParams.has("connection_limit")) {

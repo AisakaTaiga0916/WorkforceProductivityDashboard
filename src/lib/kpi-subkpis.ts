@@ -28,6 +28,14 @@ import {
   type KpiFrequencyCode,
 } from "./kpi-recurrence";
 import {
+  applySubKpiClearVerification,
+  applySubKpiSubmitForVerification,
+  coerceSubKpiItemVerificationStatus,
+  isSubKpiEffectivelyVerified,
+  isSubKpiPendingVerification,
+  type SubKpiVerificationFields,
+} from "@/lib/task-completion-verification";
+import {
   applySubKpiCompletionMode,
   applySubKpiCompletionRequirements,
   completionRequirementsFromLegacyMode,
@@ -98,6 +106,13 @@ export type SubKpiItem = {
   assistanceRequested?: boolean;
   assistanceRequestedAt?: string | null;
   assistanceRequestedBy?: string | null;
+  /** Department-head gate after assignee marks the sub-task done. */
+  completionVerificationStatus?: SubKpiVerificationFields["completionVerificationStatus"];
+  pendingVerificationAt?: string | null;
+  verifiedAt?: string | null;
+  verifiedByAgentId?: string | null;
+  verifiedByAgentName?: string | null;
+  verificationRejectionComment?: string | null;
 };
 
 /** Subtask assignee UI/API unlocked when parent flag is on or Seek Assistance was used. */
@@ -211,6 +226,21 @@ function itemFromRaw(r: Record<string, unknown>): SubKpiItem {
     typeof r?.assistanceRequestedAt === "string" ? r.assistanceRequestedAt.trim() : "";
   const assistanceRequestedBy =
     typeof r?.assistanceRequestedBy === "string" ? r.assistanceRequestedBy.trim() : "";
+  const completionVerificationStatus =
+    typeof r?.completionVerificationStatus === "string"
+      ? r.completionVerificationStatus.trim()
+      : "";
+  const pendingVerificationAt =
+    typeof r?.pendingVerificationAt === "string" ? r.pendingVerificationAt.trim() : "";
+  const verifiedAt = typeof r?.verifiedAt === "string" ? r.verifiedAt.trim() : "";
+  const verifiedByAgentId =
+    typeof r?.verifiedByAgentId === "string" ? r.verifiedByAgentId.trim() : "";
+  const verifiedByAgentName =
+    typeof r?.verifiedByAgentName === "string" ? r.verifiedByAgentName.trim() : "";
+  const verificationRejectionComment =
+    typeof r?.verificationRejectionComment === "string"
+      ? r.verificationRejectionComment.trim().slice(0, 1000)
+      : "";
   return {
     id,
     title,
@@ -238,6 +268,14 @@ function itemFromRaw(r: Record<string, unknown>): SubKpiItem {
     ...(assistanceRequested ? { assistanceRequested: true } : {}),
     ...(assistanceRequestedAt ? { assistanceRequestedAt } : {}),
     ...(assistanceRequestedBy ? { assistanceRequestedBy } : {}),
+    ...(completionVerificationStatus
+      ? { completionVerificationStatus }
+      : {}),
+    ...(pendingVerificationAt ? { pendingVerificationAt } : {}),
+    ...(verifiedAt ? { verifiedAt } : {}),
+    ...(verifiedByAgentId ? { verifiedByAgentId } : {}),
+    ...(verifiedByAgentName ? { verifiedByAgentName } : {}),
+    ...(verificationRejectionComment ? { verificationRejectionComment } : {}),
   };
 }
 
@@ -432,12 +470,32 @@ export type KpiChecklistProgress = {
   percent: number;
 };
 
-export function kpiChecklistProgress(raw: unknown, taskTitle?: string): KpiChecklistProgress {
+export function kpiChecklistProgress(
+  raw: unknown,
+  taskTitle?: string,
+  opts?: { parentCardEffectivelyVerified?: boolean },
+): KpiChecklistProgress {
   const all = collectChecklistProgressItems(raw, taskTitle);
   const total = all.length;
-  const done = all.filter((s) => subKpiRequirementsMet(s)).length;
+  const parentVerified = Boolean(opts?.parentCardEffectivelyVerified);
+  const done = all.filter(
+    (s) =>
+      subKpiRequirementsMet(s) &&
+      isSubKpiEffectivelyVerified(s, { parentCardEffectivelyVerified: parentVerified }),
+  ).length;
   const missing = total - done;
-  const progressSum = all.reduce((sum, item) => sum + subKpiItemProgressFraction(item), 0);
+  const progressSum = all.reduce((sum, item) => {
+    const frac = subKpiItemProgressFraction(item);
+    if (frac <= 0) return sum;
+    // Submitted-but-unverified items should not fill the donut as finished.
+    if (
+      subKpiRequirementsMet(item) &&
+      !isSubKpiEffectivelyVerified(item, { parentCardEffectivelyVerified: parentVerified })
+    ) {
+      return sum;
+    }
+    return sum + frac;
+  }, 0);
   const percent = total > 0 ? Math.round((progressSum / total) * 100) : 0;
   return { total, done, missing, percent };
 }
@@ -1404,19 +1462,30 @@ export function resetAllSubKpiDone(
   return withEnvelopeMeta(wrapForPersist({ segmented: false, flat }), meta);
 }
 
-export function setSubKpiItemDone(raw: unknown, subKpiId: string, done: boolean): Prisma.InputJsonValue {
+export function setSubKpiItemDone(
+  raw: unknown,
+  subKpiId: string,
+  done: boolean,
+  opts?: { verificationEnabled?: boolean },
+): Prisma.InputJsonValue {
   if (subKpiId === PILLAR_ONLY_VIRTUAL_SUBKPI_ID && isPillarOnlyTask(raw)) {
     return setPillarDone(raw, done);
   }
   const n = normalizeSubKpis(raw);
+  const touch = (it: SubKpiItem): SubKpiItem => {
+    if (it.id !== subKpiId) return it;
+    return done
+      ? applySubKpiSubmitForVerification(it, { verificationEnabled: opts?.verificationEnabled })
+      : applySubKpiClearVerification(it);
+  };
   if (n.segmented) {
     const segments = n.segments.map((seg) => ({
       ...seg,
-      items: seg.items.map((it) => (it.id === subKpiId ? { ...it, done } : it)),
+      items: seg.items.map(touch),
     }));
     return wrapForPersistWithExistingMeta({ segmented: true, segments }, raw);
   }
-  const flat = n.flat.map((it) => (it.id === subKpiId ? { ...it, done } : it));
+  const flat = n.flat.map(touch);
   return wrapForPersistWithExistingMeta({ segmented: false, flat }, raw);
 }
 
@@ -1808,20 +1877,103 @@ export function setSubKpiItemWorkMeta(
   return wrapForPersistWithExistingMeta({ segmented: false, flat }, raw);
 }
 
-export function markEverySubKpiDone(raw: unknown, done: boolean): Prisma.InputJsonValue {
+export function markEverySubKpiDone(
+  raw: unknown,
+  done: boolean,
+  opts?: { verificationEnabled?: boolean },
+): Prisma.InputJsonValue {
   if (isPillarOnlyTask(raw)) {
     return setPillarDone(raw, done);
   }
   const n = normalizeSubKpis(raw);
+  const touch = (it: SubKpiItem): SubKpiItem =>
+    done
+      ? applySubKpiSubmitForVerification(it, { verificationEnabled: opts?.verificationEnabled })
+      : applySubKpiClearVerification(it);
   if (n.segmented) {
     const segments = n.segments.map((seg) => ({
       ...seg,
-      items: seg.items.map((it) => ({ ...it, done })),
+      items: seg.items.map(touch),
     }));
     return wrapForPersistWithExistingMeta({ segmented: true, segments }, raw);
   }
-  const flat = n.flat.map((it) => ({ ...it, done }));
+  const flat = n.flat.map(touch);
   return wrapForPersistWithExistingMeta({ segmented: false, flat }, raw);
+}
+
+/** Persist verification fields for legacy done items (and return whether anything changed). */
+export function coerceSubKpisVerificationJson(
+  raw: unknown,
+  opts?: { parentCardEffectivelyVerified?: boolean },
+): { json: Prisma.InputJsonValue; changed: boolean; hasPending: boolean } {
+  const parentVerified = Boolean(opts?.parentCardEffectivelyVerified);
+  const n = normalizeSubKpis(raw);
+  let changed = false;
+  let hasPending = false;
+  const touch = (it: SubKpiItem): SubKpiItem => {
+    const coerced = coerceSubKpiItemVerificationStatus(it, {
+      parentCardEffectivelyVerified: parentVerified,
+    });
+    if (coerced.changed) changed = true;
+    const next = coerced.item;
+    if (
+      next.done &&
+      (next.completionVerificationStatus === "PENDING_VERIFICATION" ||
+        (!next.completionVerificationStatus && !parentVerified))
+    ) {
+      hasPending = true;
+    } else if (next.completionVerificationStatus === "PENDING_VERIFICATION") {
+      hasPending = true;
+    }
+    return next;
+  };
+  if (n.segmented) {
+    const segments = n.segments.map((seg) => ({
+      ...seg,
+      items: seg.items.map(touch),
+    }));
+    return {
+      json: wrapForPersistWithExistingMeta({ segmented: true, segments }, raw),
+      changed,
+      hasPending,
+    };
+  }
+  const flat = n.flat.map(touch);
+  return {
+    json: wrapForPersistWithExistingMeta({ segmented: false, flat }, raw),
+    changed,
+    hasPending,
+  };
+}
+
+export function mapSubKpiItems(
+  raw: unknown,
+  touch: (item: SubKpiItem) => SubKpiItem,
+): Prisma.InputJsonValue {
+  const n = normalizeSubKpis(raw);
+  if (n.segmented) {
+    const segments = n.segments.map((seg) => ({
+      ...seg,
+      items: seg.items.map(touch),
+    }));
+    return wrapForPersistWithExistingMeta({ segmented: true, segments }, raw);
+  }
+  return wrapForPersistWithExistingMeta({ segmented: false, flat: n.flat.map(touch) }, raw);
+}
+
+export function findSubKpiItem(raw: unknown, subKpiId: string): SubKpiItem | null {
+  return collectAllSubKpiItems(normalizeSubKpis(raw)).find((it) => it.id === subKpiId) ?? null;
+}
+
+/** Sub-tasks waiting on department-head approval (client + server safe). */
+export function listPendingVerificationSubKpiItems(
+  raw: unknown,
+  opts?: { taskTitle?: string; parentCardEffectivelyVerified?: boolean },
+): SubKpiItem[] {
+  const parentVerified = Boolean(opts?.parentCardEffectivelyVerified);
+  return collectChecklistProgressItems(raw, opts?.taskTitle).filter((item) =>
+    isSubKpiPendingVerification(item, { parentCardEffectivelyVerified: parentVerified }),
+  );
 }
 
 function subKpiFromStructuredItem(it: Record<string, unknown>): SubKpiItem | null {

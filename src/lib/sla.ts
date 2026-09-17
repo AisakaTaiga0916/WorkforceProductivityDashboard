@@ -12,6 +12,8 @@ export {
   isBoardLaneOverdue,
   isOnRequestBoard,
   isUnresolvedRequestStatus,
+  overdueClockStartedAtMs,
+  type OverdueTicketInput,
   type SlaState,
 } from "@/lib/sla-shared";
 

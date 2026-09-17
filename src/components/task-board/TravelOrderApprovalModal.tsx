@@ -57,10 +57,10 @@ export function TravelOrderApprovalModal({
   return (
     <TaskBoardPopup
       open={open && Boolean(taskId)}
-      title={title?.trim() || "Travel order"}
+      title={title?.trim() || "Travel Order"}
       description={
         description?.trim() ||
-        "View details, approvals, and check-ins for this travel order."
+        "View details and approvals for this travel order."
       }
       onClose={onClose}
       size="lg"

@@ -56,6 +56,8 @@ import {
 import {
   canManageRequestBoardColumns,
   listRequestBoardColumns,
+  loadTicketForConfirmationEnteredAtMap,
+  loadTicketLastActivityAtMap,
   requestBoardOwnerKey,
   resolveTicketBoardColumnId,
 } from "@/lib/request-board-columns";
@@ -112,7 +114,6 @@ const statusOptions: Array<{ label: string; value: TicketStatus | "ALL" }> = [
   { label: "All", value: "ALL" },
   { label: "Open", value: "OPEN" },
   { label: "In Progress", value: "IN_PROGRESS" },
-  { label: "Pending Info", value: "PENDING_INFO" },
   { label: "Transfer pending", value: "ESCALATED" },
   { label: "For confirmation", value: "FOR_CONFIRMATION" },
   { label: "Resolved (legacy)", value: "RESOLVED" },
@@ -483,7 +484,11 @@ export default async function AgentHome({
 
   const tableWhere: Prisma.TicketWhereInput = { ...whereBase };
   if (selectedStatus !== "ALL") {
-    tableWhere.status = selectedStatus as TicketStatus;
+    if (selectedStatus === "IN_PROGRESS") {
+      tableWhere.status = { in: ["IN_PROGRESS", "PENDING_INFO"] };
+    } else {
+      tableWhere.status = selectedStatus as TicketStatus;
+    }
   }
 
   const boardWhere: Prisma.TicketWhereInput = {
@@ -771,6 +776,8 @@ export default async function AgentHome({
   let boardColumnTotals: Record<string, number> | undefined;
   const boardColumnIdByTicketId = new Map<string, string | null>();
   const boardLaneEnteredAtByTicketId = new Map<string, string | null>();
+  const lastActivityAtByTicketId = new Map<string, string | null>();
+  const forConfirmationAtByTicketId = new Map<string, string | null>();
 
   if (isBoard && boardColumns.length > 0) {
     const laneTickets = await prisma.ticket.findMany({
@@ -797,6 +804,16 @@ export default async function AgentHome({
             ? new Date(row.board_lane_entered_at).toISOString()
             : null,
         );
+      }
+      const [activityMap, confirmationMap] = await Promise.all([
+        loadTicketLastActivityAtMap(laneIds),
+        loadTicketForConfirmationEnteredAtMap(laneIds),
+      ]);
+      for (const [id, at] of activityMap) {
+        lastActivityAtByTicketId.set(id, at.toISOString());
+      }
+      for (const [id, at] of confirmationMap) {
+        forConfirmationAtByTicketId.set(id, at.toISOString());
       }
     }
     boardColumnTotals = Object.fromEntries(boardColumns.map((c) => [c.id, 0]));
@@ -830,6 +847,16 @@ export default async function AgentHome({
           : null,
       );
     }
+    const [activityMap, confirmationMap] = await Promise.all([
+      loadTicketLastActivityAtMap(ids),
+      loadTicketForConfirmationEnteredAtMap(ids),
+    ]);
+    for (const [id, at] of activityMap) {
+      lastActivityAtByTicketId.set(id, at.toISOString());
+    }
+    for (const [id, at] of confirmationMap) {
+      forConfirmationAtByTicketId.set(id, at.toISOString());
+    }
   }
 
   const boardCards: KanbanTicket[] = isBoard
@@ -844,6 +871,16 @@ export default async function AgentHome({
         boardLaneEnteredAt:
           boardLaneEnteredAtByTicketId.get(t.id) ?? t.updatedAt.toISOString(),
         requestType: boardRequestTypeById.get(t.id) ?? "ISSUE_CONCERN_TICKET",
+        lastActivityAt: lastActivityAtByTicketId.get(t.id) ?? null,
+        forConfirmationAt:
+          forConfirmationAtByTicketId.get(t.id) ??
+          (t.status === "FOR_CONFIRMATION"
+            ? (t.resolvedAt?.toISOString?.() ??
+              boardLaneEnteredAtByTicketId.get(t.id) ??
+              null)
+            : null),
+        resolvedAt: t.resolvedAt?.toISOString?.() ?? null,
+        createdAt: t.createdAt.toISOString(),
         proceduralStatusLabel: (() => {
           const rt = boardRequestTypeById.get(t.id) ?? "";
           if (rt === "REQUEST_FOR_PAYMENT") {

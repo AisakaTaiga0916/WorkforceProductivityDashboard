@@ -12,6 +12,7 @@
  */
 const { Queue, Worker } = require("bullmq");
 const IORedis = require("ioredis");
+const { resolveRedisUrl, redisConnectionOptions } = require("./redis-connection.cjs");
 
 /** Mirror of server.js env loading: `.env` then `.env.production` (later wins). */
 function loadEnvFiles() {
@@ -38,23 +39,8 @@ function loadEnvFiles() {
 }
 loadEnvFiles();
 
-const REDIS_URL = process.env.REDIS_URL?.trim() || "redis://127.0.0.1:6379";
-
 function connectionOptions() {
-  let u;
-  try {
-    u = new URL(REDIS_URL);
-  } catch {
-    return { host: "127.0.0.1", port: 6379 };
-  }
-  return {
-    host: u.hostname || "127.0.0.1",
-    port: Number(u.port || 6379),
-    username: u.username ? decodeURIComponent(u.username) : undefined,
-    password: u.password ? decodeURIComponent(u.password) : undefined,
-    db: u.pathname && u.pathname.length > 1 ? Number(u.pathname.slice(1)) || 0 : 0,
-    tls: u.protocol === "rediss:" ? {} : undefined,
-  };
+  return redisConnectionOptions();
 }
 
 const JOBS = [
@@ -116,50 +102,63 @@ async function startRedisJobs({ internalJobKey, jobHost, port }) {
 
   connection = new IORedis(connectionOptions(), { maxRetriesPerRequest: null });
 
-  for (const job of JOBS) {
-    const queue = new Queue(job.queueName, {
-      connection,
-      defaultJobOptions: {
-        attempts: 1,
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
-      },
-    });
-    queues.push(queue);
+  try {
+    for (const job of JOBS) {
+      const queue = new Queue(job.queueName, {
+        connection,
+        defaultJobOptions: {
+          attempts: 1,
+          removeOnComplete: 1000,
+          removeOnFail: 5000,
+        },
+      });
+      queues.push(queue);
 
-    await queue.add(
-      job.jobName,
-      {},
-      {
-        repeat: { every: job.repeatEveryMs },
-        jobId: job.jobName,
-      },
-    );
-    // Kick once shortly after boot (mirrors the old setInterval + first-run behaviour).
-    await queue.add(job.jobName, {}, { jobId: `boot-${job.jobName}-${Date.now()}` });
+      await queue.add(
+        job.jobName,
+        {},
+        {
+          repeat: { every: job.repeatEveryMs },
+          jobId: job.jobName,
+        },
+      );
+      // Delay the first run so the HTTP server can finish binding (esp. server.js boot).
+      await queue.add(
+        job.jobName,
+        {},
+        { jobId: `boot-${job.jobName}-${Date.now()}`, delay: 60_000 },
+      );
 
-    const worker = new Worker(
-      job.queueName,
-      async () => {
-        const url = `http://${jobHost}:${port}${job.path}`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "x-internal-job-key": internalJobKey },
-        });
-        if (!res.ok) {
-          throw new Error(`${job.jobName} job failed with HTTP ${res.status}`);
-        }
-      },
-      { connection, concurrency: 1 },
+      const worker = new Worker(
+        job.queueName,
+        async () => {
+          const url = `http://${jobHost}:${port}${job.path}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "x-internal-job-key": internalJobKey },
+          });
+          if (!res.ok) {
+            throw new Error(`${job.jobName} job failed with HTTP ${res.status}`);
+          }
+        },
+        { connection, concurrency: 1 },
+      );
+      worker.on("failed", (job, err) => {
+        console.warn(`[redis-jobs] ${job?.queueName ?? "unknown"} job failed`, err?.message || err);
+      });
+      workers.push(worker);
+    }
+  } catch (err) {
+    console.warn(
+      "[redis-jobs] BullMQ failed to start — need Redis ≥ 5 (6.2+ recommended).",
+      err?.message || err,
     );
-    worker.on("failed", (job, err) => {
-      console.warn(`[redis-jobs] ${job.queueName} job failed`, err);
-    });
-    workers.push(worker);
+    await stopRedisJobs();
+    return { started: false };
   }
 
   started = true;
-  console.log(`[redis-jobs] started ${JOBS.length} BullMQ queues at ${REDIS_URL}`);
+  console.log(`[redis-jobs] started ${JOBS.length} BullMQ queues at ${resolveRedisUrl()}`);
   return { started: true };
 }
 

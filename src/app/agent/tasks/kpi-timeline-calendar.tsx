@@ -11,10 +11,15 @@ import { getTaskTargetDueDate, kpiChecklistProgress } from "@/lib/kpi-subkpis";
 import { isFieldAssignmentTask, isProjectTask } from "@/lib/kpi-subkpis";
 import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
 
-type KpiBoardStatus = "CURRENT" | "DONE" | "DELAYED";
+type KpiBoardStatus = "CURRENT" | "PENDING_VERIFICATION" | "DONE" | "DELAYED";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const STATUS_ORDER: Record<KpiBoardStatus, number> = { DELAYED: 0, CURRENT: 1, DONE: 2 };
+const STATUS_ORDER: Record<KpiBoardStatus, number> = {
+  DELAYED: 0,
+  PENDING_VERIFICATION: 1,
+  CURRENT: 2,
+  DONE: 3,
+};
 
 type CalendarKpiRow = {
   id: string;
@@ -132,12 +137,14 @@ function dateInputLabel(y: number, m: number, d: number): string {
 
 const STATUS_CHIP_CLASS: Record<KpiBoardStatus, string> = {
   DELAYED: "bg-rose-600/90 text-white hover:bg-rose-500",
+  PENDING_VERIFICATION: "bg-violet-600/90 text-white hover:bg-violet-500",
   CURRENT: "bg-orange-600/90 text-white hover:bg-orange-500",
   DONE: "bg-emerald-600/90 text-white hover:bg-emerald-500",
 };
 
 const STATUS_DOT_CLASS: Record<KpiBoardStatus, string> = {
   DELAYED: "bg-rose-600",
+  PENDING_VERIFICATION: "bg-violet-600",
   CURRENT: "bg-orange-600",
   DONE: "bg-emerald-600",
 };

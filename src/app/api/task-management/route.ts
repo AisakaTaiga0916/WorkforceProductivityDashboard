@@ -10,6 +10,7 @@ import {
 } from "@/lib/delay-penalty-frequency";
 import { prisma } from "@/lib/prisma";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
+import { isTaskCompletionVerificationEnabled } from "@/lib/task-verification-settings-db";
 import { DateTime } from "luxon";
 import { DEFAULT_TIME_ZONE } from "@/lib/kpi-recurrence";
 
@@ -124,7 +125,8 @@ export async function PATCH(req: Request) {
   const body = (await req.json()) as {
     id?: string;
     status?: string;
-    lifecycle?: "start" | "end";
+    lifecycle?: "start" | "end" | "verify" | "reject";
+    comment?: string;
     dueAt?: string | null;
     delayPenaltyAmount?: number | null;
     delayPenaltyFrequency?: string | null;
@@ -145,10 +147,82 @@ export async function PATCH(req: Request) {
       dueAt: true,
       delayPenaltyAmount: true,
       delayPenaltyFrequency: true,
+      createdBy: true,
     },
   });
   if (!task) return NextResponse.json({ error: "Task not found." }, { status: 404 });
   const isAssignee = !!perms.operator && perms.operator.id === task.assignedAgentId;
+
+  if (body.lifecycle === "verify" || body.lifecycle === "reject") {
+    if (task.status !== "PENDING_VERIFICATION") {
+      return NextResponse.json({ error: "Task is not awaiting verification." }, { status: 400 });
+    }
+    const { canVerifyTaskCompletion } = await import("@/lib/task-completion-verification-access");
+    const mayVerify = await canVerifyTaskCompletion(
+      {
+        assignedAgentId: task.assignedAgentId,
+        completionVerificationStatus: "PENDING_VERIFICATION",
+      },
+      {
+        operatorAgentId: perms.operator?.id ?? null,
+        operatorEmail: session.user.email ?? null,
+        operatorName: session.user.name ?? null,
+        role: session.user.role,
+      },
+    );
+    if (!mayVerify) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const now = new Date();
+    if (body.lifecycle === "verify") {
+      const accrued = taskItemAccruedPenalty({
+        dueAt: task.dueAt,
+        completedAt: now,
+        status: "DONE",
+        delayPenaltyAmount: task.delayPenaltyAmount,
+        delayPenaltyFrequency: task.delayPenaltyFrequency,
+        now,
+      });
+      const updated = await prisma.taskItem.update({
+        where: { id },
+        data: {
+          completedAt: now,
+          status: "DONE",
+          delayPenaltyAccrued: accrued,
+        },
+      });
+      await prisma.taskActivity.create({
+        data: {
+          taskId: id,
+          author: session.user.email ?? session.user.name ?? "unknown",
+          action: "Task completion verified",
+          detail: accrued > 0 ? `Verified with ${accrued} delay penalty pts` : now.toISOString(),
+        },
+      });
+      triggerEfficiencyRecomputeBackground();
+      return NextResponse.json(updated);
+    }
+    const comment = typeof body.comment === "string" ? body.comment.trim() : "";
+    if (!comment) {
+      return NextResponse.json(
+        { error: "A comment is required when rejecting verification." },
+        { status: 400 },
+      );
+    }
+    const updated = await prisma.taskItem.update({
+      where: { id },
+      data: { status: "CURRENT", completedAt: null },
+    });
+    await prisma.taskActivity.create({
+      data: {
+        taskId: id,
+        author: session.user.email ?? session.user.name ?? "unknown",
+        action: "Task completion rejected",
+        detail: comment,
+      },
+    });
+    return NextResponse.json(updated);
+  }
 
   /** SuperAdmin/Admin can update schedule/penalty; assignees use lifecycle/status. */
   const canManage = session.user.role === "Admin" || isElevatedUserRole(session.user.role) || perms.canAssignWork;
@@ -230,23 +304,42 @@ export async function PATCH(req: Request) {
     if (!task.startedAt && !task.completedAt) {
       return NextResponse.json({ error: "Start the task before ending it." }, { status: 400 });
     }
-    if (task.completedAt || task.status === "DONE") {
-      return NextResponse.json({ error: "Task already completed." }, { status: 400 });
+    if (task.completedAt || task.status === "DONE" || task.status === "PENDING_VERIFICATION") {
+      return NextResponse.json({ error: "Task already completed or awaiting verification." }, { status: 400 });
     }
-    const accrued = taskItemAccruedPenalty({
-      dueAt: task.dueAt,
-      completedAt: now,
-      status: "DONE",
-      delayPenaltyAmount: task.delayPenaltyAmount,
-      delayPenaltyFrequency: task.delayPenaltyFrequency,
-      now,
-    });
+    const verificationEnabled = await isTaskCompletionVerificationEnabled();
+    if (!verificationEnabled) {
+      const accrued = taskItemAccruedPenalty({
+        dueAt: task.dueAt,
+        completedAt: now,
+        status: "DONE",
+        delayPenaltyAmount: task.delayPenaltyAmount,
+        delayPenaltyFrequency: task.delayPenaltyFrequency,
+        now,
+      });
+      const updated = await prisma.taskItem.update({
+        where: { id },
+        data: {
+          status: "DONE",
+          completedAt: now,
+          delayPenaltyAccrued: accrued,
+          ...(task.startedAt ? {} : { startedAt: now }),
+        },
+      });
+      await prisma.taskActivity.create({
+        data: {
+          taskId: id,
+          author: session.user.email ?? session.user.name ?? "unknown",
+          action: "Task completed",
+          detail: now.toISOString(),
+        },
+      });
+      return NextResponse.json(updated);
+    }
     const updated = await prisma.taskItem.update({
       where: { id },
       data: {
-        completedAt: now,
-        status: "DONE",
-        delayPenaltyAccrued: accrued,
+        status: "PENDING_VERIFICATION",
         ...(task.startedAt ? {} : { startedAt: now }),
       },
     });
@@ -254,11 +347,10 @@ export async function PATCH(req: Request) {
       data: {
         taskId: id,
         author: session.user.email ?? session.user.name ?? "unknown",
-        action: "Task ended",
-        detail: accrued > 0 ? `Completed with ${accrued} delay penalty pts` : now.toISOString(),
+        action: "Submitted for verification",
+        detail: now.toISOString(),
       },
     });
-    triggerEfficiencyRecomputeBackground();
     return NextResponse.json(updated);
   }
 
@@ -267,13 +359,22 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "id and valid status (or lifecycle) are required." }, { status: 400 });
   }
 
+  const verificationEnabled = await isTaskCompletionVerificationEnabled();
+  // Assignees cannot skip verification by setting DONE directly (when verification is on).
+  const effectiveStatus: TaskStatus =
+    status === "DONE" && verificationEnabled ? "PENDING_VERIFICATION" : status;
+
   const data: {
     status: TaskStatus;
     completedAt?: Date | null;
     startedAt?: Date;
     delayPenaltyAccrued?: number;
-  } = { status };
-  if (status === "DONE") {
+  } = { status: effectiveStatus };
+  if (effectiveStatus === "PENDING_VERIFICATION") {
+    const now = new Date();
+    data.completedAt = null;
+    if (!task.startedAt) data.startedAt = now;
+  } else if (effectiveStatus === "DONE") {
     const now = new Date();
     data.completedAt = now;
     if (!task.startedAt) data.startedAt = now;
@@ -285,20 +386,26 @@ export async function PATCH(req: Request) {
       delayPenaltyFrequency: task.delayPenaltyFrequency,
       now,
     });
-  } else if (task.status === "DONE") {
+  } else if (task.status === "DONE" || task.status === "PENDING_VERIFICATION") {
     data.completedAt = null;
   }
 
   const updated = await prisma.taskItem.update({ where: { id }, data });
-  if (task.status !== status) {
+  if (task.status !== effectiveStatus) {
     await prisma.taskActivity.create({
       data: {
         taskId: id,
         author: session.user.email ?? session.user.name ?? "unknown",
-        action: "Status updated",
-        detail: `${task.status} -> ${status}`,
+        action:
+          effectiveStatus === "PENDING_VERIFICATION"
+            ? "Submitted for verification"
+            : effectiveStatus === "DONE"
+              ? "Task completed"
+              : "Status updated",
+        detail: `${task.status} -> ${effectiveStatus}`,
       },
     });
   }
+  triggerEfficiencyRecomputeBackground();
   return NextResponse.json(updated);
 }

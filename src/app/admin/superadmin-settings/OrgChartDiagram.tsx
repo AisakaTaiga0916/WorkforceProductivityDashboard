@@ -23,7 +23,7 @@ import type {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ChevronLeft, Crown, GitCompareArrows, Link2Off, Lock, LockOpen, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, Crown, FolderKanban, GitCompareArrows, Link2Off, Lock, LockOpen, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   OrgChartBulkReportsBar,
@@ -657,32 +657,24 @@ export type OrgChartEitherOrLinkRow = {
   nodeBId: string;
 };
 
-const SUB_CONTENT_W = 320;
-/** Indent for nested subs (e.g. AREA under LPG WHOLESALE) so they don't look like peers. */
-const NEST_INDENT = 28;
-const SECTION_COLUMN_W = SUB_CONTENT_W + NEST_INDENT;
-/** Main department header bar (dark blue, horizontal row of peers). */
-const MAIN_NODE_W = SUB_CONTENT_W;
-const MAIN_NODE_H = 52;
-/** Sub-department row: yellow label + head name to the right. */
-const SUB_BOX_W = 168;
-const SUB_NAME_W = 140;
-const SUB_NODE_W = SUB_CONTENT_W;
-const SUB_NODE_H = 40;
-const SECTION_X_GAP = 28;
-const SECTION_X_ROOT_GAP = 40;
-const SECTION_Y_GAP = 12;
-const SECTION_Y_GAP_AFTER_MAIN = 18;
+const SECTION_NODE_W = 248;
+const SECTION_NODE_H = 156;
+const SECTION_X_GAP = 40;
+const SECTION_X_ROOT_GAP = 56;
+const SECTION_Y_GAP = 56;
 const PERSON_PREFIX = "person:";
+
+const ORG_FIT_VIEW = {
+  padding: 0.1,
+  minZoom: 0.85,
+  maxZoom: 1.05,
+  duration: 0,
+} as const;
 
 type SectionBoxData = {
   section: OrgChartSectionRow;
   memberCount: number;
   subsectionCount: number;
-  /** Main = blue header; sub = yellow box + head name (Amalgamated-style TO). */
-  variant: "main" | "sub";
-  /** 0 = main, 1 = direct sub, 2+ = nested under another sub. */
-  nestDepth: number;
 };
 
 type SectionTreeNodeType = Node<SectionBoxData, "sectionBox"> | OrgBoxNodeType;
@@ -691,281 +683,141 @@ function personAnchorId(nodeId: string) {
   return `${PERSON_PREFIX}${nodeId}`;
 }
 
-function isMainDepartment(
-  section: OrgChartSectionRow,
-  sectionIds: Set<string>,
-): boolean {
-  if (section.reportsToNodeId) return true;
-  if (section.parentId && sectionIds.has(section.parentId)) return false;
-  return true;
-}
-
-function sectionNodeHeight(variant: "main" | "sub") {
-  return variant === "main" ? MAIN_NODE_H : SUB_NODE_H;
-}
-
 function computeSectionTreeLayout(
   sections: OrgChartSectionRow[],
   peopleById: Map<string, OrgChartDiagramNode>,
   individualNodes: OrgChartDiagramNode[] = [],
 ) {
   const { byParent: childrenOf, personParentIds } = buildSectionTreeChildrenOf(sections);
-  const sectionIds = new Set(sections.map((s) => s.id));
-  const sectionById = new Map(sections.map((s) => [s.id, s]));
-
   const individualIds = new Set(individualNodes.map((n) => n.id));
-  const individualChildren = new Map<string | null, OrgChartDiagramNode[]>();
-  for (const n of individualNodes) {
-    const parentId =
-      n.parentId && individualIds.has(n.parentId) ? n.parentId : null;
-    const list = individualChildren.get(parentId) ?? [];
-    list.push(n);
-    individualChildren.set(parentId, list);
-  }
-  for (const [, list] of individualChildren) {
-    list.sort(
-      (a, b) => a.sortOrder - b.sortOrder || a.personName.localeCompare(b.personName),
-    );
-  }
 
   const widthOf = new Map<string, number>();
+  function subtreeWidth(id: string): number {
+    const kids = childrenOf.get(id) ?? [];
+    if (kids.length === 0) return SECTION_NODE_W;
+    const w =
+      kids.reduce((sum, k) => sum + subtreeWidth(k.id), 0) +
+      SECTION_X_GAP * (kids.length - 1);
+    widthOf.set(id, Math.max(w, SECTION_NODE_W));
+    return widthOf.get(id)!;
+  }
+
   const positions = new Map<string, { x: number; y: number }>();
 
-  function variantOf(id: string): "main" | "sub" {
-    const s = sectionById.get(id);
-    if (!s) return "main";
-    return isMainDepartment(s, sectionIds) ? "main" : "sub";
-  }
-
-  /**
-   * Sub-departments stack vertically under their parent (single column).
-   * Nested levels (AREA under Wholesale, etc.) indent so they read as children,
-   * not peers of the parent department.
-   */
-  function placeSection(id: string, x: number, y: number, depth = 0): number {
-    positions.set(id, { x, y });
-    const h = sectionNodeHeight(variantOf(id));
+  function placeSection(id: string, left: number, y: number): number {
     const kids = childrenOf.get(id) ?? [];
-    const gapAfter =
-      variantOf(id) === "main" ? SECTION_Y_GAP_AFTER_MAIN : SECTION_Y_GAP;
-    let childY = y + h + gapAfter;
+    const w = widthOf.get(id) ?? subtreeWidth(id);
+    const x = left + (w - SECTION_NODE_W) / 2;
+    positions.set(id, { x, y });
+    const childY = y + SECTION_NODE_H + SECTION_Y_GAP;
+    const childrenWidth =
+      kids.reduce((sum, k) => sum + (widthOf.get(k.id) ?? SECTION_NODE_W), 0) +
+      SECTION_X_GAP * Math.max(0, kids.length - 1);
+    let childLeft = left + (w - childrenWidth) / 2;
     for (const kid of kids) {
-      // depth 0 = main header; depth 1 = its direct yellows; depth 2+ = indent.
-      const childX = depth >= 1 ? x + NEST_INDENT : x;
-      childY = placeSection(kid.id, childX, childY, depth + 1) + SECTION_Y_GAP;
+      childLeft = placeSection(kid.id, childLeft, childY) + SECTION_X_GAP;
     }
-    return childY - SECTION_Y_GAP;
-  }
-
-  /** Width of N main departments laid out horizontally. */
-  function mainDepartmentsWidth(count: number): number {
-    if (count <= 0) return 0;
-    return count * SECTION_COLUMN_W + SECTION_X_GAP * (count - 1);
-  }
-
-  /**
-   * Main departments (siblings under a person): horizontal row; each column
-   * then stacks its own sub-departments vertically via placeSection.
-   */
-  function placeMainDepartmentsHorizontal(
-    deptKids: OrgChartSectionRow[],
-    left: number,
-    y: number,
-  ): { right: number; bottom: number } {
-    if (deptKids.length === 0) return { right: left, bottom: y };
-    const rowW = mainDepartmentsWidth(deptKids.length);
-    let childLeft = left;
-    let bottom = y;
-    for (const kid of deptKids) {
-      bottom = Math.max(bottom, placeSection(kid.id, childLeft, y));
-      childLeft += SECTION_COLUMN_W + SECTION_X_GAP;
-    }
-    return { right: left + rowW, bottom };
+    return left + w;
   }
 
   function placePersonRoot(personId: string, left: number): number {
     const anchorKey = personAnchorId(personId);
     const kids = childrenOf.get(anchorKey) ?? [];
-    const rowW = mainDepartmentsWidth(kids.length);
-    const w = Math.max(rowW, SECTION_COLUMN_W, NODE_W);
-    positions.set(anchorKey, { x: left + (w - NODE_W) / 2, y: 0 });
-    const childY = NODE_H + SECTION_Y_GAP_AFTER_MAIN;
-    const childLeft = left + (w - rowW) / 2;
-    placeMainDepartmentsHorizontal(kids, childLeft, childY);
+    for (const kid of kids) subtreeWidth(kid.id);
+    const childrenWidth =
+      kids.reduce((sum, k) => sum + (widthOf.get(k.id) ?? SECTION_NODE_W), 0) +
+      SECTION_X_GAP * Math.max(0, kids.length - 1);
+    const w = Math.max(childrenWidth, SECTION_NODE_W);
+    positions.set(anchorKey, {
+      x: left + (w - SECTION_NODE_W) / 2,
+      y: 0,
+    });
+    let childLeft = left + (w - childrenWidth) / 2;
+    const childY = NODE_H + SECTION_Y_GAP;
+    for (const kid of kids) {
+      childLeft = placeSection(kid.id, childLeft, childY) + SECTION_X_GAP;
+    }
     return left + w;
   }
 
-  /** Chart-only people stay horizontal (siblings side-by-side under managers). */
-  function individualSubtreeWidth(id: string): number {
-    const kids = individualChildren.get(id) ?? [];
-    const deptKids = childrenOf.get(personAnchorId(id)) ?? [];
-    const peopleW =
-      kids.length === 0
-        ? 0
-        : kids.reduce((sum, k) => sum + individualSubtreeWidth(k.id), 0) +
-          SECTION_X_GAP * Math.max(0, kids.length - 1);
-    const deptW = mainDepartmentsWidth(deptKids.length);
-    // Departments that report to this person sit beside person-reports (not under them),
-    // so Audit-under-CEO stays a horizontal peer of the COO column instead of centering
-    // under Accounting.
-    let contentW = NODE_W;
-    if (deptW > 0 && peopleW > 0) contentW = deptW + SECTION_X_GAP + peopleW;
-    else if (deptW > 0) contentW = deptW;
-    else if (peopleW > 0) contentW = peopleW;
-    const w = Math.max(NODE_W, contentW);
-    widthOf.set(`indiv:${id}`, w);
-    return w;
-  }
-
-  /**
-   * Place a chart-only person tree. Departments that report to this person must be
-   * laid out here too — they are excluded from top-level roots, and personRoots
-   * skips individuals to avoid double cards.
-   *
-   * Direct-report departments and direct-report people are horizontal siblings
-   * under this person (e.g. Audit Committee | COO), not stacked under the people tree.
-   */
-  function placeIndividual(
-    id: string,
-    left: number,
-    y: number,
-  ): { right: number; bottom: number } {
-    const kids = individualChildren.get(id) ?? [];
-    const deptKids = childrenOf.get(personAnchorId(id)) ?? [];
-    const w = widthOf.get(`indiv:${id}`) ?? individualSubtreeWidth(id);
-    positions.set(id, { x: left + (w - NODE_W) / 2, y });
-
-    const childY = y + NODE_H + SECTION_Y_GAP_AFTER_MAIN;
-    const peopleW =
-      kids.length === 0
-        ? 0
-        : kids.reduce((sum, k) => sum + (widthOf.get(`indiv:${k.id}`) ?? NODE_W), 0) +
-          SECTION_X_GAP * Math.max(0, kids.length - 1);
-    const deptW = mainDepartmentsWidth(deptKids.length);
-    let contentW = 0;
-    if (deptW > 0 && peopleW > 0) contentW = deptW + SECTION_X_GAP + peopleW;
-    else contentW = Math.max(deptW, peopleW);
-
-    let childLeft = left + Math.max(0, (w - contentW) / 2);
-    let bottom = y + NODE_H;
-
-    // Department columns first (left), then people — matches TO: Audit beside CEO/COO line.
-    if (deptKids.length > 0) {
-      const placed = placeMainDepartmentsHorizontal(deptKids, childLeft, childY);
-      bottom = Math.max(bottom, placed.bottom);
-      childLeft = placed.right + (peopleW > 0 ? SECTION_X_GAP : 0);
-    }
-    for (const kid of kids) {
-      const placed = placeIndividual(kid.id, childLeft, childY);
-      childLeft = placed.right + SECTION_X_GAP;
-      bottom = Math.max(bottom, placed.bottom);
-    }
-
-    return { right: left + w, bottom };
-  }
-
   const topSections = childrenOf.get(null) ?? [];
-  // People that departments report to — skip chart-only individuals (handled in placeIndividual).
   const personRoots = [...personParentIds]
     .filter((id) => !individualIds.has(id))
+    .filter((id) => (childrenOf.get(personAnchorId(id)) ?? []).length > 0)
     .sort((a, b) => {
       const na = peopleById.get(a)?.personName ?? a;
       const nb = peopleById.get(b)?.personName ?? b;
       return na.localeCompare(nb);
     });
-  const individualRoots = individualChildren.get(null) ?? [];
 
   let cursor = 0;
-  for (const person of individualRoots) {
-    individualSubtreeWidth(person.id);
-    cursor = placeIndividual(person.id, cursor, 0).right + SECTION_X_ROOT_GAP;
-  }
   for (const personId of personRoots) {
     cursor = placePersonRoot(personId, cursor) + SECTION_X_ROOT_GAP;
   }
-  // Main (top-level) departments: horizontal row; subs stack vertically inside each.
   for (const root of topSections) {
-    placeSection(root.id, cursor, 0);
-    cursor += SECTION_COLUMN_W + SECTION_X_ROOT_GAP;
+    subtreeWidth(root.id);
+    cursor = placeSection(root.id, cursor, 0) + SECTION_X_ROOT_GAP;
   }
 
-  // Safety net: never leave departments unpositioned (e.g. reports-to person missing).
   for (const section of sections) {
     if (positions.has(section.id)) continue;
-    if (
-      !section.reportsToNodeId &&
-      section.parentId &&
-      sectionIds.has(section.parentId) &&
-      !positions.has(section.parentId)
-    ) {
-      continue;
-    }
-    placeSection(section.id, cursor, 0);
-    cursor += SECTION_COLUMN_W + SECTION_X_ROOT_GAP;
+    subtreeWidth(section.id);
+    cursor = placeSection(section.id, cursor, 0) + SECTION_X_ROOT_GAP;
+  }
+
+  for (const person of individualNodes) {
+    if (positions.has(person.id)) continue;
+    positions.set(person.id, { x: cursor, y: 0 });
+    cursor += NODE_W + SECTION_X_ROOT_GAP;
   }
 
   return { positions, childrenOf, personParentIds, individualIds };
 }
 
 const SectionBox = memo(function SectionBox({ data }: NodeProps<Node<SectionBoxData, "sectionBox">>) {
-  const { section, memberCount, subsectionCount, variant, nestDepth } = data;
-  const headLine = section.headName?.trim() || "";
+  const { section, memberCount, subsectionCount } = data;
+  const headLine = section.headName?.trim() || "No head assigned";
   const headMeta = [section.headRole, section.headCompanyName].filter(Boolean).join(" · ");
-
-  if (variant === "main") {
-    return (
-      <article
-        style={{ width: MAIN_NODE_W, height: MAIN_NODE_H }}
-        className="cursor-grab active:cursor-grabbing"
-        title={`${section.name} — ${memberCount} members${subsectionCount ? `, ${subsectionCount} sub` : ""}. Drag to nest · Click to open`}
-      >
-        <Handle type="target" position={Position.Top} id="in" className="!h-0.5 !w-0.5 !opacity-0" />
-        <div className="flex h-full w-full items-center justify-center rounded-sm bg-[#1e3a5f] px-2 text-center shadow-sm transition hover:bg-[#254a73] dark:bg-[#243b55] dark:hover:bg-[#2f4a68]">
-          <h3 className="line-clamp-2 text-[11px] font-bold uppercase leading-tight tracking-wide text-white">
-            {section.name}
-          </h3>
-        </div>
-        <Handle type="source" position={Position.Bottom} id="out" className="!h-0.5 !w-0.5 !opacity-0" />
-      </article>
-    );
-  }
-
-  const nested = nestDepth >= 2;
 
   return (
     <article
-      style={{ width: SUB_NODE_W, height: SUB_NODE_H }}
-      className="cursor-grab active:cursor-grabbing"
-      title={`${section.name}${headLine ? ` — ${headLine}` : ""}. Drag to nest · Click to open`}
+      style={{ width: SECTION_NODE_W, minHeight: SECTION_NODE_H }}
+      className="cursor-grab rounded-xl border border-zinc-200/90 bg-white shadow-sm transition hover:border-orange-400/70 hover:shadow-md active:cursor-grabbing dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-orange-500/50"
     >
       <Handle type="target" position={Position.Top} id="in" className="!h-0.5 !w-0.5 !opacity-0" />
-      <div className="flex h-full w-full items-center justify-center gap-2">
-        <div
-          style={{ width: SUB_BOX_W, minWidth: SUB_BOX_W }}
-          className={`flex h-full items-center justify-center rounded-sm border px-1.5 text-center shadow-sm transition hover:brightness-95 ${
-            nested
-              ? "border-amber-600/70 bg-[#ffe9a8] dark:border-amber-500 dark:bg-amber-300/90"
-              : "border-amber-500/80 bg-[#f5d76e] dark:border-amber-600 dark:bg-amber-400"
-          }`}
-        >
-          <p className="line-clamp-2 text-[9px] font-bold uppercase leading-tight tracking-wide text-[#1e3a5f]">
-            {section.name}
+      <div className="flex h-full w-full flex-col p-3 text-left">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
+              Department
+            </p>
+            <h3 className="mt-0.5 line-clamp-2 text-[13px] font-bold leading-snug text-zinc-950 dark:text-zinc-50">
+              {section.name}
+            </h3>
+          </div>
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300">
+            <FolderKanban className="size-4" aria-hidden />
+          </span>
+        </div>
+        <div className="mt-2 rounded-lg border border-zinc-100 bg-zinc-50/90 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-950/50">
+          <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">
+            <Crown className="size-3" aria-hidden />
+            Head
           </p>
+          <p className="mt-0.5 truncate text-[12px] font-semibold text-zinc-900 dark:text-zinc-100">
+            {headLine}
+          </p>
+          {headMeta ? (
+            <p className="truncate text-[10px] text-zinc-500 dark:text-zinc-400">{headMeta}</p>
+          ) : null}
         </div>
-        <div style={{ width: SUB_NAME_W, minWidth: SUB_NAME_W }} className="min-w-0 text-left">
-          {headLine ? (
-            <>
-              <p className="truncate text-[10px] font-bold uppercase leading-tight text-[#1e3a5f] dark:text-sky-100">
-                {headLine}
-              </p>
-              {headMeta ? (
-                <p className="truncate text-[9px] text-zinc-500 dark:text-zinc-400">{headMeta}</p>
-              ) : null}
-            </>
-          ) : (
-            <p className="truncate text-[9px] italic text-zinc-400">No head</p>
-          )}
-        </div>
+        <p className="mt-2 text-[10px] font-semibold text-zinc-600 dark:text-zinc-400">
+          {memberCount} member{memberCount === 1 ? "" : "s"}
+          {subsectionCount > 0 ? ` · ${subsectionCount} sub` : ""}
+        </p>
+        <p className="mt-1 text-[10px] font-semibold text-orange-700 dark:text-orange-300">
+          Drag to nest · Click to open →
+        </p>
       </div>
       <Handle type="source" position={Position.Bottom} id="out" className="!h-0.5 !w-0.5 !opacity-0" />
     </article>
@@ -1090,65 +942,34 @@ function SectionTreeCanvas({
   }, [sections, childrenByParent]);
 
   const diagramSize = useMemo(() => {
-    const sectionIds = new Set(sections.map((s) => s.id));
     let w = 0;
     let h = 0;
     for (const [id, p] of positions) {
       const isPerson = id.startsWith(PERSON_PREFIX) || peopleById.has(id);
-      if (isPerson) {
-        w = Math.max(w, p.x + NODE_W);
-        h = Math.max(h, p.y + NODE_H);
-        continue;
-      }
-      const section = sectionById.get(id);
-      const variant =
-        section && isMainDepartment(section, sectionIds) ? "main" : "sub";
-      w = Math.max(w, p.x + SECTION_COLUMN_W);
-      h = Math.max(h, p.y + sectionNodeHeight(variant));
+      w = Math.max(w, p.x + (isPerson ? NODE_W : SECTION_NODE_W));
+      h = Math.max(h, p.y + (isPerson ? NODE_H : SECTION_NODE_H));
     }
     return { w: Math.max(w, 400), h: Math.max(h, 280) };
-  }, [positions, peopleById, sections, sectionById]);
+  }, [positions, peopleById]);
   // Primitive key so lock/busy node refreshes do not refit the viewport.
   const diagramSizeKey = `${diagramSize.w}x${diagramSize.h}`;
 
   const layoutNodes = useMemo<SectionTreeNodeType[]>(() => {
-    const sectionIds = new Set(sections.map((s) => s.id));
-
-    function nestDepthOf(sectionId: string): number {
-      let depth = 0;
-      let cur = sectionById.get(sectionId);
-      const seen = new Set<string>();
-      while (cur && !seen.has(cur.id)) {
-        seen.add(cur.id);
-        // Person reports-to stops the department nest (that section is a main).
-        if (cur.reportsToNodeId) break;
-        if (cur.parentId && sectionIds.has(cur.parentId)) {
-          depth += 1;
-          cur = sectionById.get(cur.parentId);
-          continue;
-        }
-        break;
-      }
-      return depth;
-    }
-
-    const sectionNodes: SectionTreeNodeType[] = sections.map((section) => {
-      const variant = isMainDepartment(section, sectionIds) ? "main" : "sub";
-      const nestDepth = nestDepthOf(section.id);
+    const sectionNodes: SectionTreeNodeType[] = sections
+      .filter((section) => positions.has(section.id))
+      .map((section) => {
       return {
         id: section.id,
         type: "sectionBox",
         position: positions.get(section.id) ?? { x: 0, y: 0 },
-        width: variant === "main" ? MAIN_NODE_W : SUB_NODE_W,
-        height: sectionNodeHeight(variant),
+        width: SECTION_NODE_W,
+        height: SECTION_NODE_H,
         draggable: !busy,
         selectable: true,
         data: {
           section,
           memberCount: memberCountBySection.get(section.id) ?? 0,
           subsectionCount: (childrenByParent.get(section.id) ?? []).length,
-          variant,
-          nestDepth,
         },
       };
     });
@@ -1224,7 +1045,6 @@ function SectionTreeCanvas({
     personParentIds,
     individualIds,
     peopleById,
-    sectionById,
     busy,
     outlineById,
     layerById,
@@ -1261,23 +1081,12 @@ function SectionTreeCanvas({
   }, [layoutNodes]);
 
   const rfEdges = useMemo<Edge[]>(() => {
-    const sectionIds = new Set(sections.map((s) => s.id));
     type Pending = { id: string; source: string; target: string };
     const pending: Pending[] = [];
 
     for (const s of sections) {
       if (!positions.has(s.id)) continue;
-      if (s.reportsToNodeId) {
-        const source = s.reportsToNodeId;
-        const hasPerson =
-          positions.has(source) || positions.has(personAnchorId(source));
-        if (!hasPerson) continue;
-        pending.push({
-          id: `dept-person-edge-${s.id}`,
-          source,
-          target: s.id,
-        });
-      } else if (s.parentId && positions.has(s.parentId)) {
+      if (s.parentId && positions.has(s.parentId)) {
         pending.push({
           id: `dept-edge-${s.id}`,
           source: s.parentId,
@@ -1302,10 +1111,7 @@ function SectionTreeCanvas({
       if (peopleById.has(sourceId) || sourceId.startsWith(PERSON_PREFIX)) {
         return pos.y + NODE_H;
       }
-      const section = sectionById.get(sourceId);
-      const variant =
-        section && isMainDepartment(section, sectionIds) ? "main" : "sub";
-      return pos.y + sectionNodeHeight(variant);
+      return pos.y + SECTION_NODE_H;
     }
 
     const bySource = new Map<string, Pending[]>();
@@ -1355,7 +1161,13 @@ function SectionTreeCanvas({
       }
     }
     return edges;
-  }, [sections, positions, individualNodes, individualIds, peopleById, sectionById]);
+  }, [
+    sections,
+    positions,
+    individualNodes,
+    individualIds,
+    peopleById,
+  ]);
 
   const layoutKey = useMemo(
     () =>
@@ -1377,7 +1189,7 @@ function SectionTreeCanvas({
       if (!target) return;
       const rect = target.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
-      fitView({ padding: 0.12, maxZoom: 1.05, duration: 0 });
+      fitView(ORG_FIT_VIEW);
     }
 
     // Refit when the tree structure / diagram size changes.
@@ -1553,7 +1365,7 @@ function SectionTreeCanvas({
               if (!el) return;
               const rect = el.getBoundingClientRect();
               if (!rect.width || !rect.height) return;
-              instance.fitView({ padding: 0.12, maxZoom: 1.05, duration: 0 });
+              instance.fitView(ORG_FIT_VIEW);
             });
           }}
           defaultEdgeOptions={SECTION_TREE_EDGE_OPTIONS}
@@ -1932,9 +1744,9 @@ export function OrgChartDiagram({
     return (
       <div className="space-y-3">
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          Department org chart — main departments in a horizontal row (blue), sub-departments
-          stacked vertically under each (yellow + head). Drag to nest or set reports-to. Click a
-          department to open its members.
+          Department org chart — white department cards in a horizontal row. Nested departments
+          sit under their parent. Drag onto another department to nest. Reports-to is a reporting
+          line, not a nest. Click a department to open its members.
         </p>
         {unassignedCount > 0 ? (
           <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
@@ -2479,7 +2291,7 @@ function OrgChartCanvas({
       if (!target) return;
       const rect = target.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
-      fitView({ padding: 0.12, maxZoom: 1.05, duration: 0 });
+      fitView(ORG_FIT_VIEW);
     }
 
     // Refit when the people-tree structure / diagram size changes.
@@ -2722,7 +2534,7 @@ function OrgChartCanvas({
             if (!el) return;
             const rect = el.getBoundingClientRect();
             if (!rect.width || !rect.height) return;
-            instance.fitView({ padding: 0.12, maxZoom: 1.05, duration: 0 });
+            instance.fitView(ORG_FIT_VIEW);
           });
         }}
         defaultEdgeOptions={DEFAULT_ORG_EDGE_OPTIONS}

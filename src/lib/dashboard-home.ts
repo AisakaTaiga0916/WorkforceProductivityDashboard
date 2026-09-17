@@ -5,8 +5,12 @@ import { ACTIVE_REQUEST_STATUSES, OPEN_PIPELINE_STATUSES } from "@/lib/active-re
 import { prisma } from "@/lib/prisma";
 import { personnelRequestBoardWhere } from "@/lib/rfp-request-board";
 import { findSessionAgentId } from "@/lib/session-agent";
-import { BOARD_LANE_AT_RISK_MS, BOARD_LANE_OVERDUE_MS, getTicketSlaState } from "@/lib/sla";
-import { loadTicketBoardLaneEnteredAtMap } from "@/lib/request-board-columns";
+import { getTicketSlaState } from "@/lib/sla";
+import {
+  loadTicketBoardLaneEnteredAtMap,
+  loadTicketForConfirmationEnteredAtMap,
+  loadTicketLastActivityAtMap,
+} from "@/lib/request-board-columns";
 import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
 import {
   resolveViewerDepartmentScopeLabel,
@@ -223,6 +227,8 @@ async function listTasksAssignedToAgent(
         periodCycleStartAt: true,
         nonRecurringEndAt: true,
         assignedAgentId: true,
+        completionVerificationStatus: true,
+        lastFullCompletionAt: true,
         updatedAt: true,
       },
       orderBy: { updatedAt: "desc" },
@@ -290,8 +296,6 @@ async function listTasksAssignedToAgent(
 export async function loadStaffDashboardHome(session: Session): Promise<StaffDashboardHome> {
   const user = session.user;
   const now = new Date();
-  const laneOverdueBefore = new Date(now.getTime() - BOARD_LANE_OVERDUE_MS);
-  const laneAtRiskBefore = new Date(now.getTime() - (BOARD_LANE_OVERDUE_MS - BOARD_LANE_AT_RISK_MS));
   const firstName = user.name?.split(" ")[0] ?? "there";
 
   const ctx = await resolveTicketScope(session);
@@ -386,6 +390,8 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
         priority: true,
         requestType: true,
         updatedAt: true,
+        createdAt: true,
+        resolvedAt: true,
         contactName: true,
         assignedAgentId: true,
         resolutionDueAt: true,
@@ -403,6 +409,8 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
         priority: true,
         requestType: true,
         updatedAt: true,
+        createdAt: true,
+        resolvedAt: true,
         contactName: true,
         resolutionDueAt: true,
         firstResponseAt: true,
@@ -437,39 +445,86 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
       : Promise.resolve([] as DashboardActionItem[]),
   ]);
 
-  const laneEnteredById = await loadTicketBoardLaneEnteredAtMap([
+  const candidateIds = [
     ...pipelineTicketsRaw.map((t) => t.id),
     ...boardLaneCandidates.map((t) => t.id),
+  ];
+  const [laneEnteredById, lastActivityById, forConfirmationById] = await Promise.all([
+    loadTicketBoardLaneEnteredAtMap(candidateIds),
+    loadTicketLastActivityAtMap(candidateIds),
+    loadTicketForConfirmationEnteredAtMap(candidateIds),
   ]);
 
-  const withLaneEntered = <T extends { id: string; updatedAt: Date }>(row: T) => ({
+  const withOverdueFields = <
+    T extends {
+      id: string;
+      status: TicketStatus;
+      requestType?: string | null;
+      updatedAt: Date;
+      createdAt?: Date;
+      resolvedAt?: Date | null;
+    },
+  >(
+    row: T,
+  ) => ({
     ...row,
     boardLaneEnteredAt: laneEnteredById.get(row.id) ?? row.updatedAt,
+    lastActivityAt: lastActivityById.get(row.id) ?? null,
+    forConfirmationAt:
+      forConfirmationById.get(row.id) ??
+      (row.status === "FOR_CONFIRMATION" ? (row.resolvedAt ?? laneEnteredById.get(row.id) ?? null) : null),
   });
 
-  const pipelineTickets = pipelineTicketsRaw.map(withLaneEntered);
+  const pipelineTickets = pipelineTicketsRaw.map(withOverdueFields);
 
   let slaBreached = 0;
   let slaAtRisk = 0;
-  const overdueCandidates: Array<
-    (typeof boardLaneCandidates)[number] & { boardLaneEnteredAt: Date }
-  > = [];
+  const overdueCandidates: Array<{
+    id: string;
+    ticketNumber: string;
+    title: string;
+    status: TicketStatus;
+    priority: TicketPriority;
+    requestType: string | null;
+    updatedAt: Date;
+    createdAt: Date;
+    resolvedAt: Date | null;
+    contactName: string;
+    resolutionDueAt: Date;
+    firstResponseAt: Date | null;
+    firstResponseDueAt: Date;
+    boardLaneEnteredAt: Date;
+    lastActivityAt: Date | null;
+    forConfirmationAt: Date | null;
+  }> = [];
   for (const row of boardLaneCandidates) {
-    const enriched = withLaneEntered(row);
-    const enteredMs = enriched.boardLaneEnteredAt.getTime();
-    if (enteredMs < laneOverdueBefore.getTime()) {
+    const enriched = withOverdueFields(row);
+    const state = getTicketSlaState(enriched);
+    if (state === "BREACHED") {
       slaBreached += 1;
       overdueCandidates.push(enriched);
-    } else if (enteredMs <= laneAtRiskBefore.getTime()) {
+    } else if (state === "AT_RISK") {
       slaAtRisk += 1;
       if (row.priority === "HIGH" || row.priority === "URGENT") {
         overdueCandidates.push(enriched);
       }
     }
   }
-  overdueCandidates.sort(
-    (a, b) => a.boardLaneEnteredAt.getTime() - b.boardLaneEnteredAt.getTime(),
-  );
+  overdueCandidates.sort((a, b) => {
+    const aStart = (
+      a.forConfirmationAt ??
+      a.lastActivityAt ??
+      a.boardLaneEnteredAt ??
+      a.updatedAt
+    ).getTime();
+    const bStart = (
+      b.forConfirmationAt ??
+      b.lastActivityAt ??
+      b.boardLaneEnteredAt ??
+      b.updatedAt
+    ).getTime();
+    return aStart - bStart;
+  });
   const overdueTickets = overdueCandidates.slice(0, 6);
 
   const avgResponseMinutes =

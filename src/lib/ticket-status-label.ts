@@ -5,8 +5,7 @@ export function formatTicketStatusLabel(status: TicketStatus | string): string {
   const s = String(status);
   if (s === "ESCALATED") return "Transfer pending";
   if (s === "FOR_CONFIRMATION") return "For confirmation";
-  if (s === "IN_PROGRESS") return "In progress";
-  if (s === "PENDING_INFO") return "Pending info";
+  if (s === "IN_PROGRESS" || s === "PENDING_INFO") return "In progress";
   if (s === "OPEN") return "Open";
   if (s === "CLOSED") return "Closed";
   if (s === "RESOLVED") return "Resolved";
@@ -19,7 +18,7 @@ export function formatCompanyBoardStatusLabel(status: TicketStatus | string): st
   if (s === "ESCALATED") return "Transfer";
   if (s === "FOR_CONFIRMATION") return "Confirming";
   if (s === "IN_PROGRESS") return "In progress";
-  if (s === "PENDING_INFO") return "Pending info";
+  if (s === "PENDING_INFO") return "In progress";
   if (s === "OPEN") return "Open";
   if (s === "CLOSED") return "Closed";
   if (s === "RESOLVED") return "Resolved";

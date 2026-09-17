@@ -215,86 +215,6 @@ async function resolveHeadNodeId(
   return { headNodeId };
 }
 
-/**
- * Major department heads report to the top-level person on the whole chart
- * (outline 1.n under that person). When a department's reports-to is a root
- * chart member — or the department is a direct child of such an umbrella —
- * keep the head's people-chart parent aligned.
- */
-async function syncMajorDepartmentHeadToTopLevel(sectionId: string) {
-  const sections = await prismaPrimary.orgChartSection.findMany({
-    select: { id: true, parentId: true, reportsToNodeId: true, headNodeId: true },
-  });
-  const byId = new Map(sections.map((s) => [s.id, s]));
-  const section = byId.get(sectionId);
-  if (!section?.headNodeId) return;
-
-  let cur: (typeof section) | undefined = section;
-  let topReportsTo: string | null = null;
-  let stepsToReportsTo = 0;
-  while (cur) {
-    if (cur.reportsToNodeId) {
-      topReportsTo = cur.reportsToNodeId;
-      break;
-    }
-    cur = cur.parentId ? byId.get(cur.parentId) : undefined;
-    stepsToReportsTo += 1;
-  }
-  if (!topReportsTo) return;
-
-  // Direct dept under top-level person, or one level under that umbrella only.
-  const isMajor =
-    section.reportsToNodeId === topReportsTo ||
-    (stepsToReportsTo === 1 &&
-      section.parentId != null &&
-      byId.get(section.parentId)?.reportsToNodeId === topReportsTo);
-  if (!isMajor) return;
-  if (section.headNodeId === topReportsTo) return;
-
-  const boss = await prismaPrimary.orgChartNode.findUnique({
-    where: { id: topReportsTo },
-    select: { id: true, parentId: true },
-  });
-  // Only sync when the department reports to a top-level chart person.
-  if (!boss || boss.parentId) return;
-
-  const head = await prismaPrimary.orgChartNode.findUnique({
-    where: { id: section.headNodeId },
-    select: { id: true, parentId: true, parentLocked: true },
-  });
-  if (!head || head.parentLocked) return;
-  if (head.parentId === boss.id) return;
-
-  // Avoid cycles: do not hang head under boss if boss is already under head.
-  let walk: string | null = boss.id;
-  const seen = new Set<string>();
-  while (walk) {
-    if (walk === head.id) return;
-    if (seen.has(walk)) break;
-    seen.add(walk);
-    const next: { parentId: string | null } | null = await prismaPrimary.orgChartNode.findUnique({
-      where: { id: walk },
-      select: { parentId: true },
-    });
-    walk = next?.parentId ?? null;
-  }
-
-  const [max] = await prismaPrimary.orgChartNode.findMany({
-    where: { parentId: boss.id },
-    orderBy: { sortOrder: "desc" },
-    take: 1,
-    select: { sortOrder: true },
-  });
-  await prismaPrimary.orgChartNode.update({
-    where: { id: head.id },
-    data: {
-      parentId: boss.id,
-      parentEitherOrLinkId: null,
-      sortOrder: (max?.sortOrder ?? -1) + 1,
-    },
-  });
-}
-
 async function syncPrimarySections(nodeIds: string[]) {
   if (nodeIds.length === 0) return;
   const nodes = await prismaPrimary.orgChartNode.findMany({
@@ -607,9 +527,6 @@ export async function PATCH(req: Request) {
     });
     // Align Personnel / Admin with chart heads (promotes new head, demotes former).
     await reconcilePortalStaffRolesFromOrgChart();
-    if (resolved.headNodeId) {
-      await syncMajorDepartmentHeadToTopLevel(id);
-    }
     return NextResponse.json(await serializeSectionWithHeadPortalRole(updated as any));
   }
 
@@ -748,9 +665,8 @@ export async function PATCH(req: Request) {
       );
     }
     data.parentId = parentResolved?.parentId ?? null;
-    // Nesting under a department owns the tree edge for the people chart — clear person
-    // reports-to so the move is visible. Setting reportsToNodeId must NOT clear parentId
-    // (department metrics nest via parentId).
+    // Nesting under a department owns the tree edge. Setting reportsToNodeId must
+    // NOT clear parentId, and must not reparent people-chart nodes.
     data.reportsToNodeId = null;
   }
 
@@ -794,19 +710,6 @@ export async function PATCH(req: Request) {
     data,
     include: sectionIncludeArgs,
   });
-
-  if (data.reportsToNodeId !== undefined) {
-    await syncMajorDepartmentHeadToTopLevel(id);
-    if (data.reportsToNodeId) {
-      const children = await prismaPrimary.orgChartSection.findMany({
-        where: { parentId: id },
-        select: { id: true },
-      });
-      for (const child of children) {
-        await syncMajorDepartmentHeadToTopLevel(child.id);
-      }
-    }
-  }
 
   return NextResponse.json(await serializeSectionWithHeadPortalRole(updated as any));
 }

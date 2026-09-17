@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { isTravelOrderRunning, isTravelOrderTraveler } from "@/lib/travel-order";
 import { findTravelOrderById, serializeTravelOrder } from "@/lib/travel-order-db";
 import { finalizeFieldAssignmentKpiFromTravelOrder } from "@/lib/travel-order-kpi-finalize";
+import { isWorkPlanOrder } from "@/lib/work-plan";
 
 /**
  * POST /api/kpi-maintenance/:id/travel-orders/:travelOrderId/submit-done
@@ -28,6 +29,16 @@ export async function POST(
   const order = await findTravelOrderById(travelOrderId);
   if (!order || order.kpiMaintenanceId !== id) {
     return NextResponse.json({ error: "Travel order not found." }, { status: 404 });
+  }
+
+  if (isWorkPlanOrder(order)) {
+    return NextResponse.json(
+      {
+        error:
+          "Submit as Done is not available on Travel Orders for Management Approval.",
+      },
+      { status: 400 },
+    );
   }
 
   const operatorId = perms.operator?.id ?? null;

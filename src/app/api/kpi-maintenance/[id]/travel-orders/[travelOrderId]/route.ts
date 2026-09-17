@@ -21,6 +21,7 @@ import {
   gatePassDraftHasAnyData,
   type TravelOrderGatePassDraft,
 } from "@/lib/travel-order";
+import { isWorkPlanOrder, workPlanUsesGatePass } from "@/lib/work-plan";
 import {
   approveTravelOrderSequential,
   findTravelOrderById,
@@ -74,6 +75,21 @@ export async function PATCH(
   const statusRaw = typeof body.status === "string" ? body.status.trim().toUpperCase() : "";
   const operatorId = perms.operator?.id ?? null;
   const canAssignWork = Boolean(perms.canAssignWork);
+  const workPlan = isWorkPlanOrder(order);
+  const workPlanGatePass = workPlanUsesGatePass(order);
+
+  if (
+    workPlan &&
+    (action === "gate-pass" || action === "gate-pass-visit") &&
+    !workPlanGatePass
+  ) {
+    return NextResponse.json(
+      {
+        error: "Gate Pass is only available on Travel Orders that include travel.",
+      },
+      { status: 400 },
+    );
+  }
 
   if (isGuard && action !== "gate-pass-visit") {
     return NextResponse.json(
@@ -85,7 +101,7 @@ export async function PATCH(
   if (action === "gate-pass" || action === "gate-pass-visit") {
     const isTraveler = isTravelOrderTraveler(operatorId, order);
     if (action === "gate-pass-visit" && isGuard) {
-      if (!travelOrderHasGatePass(order)) {
+      if (!travelOrderHasGatePass(order) && !workPlanGatePass) {
         return NextResponse.json(
           { error: "Gate Pass Start/End is only available on orders with a Gate Pass." },
           { status: 403 },
@@ -356,9 +372,11 @@ export async function PATCH(
       if (!isTravelOrderConfirmReady(order)) {
         return NextResponse.json(
           {
-            error: travelOrderHasGatePass(order)
-              ? "Confirm unlocks after Gate Pass Actual Arrival End is captured."
-              : "Confirm unlocks after every location visit is completed.",
+            error: isWorkPlanOrder(order)
+              ? "Confirm unlocks after every approver has signed."
+              : travelOrderHasGatePass(order)
+                ? "Confirm unlocks after Gate Pass Actual Arrival End is captured."
+                : "Confirm unlocks after every location visit is completed.",
           },
           { status: 400 },
         );

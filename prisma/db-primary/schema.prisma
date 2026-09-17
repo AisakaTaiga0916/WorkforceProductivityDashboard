@@ -56,6 +56,7 @@ enum KpiFrequency {
 
 enum TaskStatus {
   CURRENT
+  PENDING_VERIFICATION
   DONE
   DELAYED
 }
@@ -172,6 +173,8 @@ model Agent {
   tickets   Ticket[] @relation("AssignedAgent")
   kpis      KpiMaintenance[] @relation("AssignedKpi")
   tasks     TaskItem[]       @relation("AssignedTask")
+  kpiCompletionVerifierFor KpiMaintenance[] @relation("KpiCompletionVerifier")
+  kpiCompletionVerifiedBy  KpiMaintenance[] @relation("KpiCompletionVerifiedBy")
   approvedTravelOrders TravelOrder[] @relation("TravelOrderApprover")
   confirmedTravelOrders TravelOrder[] @relation("TravelOrderConfirmer")
   createdTravelOrders TravelOrder[] @relation("TravelOrderCreator")
@@ -452,6 +455,7 @@ model Ticket {
   updatedAt           DateTime         @updatedAt @map("updated_at")
   activities          TicketActivity[]
   messages            TicketMessage[]
+  chatMessages        ChatMessage[]
   feedback            TicketFeedback?
 
   @@index([linkedKpiMaintenanceId])
@@ -509,6 +513,43 @@ model TicketMessage {
   @@map("ticket_messages")
 }
 
+/// Real-time request chat (one thread per ticket). Separate from legacy TicketMessage.
+model ChatMessage {
+  id          String            @id @default(cuid())
+  ticketId    String            @map("ticket_id")
+  ticket      Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  /// Portal account id (session.user.id) of the sender.
+  senderId    String            @map("sender_id")
+  senderName  String            @map("sender_name")
+  senderRole  String?           @map("sender_role")
+  body        String            @map("body") @db.Text
+  /// JSON array: [{ id, fileName, mimeType, sizeBytes, storedFileName }]
+  attachments Json?             @map("attachments")
+  /// First time another participant's client received the message (socket ack or history fetch).
+  deliveredAt DateTime?         @map("delivered_at")
+  /// True once at least one other participant has marked the message read.
+  isRead      Boolean           @default(false) @map("is_read")
+  readAt      DateTime?         @map("read_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  reads       ChatMessageRead[]
+
+  @@index([ticketId, createdAt])
+  @@index([senderId, createdAt])
+  @@map("chat_messages")
+}
+
+model ChatMessageRead {
+  id        String      @id @default(cuid())
+  messageId String      @map("message_id")
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  readerId  String      @map("reader_id")
+  readAt    DateTime    @default(now()) @map("read_at")
+
+  @@unique([messageId, readerId])
+  @@index([readerId, readAt])
+  @@map("chat_message_reads")
+}
+
 model TicketFeedback {
   id        String   @id @default(cuid())
   ticketId  String   @unique @map("ticket_id")
@@ -538,6 +579,16 @@ model KpiMaintenance {
   recurrenceMonthDay   Int?         @map("recurrence_month_day")
   periodCycleStartAt   DateTime?    @map("period_cycle_start_at")
   lastFullCompletionAt DateTime?    @map("last_full_completion_at")
+  /// null | PENDING_VERIFICATION | VERIFIED | REJECTED — gate before board "Done".
+  completionVerificationStatus String? @map("completion_verification_status")
+  /// Optional designated verifier; falls back to creator / org-chart manager.
+  verifierAgentId      String?      @map("verifier_agent_id")
+  verifierAgent        Agent?       @relation("KpiCompletionVerifier", fields: [verifierAgentId], references: [id], onDelete: SetNull)
+  pendingVerificationAt DateTime?   @map("pending_verification_at")
+  verifiedAt           DateTime?    @map("verified_at")
+  verifiedByAgentId    String?      @map("verified_by_agent_id")
+  verifiedByAgent      Agent?       @relation("KpiCompletionVerifiedBy", fields: [verifiedByAgentId], references: [id], onDelete: SetNull)
+  verificationRejectionComment String? @map("verification_rejection_comment") @db.Text
   periodKey            String?      @map("period_key")
   rolledOverIncomplete Boolean      @default(false) @map("rolled_over_incomplete")
   itProjectName        String?      @map("it_project_name")
@@ -557,6 +608,8 @@ model KpiMaintenance {
   @@index([assignedAgentId, frequency])
   @@index([scopedCompanyTeamId])
   @@index([createdAt])
+  @@index([completionVerificationStatus])
+  @@index([verifierAgentId])
   @@unique([title, mainTask])
   @@map("kpi_maintenance")
 }
@@ -574,12 +627,14 @@ model KpiMaintenanceActivity {
   @@map("kpi_maintenance_activities")
 }
 
-/// Field Assignment — Request for Travel Order linked to a Task Management card.
+/// Field Assignment — Work Plan for Management Approval (legacy Travel Order rows kept readable).
 model TravelOrder {
   id                 String                @id @default(cuid())
   kpiMaintenanceId   String                @map("kpi_maintenance_id")
   kpiMaintenance     KpiMaintenance        @relation(fields: [kpiMaintenanceId], references: [id], onDelete: Cascade)
   orderRequest       String                @map("order_request") @db.Text
+  /// Work Plan for Management Approval structured fields (null = legacy Travel Order).
+  workPlanMeta       Json?                 @map("work_plan_meta")
   /// Order-level supporting files (images + docs): [{ storedFileName, originalName, mimeType, size, uploadedAt }]
   attachments        Json                  @default("[]") @map("attachments")
   approvedByAgentId  String?               @map("approved_by_agent_id")

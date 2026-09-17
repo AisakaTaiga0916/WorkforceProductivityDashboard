@@ -180,8 +180,8 @@
     <header>
       <h1>Travel Orders (Offline)</h1>
       <p class="sub">
-        You’re offline or the app shell could not load. Showing Travel Orders saved on this device.
-        Changes stay queued here until you’re back online.
+        Youâ€™re offline or the app shell could not load. Showing Travel Orders saved on this device.
+        Changes stay queued here until youâ€™re back online.
       </p>
       <div class="actions">
         <a class="btn primary" id="retryApp" href="/agent/tasks">Retry full app</a>
@@ -189,7 +189,7 @@
       </div>
     </header>
     <main>
-      <div class="banner" id="netBanner">Checking network…</div>
+      <div class="banner" id="netBanner">Checking networkâ€¦</div>
       <div class="stats" id="stats"></div>
       <section>
         <h2>Cached Travel Orders</h2>
@@ -231,7 +231,7 @@
               resolve(req.result);
             };
             req.onupgradeneeded = function () {
-              // Do not create schema here — only read what the app already wrote.
+              // Do not create schema here â€” only read what the app already wrote.
             };
           });
         }
@@ -265,10 +265,10 @@
           var banner = el("netBanner");
           if (online) {
             banner.textContent =
-              "Network looks available. Tap “Retry full app” to return to Agent Tasks / Travel Orders.";
+              "Network looks available. Tap â€œRetry full appâ€ to return to Agent Tasks / Travel Orders.";
           } else {
             banner.textContent =
-              "No network. Keep this page open to review cached Travel Orders. Avoid hard-refreshing until you’re online again.";
+              "No network. Keep this page open to review Cached Travel Orders. Avoid hard-refreshing until youâ€™re online again.";
           }
         }
 
@@ -301,13 +301,13 @@
                 escapeHtml(title) +
                 "</h3>" +
                 '<div class="meta">KPI: ' +
-                escapeHtml(row.kpiMaintenanceId || "—") +
-                " · Locations: " +
+                escapeHtml(row.kpiMaintenanceId || "â€”") +
+                " Â· Locations: " +
                 locations +
-                " · Travelers: " +
+                " Â· Travelers: " +
                 travelers +
-                " · Cached: " +
-                escapeHtml(row.cachedAt || "—") +
+                " Â· Cached: " +
+                escapeHtml(row.cachedAt || "â€”") +
                 "</div>" +
                 '<div class="status ' +
                 statusClass(status) +
@@ -338,15 +338,15 @@
                 "</h3>" +
                 '<div class="meta">Local id: ' +
                 escapeHtml(d.localId) +
-                (d.serverTravelOrderId ? " · Server: " + escapeHtml(d.serverTravelOrderId) : "") +
-                " · Updated: " +
-                escapeHtml(d.updatedAt || "—") +
+                (d.serverTravelOrderId ? " Â· Server: " + escapeHtml(d.serverTravelOrderId) : "") +
+                " Â· Updated: " +
+                escapeHtml(d.updatedAt || "â€”") +
                 "</div>" +
                 '<div class="status ' +
                 statusClass(d.syncStatus) +
                 '">' +
                 escapeHtml(d.syncStatus || "draft") +
-                (d.syncError ? " — " + escapeHtml(d.syncError) : "") +
+                (d.syncError ? " â€” " + escapeHtml(d.syncError) : "") +
                 "</div>" +
                 "</article>"
               );
@@ -369,16 +369,16 @@
                 "</h3>" +
                 '<div class="meta">Id: ' +
                 escapeHtml(op.id) +
-                (op.travelOrderId ? " · TO: " + escapeHtml(op.travelOrderId) : "") +
-                (op.taskId ? " · Task: " + escapeHtml(op.taskId) : "") +
-                " · Attempts: " +
+                (op.travelOrderId ? " Â· TO: " + escapeHtml(op.travelOrderId) : "") +
+                (op.taskId ? " Â· Task: " + escapeHtml(op.taskId) : "") +
+                " Â· Attempts: " +
                 escapeHtml(String(op.attempts != null ? op.attempts : 0)) +
                 "</div>" +
                 '<div class="status ' +
                 statusClass(op.syncStatus) +
                 '">' +
                 escapeHtml(op.syncStatus || "pending") +
-                (op.syncError ? " — " + escapeHtml(op.syncError) : "") +
+                (op.syncError ? " â€” " + escapeHtml(op.syncError) : "") +
                 "</div>" +
                 "</article>"
               );

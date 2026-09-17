@@ -110,40 +110,33 @@ export function buildMajorHeadSectionByNodeId(
     return out;
   }
 
-  const personKey = `${SECTION_PERSON_PARENT_PREFIX}${managerNodeId}`;
-  const directUnderPerson = byParent.get(personKey) ?? [];
+  const reportingToManager = sections.filter(
+    (section) => section.reportsToNodeId === managerNodeId,
+  );
 
   // Primary: every section whose Manage departments Reports to is this manager.
-  for (const section of sections) {
-    if (section.reportsToNodeId === managerNodeId && section.headNodeId) {
-      out.set(section.headNodeId, section.id);
-    }
+  for (const section of reportingToManager) {
+    if (section.headNodeId) out.set(section.headNodeId, section.id);
   }
 
-  if (directUnderPerson.length === 1) {
+  if (reportingToManager.length === 1) {
     // One umbrella department — major peers are nested sub-depts (not the wrapper head).
-    const umbrella = directUnderPerson[0]!;
+    const umbrella = reportingToManager[0]!;
     for (const child of byParent.get(umbrella.id) ?? []) {
       if (child.headNodeId) out.set(child.headNodeId, child.id);
     }
-    if (umbrella.headNodeId && umbrella.reportsToNodeId === managerNodeId) {
-      out.delete(umbrella.headNodeId);
-    }
-  } else if (out.size === 0) {
-    for (const section of directUnderPerson) {
-      if (section.headNodeId) out.set(section.headNodeId, section.id);
-    }
+    if (umbrella.headNodeId) out.delete(umbrella.headNodeId);
   }
 
   return out;
 }
 
 /** Layout parent for a node — department heads follow Manage departments Reports to. */
-function buildEffectiveParentByNodeId(
-  nodes: OrgChartOutlineNode[],
-  sections: OrgChartSectionOutlineNode[],
-  idSet: Set<string>,
+export function orgChartReportingParentByNodeId(
+  nodes: Array<{ id: string; parentId: string | null }>,
+  sections: Array<{ headNodeId?: string | null; reportsToNodeId?: string | null }>,
 ): Map<string, string | null> {
+  const idSet = new Set(nodes.map((n) => n.id));
   const reportsToByHeadNodeId = new Map<string, string>();
   for (const section of sections) {
     if (
@@ -165,6 +158,19 @@ function buildEffectiveParentByNodeId(
     }
   }
   return out;
+}
+
+/** Layout parent for a node — department heads follow Manage departments Reports to. */
+function buildEffectiveParentByNodeId(
+  nodes: OrgChartOutlineNode[],
+  sections: OrgChartSectionOutlineNode[],
+  idSet: Set<string>,
+): Map<string, string | null> {
+  const parentById = orgChartReportingParentByNodeId(nodes, sections);
+  for (const n of nodes) {
+    if (!idSet.has(n.id)) parentById.delete(n.id);
+  }
+  return parentById;
 }
 
 function sectionDepthByIdFromOutlines(
@@ -248,7 +254,10 @@ export function compareNodesByDepartmentLayout<
 }
 
 /** Depth on the chart: Level 1 = top-level (no parent), Level 2 = reports to L1, etc. */
-export function orgChartLayerById(nodes: OrgChartLayerNode[]): Map<string, number> {
+export function orgChartLayerById(
+  nodes: OrgChartLayerNode[],
+  parentByNodeId?: Map<string, string | null>,
+): Map<string, number> {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const layers = new Map<string, number>();
 
@@ -258,11 +267,14 @@ export function orgChartLayerById(nodes: OrgChartLayerNode[]): Map<string, numbe
     if (visiting.has(id)) return 1;
     visiting.add(id);
     const node = byId.get(id);
-    if (!node?.parentId || !byId.has(node.parentId)) {
+    const parentId = parentByNodeId
+      ? (parentByNodeId.get(id) ?? null)
+      : node?.parentId ?? null;
+    if (!parentId || !byId.has(parentId)) {
       layers.set(id, 1);
       return 1;
     }
-    const depth = layerOf(node.parentId, visiting) + 1;
+    const depth = layerOf(parentId, visiting) + 1;
     layers.set(id, depth);
     return depth;
   }
@@ -436,9 +448,7 @@ function sectionTreeParentKey(
   section: OrgChartSectionOutlineNode,
   sectionIds: Set<string>,
 ): string | null {
-  if (section.reportsToNodeId) {
-    return `${SECTION_PERSON_PARENT_PREFIX}${section.reportsToNodeId}`;
-  }
+  // Nesting is parentId only. Reports-to is a reporting line, not a tree parent.
   if (section.parentId && sectionIds.has(section.parentId)) {
     return section.parentId;
   }
@@ -573,8 +583,7 @@ export function compareOutlineLabels(a: string, b: string): number {
 
 /**
  * Outline numbers for departments — same dotted scheme as people, and aligned with
- * the department chart tree (section parentId OR reportsToNodeId).
- * Departments under person 1.2 become 1.2.1, 1.2.2, etc.
+ * the department chart tree (section parentId). Reports-to does not nest departments.
  */
 export function orgChartSectionOutlineById(
   sections: OrgChartSectionOutlineNode[],

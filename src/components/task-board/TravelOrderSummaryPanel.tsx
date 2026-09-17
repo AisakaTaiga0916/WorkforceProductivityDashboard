@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { DateTime } from "luxon";
-import { Camera, FileText, Loader2, MapPin, Paperclip, Plus, X } from "lucide-react";
+import { FileText, Loader2, Paperclip, Plus, X } from "lucide-react";
 import { INTAKE_ATTACHMENT_ACCEPT } from "@/lib/ticket-intake-screenshots-constants";
 import { MapLocationPicker } from "@/components/task-board/MapLocationPicker";
 import {
@@ -15,6 +15,10 @@ import {
   TravelOrderGatePassFields,
   gatePassDraftFromOrder,
 } from "@/components/task-board/TravelOrderGatePassFields";
+import { WorkPlanOrderCard } from "@/components/task-board/WorkPlanOrderCard";
+import { TravelOrderLocationVisitList } from "@/components/task-board/TravelOrderLocationVisitList";
+import { cn } from "@/lib/cn";
+import { isWorkPlanOrder, workPlanUsesGatePass } from "@/lib/work-plan";
 import {
   canApproveTravelOrderNow,
   canCancelTravelOrderNow,
@@ -34,17 +38,14 @@ import {
   TRAVEL_ORDER_STATUS,
   sortTravelOrderLevelsByDisplayLayer,
   travelOrderApprovedByLabel,
-  travelOrderApprovalLayerLabel,
   travelOrderHasGatePass,
-  travelOrderLocationVisitStatus,
-  travelOrderLocationVisitStatusLabel,
   travelOrderLocationsUnlocked,
   travelOrderVehicleLabel,
   type TravelOrderDto,
   type TravelOrderGatePassDraft,
   type TravelOrderLocationDto,
 } from "@/lib/travel-order";
-import { cn } from "@/lib/cn";
+import { isPersonnelGuardPortalRole } from "@/lib/staff-role";
 import { TravelOrderOfflineBanner } from "@/components/offline/TravelOrderOfflineBanner";
 import {
   applyLocalTravelOrderOverlay,
@@ -189,10 +190,12 @@ export function TravelOrderSummaryPanel({
   operatorAgentId = null,
   canAssignWork = false,
   canCheckIn = true,
-  personnelGuard = false,
+  personnelGuard: personnelGuardProp = false,
   onKpiSubmitted,
 }: TravelOrderSummaryPanelProps) {
   const { data: session } = useSession();
+  const personnelGuard =
+    personnelGuardProp || isPersonnelGuardPortalRole(session?.user?.role);
   const gatePassOnly = interactionMode === "gatePassOnly";
   const [orders, setOrders] = useState<TravelOrderDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -290,6 +293,7 @@ export function TravelOrderSummaryPanel({
       const res = await fetchTravelOrderWithTimeout(
         `/api/kpi-maintenance/${encodeURIComponent(scopedTaskId)}/travel-orders`,
         { cache: "no-store" },
+        45_000,
       );
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -301,20 +305,23 @@ export function TravelOrderSummaryPanel({
       await cacheTravelOrders(rows);
     } catch (err: unknown) {
       const cached = await getCachedTravelOrdersForTask((taskId ?? "").trim()).catch(() => []);
+      const offline = !isBrowserOnline();
       if (cached.length > 0) {
         setOrders(cached);
         setError(
-          isTravelOrderNetworkFailure(err) || !isBrowserOnline()
+          offline
             ? "Showing cached travel orders (offline)."
-            : "Showing cached travel orders (network error).",
+            : "Showing cached travel orders. Latest data could not be refreshed.",
         );
       } else {
         setError(
-          isTravelOrderNetworkFailure(err)
+          offline
             ? "You are offline and no cached travel orders are available for this task."
-            : err instanceof Error
-              ? err.message
-              : "Could not load travel orders.",
+            : isTravelOrderNetworkFailure(err)
+              ? "Could not load the travel order. The server took too long — try again."
+              : err instanceof Error
+                ? err.message
+                : "Could not load travel orders.",
         );
         setOrders([]);
       }
@@ -1052,16 +1059,27 @@ export function TravelOrderSummaryPanel({
     });
   }
 
-  if (loading) {
+  if (loading && orders.length === 0) {
     return (
       <p className="flex items-center gap-2 text-xs text-zinc-500">
         <Loader2 className="size-3.5 animate-spin" aria-hidden />
-        Loading travel orders…
+        Loading travel order…
       </p>
     );
   }
-  if (error) {
-    return <p className="text-xs text-rose-600 dark:text-rose-300">{error}</p>;
+  if (error && orders.length === 0) {
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-rose-600 dark:text-rose-300">{error}</p>
+        <button
+          type="button"
+          onClick={() => void reload()}
+          className="text-xs font-semibold text-orange-700 hover:underline dark:text-orange-300"
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
   if (orders.length === 0) {
     return (
@@ -1077,7 +1095,10 @@ export function TravelOrderSummaryPanel({
 
   const focusId = focusTravelOrderId?.trim() || null;
   const visibleOrders = (focusId ? orders.filter((o) => o.id === focusId) : orders).filter(
-    (o) => !personnelGuard || isTravelOrderRunning(o.status),
+    (o) =>
+      !personnelGuard ||
+      (isTravelOrderRunning(o.status) &&
+        (!isWorkPlanOrder(o) || workPlanUsesGatePass(o))),
   );
   if (visibleOrders.length === 0) {
     return (
@@ -1100,15 +1121,124 @@ export function TravelOrderSummaryPanel({
               : "View-only mode: details and approvals cannot be changed here. Gate Pass is visible only to Personnel-Guard while the trip is running."}
           </p>
         ) : null}
-        <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-orange-800 dark:text-orange-200">
-          Travel order{visibleOrders.length === 1 ? "" : "s"}
-        </p>
+        {error ? (
+          <p className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-2.5 py-1.5 text-xs text-amber-900 dark:text-amber-100">
+            {error}{" "}
+            <button
+              type="button"
+              onClick={() => void reload()}
+              className="font-semibold underline"
+            >
+              Refresh
+            </button>
+          </p>
+        ) : null}
         {actionError ? (
           <p className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-xs text-rose-700 dark:text-rose-200">
             {actionError}
           </p>
         ) : null}
         {visibleOrders.map((order) => {
+          if (isWorkPlanOrder(order)) {
+            const approved = isTravelOrderApproved(order.status);
+            const running = isTravelOrderRunning(order.status);
+            const rejected = order.status === TRAVEL_ORDER_STATUS.REJECTED;
+            const cancelled = order.status === TRAVEL_ORDER_STATUS.CANCELLED;
+            const usesGatePass = workPlanUsesGatePass(order);
+            const showGatePassPage = usesGatePass && (!running || personnelGuard);
+            const allowGatePassActualCapture =
+              personnelGuard && approved && !rejected && !cancelled;
+            const isAssignedTraveler = isTravelOrderTraveler(operatorAgentId, order);
+            const showLocationsTab = true;
+            const gatePassPage: TravelOrderFormPage = showLocationsTab ? 4 : 3;
+            const approvalsPage: TravelOrderFormPage = showLocationsTab ? 3 : 2;
+            const locationsPage: TravelOrderFormPage = 2;
+            const defaultPage: TravelOrderFormPage =
+              personnelGuard && showGatePassPage ? gatePassPage : 1;
+            const rawFormPage = orderPages[order.id] ?? defaultPage;
+            const formPage: TravelOrderFormPage =
+              !showGatePassPage && rawFormPage === gatePassPage ? 1 : rawFormPage;
+            return (
+              <div
+                key={order.id}
+                className="space-y-2 rounded-lg border border-zinc-200 bg-white/80 p-3 dark:border-zinc-700 dark:bg-zinc-950/60"
+              >
+                <TravelOrderPageNav
+                  page={formPage}
+                  onPageChange={(page) => setOrderPage(order.id, page)}
+                  showGatePass={showGatePassPage}
+                  showLocationsTab={showLocationsTab}
+                />
+                {formPage === gatePassPage && showGatePassPage ? (
+                  <TravelOrderGatePassFields
+                    value={gatePassValue(order)}
+                    disabled={
+                      gatePassOnly ||
+                      rejected ||
+                      cancelled ||
+                      !(canCheckIn || isAssignedTraveler || personnelGuard)
+                    }
+                    showActualTimes={approved}
+                    allowActualCapture={allowGatePassActualCapture}
+                    startBusy={busyKey === `gp-start-${order.id}`}
+                    endBusy={busyKey === `gp-end-${order.id}`}
+                    formatCapturedAt={formatCheckedAt}
+                    onChange={(next) => {
+                      setGatePassEdits((prev) => ({ ...prev, [order.id]: next }));
+                      if (gatePassOnly || personnelGuard) return;
+                      scheduleGatePassEstimateSave(order.id, next);
+                    }}
+                    onCaptureActual={(action) => void captureGatePassActual(order, action)}
+                    onOpenGps={(kind) => openGatePassGpsPin(order, kind)}
+                  />
+                ) : formPage === locationsPage ? (
+                  (order.locations?.length ?? 0) > 0 ? (
+                    <TravelOrderLocationVisitList
+                      order={order}
+                      title="Venues / Locations"
+                      approved={approved}
+                      hasGatePass={usesGatePass}
+                      locationsUnlocked={travelOrderLocationsUnlocked(order)}
+                      gatePassOnly={gatePassOnly}
+                      allowCheckIn={!gatePassOnly && (canCheckIn || isAssignedTraveler)}
+                      personnelGuard={Boolean(personnelGuard)}
+                      busyKey={busyKey}
+                      formatCheckedAt={formatCheckedAt}
+                      resolveTaskId={resolveTaskId}
+                      onCaptureVisit={(loc, action) => void captureVisit(order, loc, action)}
+                      onOpenGps={(loc, kind) => openGpsPin(loc, kind)}
+                      onRemarksChange={(locationId, value) =>
+                        scheduleRemarksSave(order.id, locationId, value)
+                      }
+                      onUploadImages={(loc, files) => void uploadLocationImages(order, loc, files)}
+                      onRemoveImage={(loc, storedFileName) =>
+                        void removeLocationImage(order, loc, storedFileName)
+                      }
+                    />
+                  ) : (
+                    <p className="rounded-lg border border-dashed border-zinc-300 px-2.5 py-3 text-sm text-zinc-500 dark:border-zinc-700">
+                      No venues / locations on this travel order.
+                    </p>
+                  )
+                ) : (
+                  <WorkPlanOrderCard
+                    order={order}
+                    view={formPage === approvalsPage ? "approvals" : "details"}
+                    operatorAgentId={operatorAgentId}
+                    canAssignWork={canAssignWork}
+                    gatePassOnly={gatePassOnly}
+                    busyKey={busyKey}
+                    onApprove={(o) => void approveOrder(o)}
+                    onConfirm={(o) => void confirmOrder(o)}
+                    onDecline={(o, reason, asConfirmer) =>
+                      void rejectOrder(o, asConfirmer === true, reason)
+                    }
+                    onCancel={(o) => void cancelOrder(o)}
+                  />
+                )}
+              </div>
+            );
+          }
           const approved = isTravelOrderApproved(order.status);
           const running = isTravelOrderRunning(order.status);
           const confirmed = order.status === TRAVEL_ORDER_STATUS.CONFIRMED;
@@ -1443,369 +1573,34 @@ export function TravelOrderSummaryPanel({
                     </p>
                   </div>
 
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-600 dark:text-zinc-400">
-                      Location
-                    </p>
-                    {approved && hasGatePass && !locationsUnlocked ? (
-                      <p className="rounded-lg border border-dashed border-orange-400/50 bg-orange-500/5 px-2.5 py-2 text-[11px] text-orange-800 dark:border-orange-500/30 dark:text-orange-200">
-                        Locations stay locked until Gate Pass Actual Departure Start is captured.
-                      </p>
-                    ) : null}
-                    <ul className="space-y-2">
-                      {order.locations.map((loc) => {
-                        const visitStatus = travelOrderLocationVisitStatus(loc);
-                        const statusLabel = travelOrderLocationVisitStatusLabel(visitStatus);
-                        const started = Boolean(loc.startedAt);
-                        const ended = Boolean(loc.endedAt || loc.checkedAt);
-                        const pendingLocal = loc.id.startsWith("local_loc_");
-                        const startBusy = busyKey === `start-${loc.id}`;
-                        const endBusy = busyKey === `end-${loc.id}`;
-                        const hasStartGps =
-                          loc.startedLatitude != null && loc.startedLongitude != null;
-                        const hasEndGps =
-                          (loc.endedLatitude ?? loc.latitude) != null &&
-                          (loc.endedLongitude ?? loc.longitude) != null;
-                        const locActionsEnabled =
-                          !gatePassOnly && allowCheckIn && locationsUnlocked;
-
-                        if (!approved) {
-                          return (
-                            <li
-                              key={loc.id}
-                              className="rounded-lg border border-dashed border-zinc-300 px-2.5 py-2 dark:border-zinc-700"
-                            >
-                              <p className="flex items-center gap-1.5 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                                <MapPin className="size-3.5 text-orange-600" aria-hidden />
-                                {loc.label}
-                              </p>
-                              <p className="mt-0.5 text-[11px] text-zinc-500">
-                                Start/End GPS capture, remarks, and images unlock after approval
-                                {hasGatePass
-                                  ? ", then after Gate Pass Actual Departure Start."
-                                  : "."}
-                              </p>
-                            </li>
-                          );
-                        }
-
-                        if (!locationsUnlocked) {
-                          return (
-                            <li
-                              key={loc.id}
-                              className="rounded-lg border border-dashed border-zinc-300 px-2.5 py-2 dark:border-zinc-700"
-                            >
-                              <p className="flex items-center gap-1.5 text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                                <MapPin className="size-3.5 text-orange-600" aria-hidden />
-                                {loc.label}
-                              </p>
-                              <p className="mt-0.5 text-[11px] text-zinc-500">
-                                Locked until Gate Pass Actual Departure Start.
-                              </p>
-                            </li>
-                          );
-                        }
-
-                        return (
-                          <li
-                            key={loc.id}
-                            className={cn(
-                              "space-y-2 rounded-lg border px-2.5 py-2",
-                              visitStatus === "completed"
-                                ? "border-emerald-400/50 bg-emerald-500/5 dark:border-emerald-700/50"
-                                : visitStatus === "in_progress"
-                                  ? "border-orange-400/50 bg-orange-500/5 dark:border-orange-700/40"
-                                  : "border-zinc-300 dark:border-zinc-700",
-                            )}
-                          >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="min-w-0 flex-1 truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                                {loc.label}
-                              </p>
-                              <span
-                                className={cn(
-                                  "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-                                  pendingLocal
-                                    ? "bg-sky-500/15 text-sky-800 dark:text-sky-200"
-                                    : visitStatus === "completed"
-                                    ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
-                                    : visitStatus === "in_progress"
-                                      ? "bg-orange-500/15 text-orange-800 dark:text-orange-200"
-                                      : "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
-                                )}
-                              >
-                                {pendingLocal ? "Pending sync" : statusLabel}
-                              </span>
-                            </div>
-
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              <div className="space-y-1.5 rounded-lg border border-zinc-200 bg-white/70 p-2 dark:border-zinc-700 dark:bg-zinc-950/40">
-                                <div className="flex items-center justify-between gap-2">
-                                  <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-                                    Start
-                                  </p>
-                                  <button
-                                    type="button"
-                                    disabled={
-                                      !locActionsEnabled ||
-                                      started ||
-                                      startBusy ||
-                                      ended ||
-                                      pendingLocal
-                                    }
-                                    onClick={() => void captureVisit(order, loc, "start")}
-                                    className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-45"
-                                  >
-                                    {startBusy ? (
-                                      <Loader2 className="size-3 animate-spin" aria-hidden />
-                                    ) : null}
-                                    Start
-                                  </button>
-                                </div>
-                                {started ? (
-                                  <div className="space-y-1">
-                                    <p className="text-[11px] tabular-nums text-zinc-600 dark:text-zinc-400">
-                                      {loc.startedAt ? formatCheckedAt(loc.startedAt) : "Started"}
-                                    </p>
-                                    {hasStartGps ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => openGpsPin(loc, "start")}
-                                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-orange-700 hover:underline dark:text-orange-300"
-                                      >
-                                        <MapPin className="size-3" aria-hidden />
-                                        {loc.startedLatitude!.toFixed(5)},{" "}
-                                        {loc.startedLongitude!.toFixed(5)}
-                                      </button>
-                                    ) : null}
-                                  </div>
-                                ) : (
-                                  <p className="text-[11px] text-zinc-500">
-                                    Captures GPS + time when you arrive.
-                                  </p>
-                                )}
-                              </div>
-
-                              <div className="space-y-1.5 rounded-lg border border-zinc-200 bg-white/70 p-2 dark:border-zinc-700 dark:bg-zinc-950/40">
-                                <div className="flex items-center justify-between gap-2">
-                                  <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-                                    End
-                                  </p>
-                                  <button
-                                    type="button"
-                                    disabled={
-                                      !locActionsEnabled ||
-                                      !started ||
-                                      ended ||
-                                      endBusy ||
-                                      pendingLocal
-                                    }
-                                    onClick={() => void captureVisit(order, loc, "end")}
-                                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-45 dark:text-emerald-200"
-                                  >
-                                    {endBusy ? (
-                                      <Loader2 className="size-3 animate-spin" aria-hidden />
-                                    ) : null}
-                                    End
-                                  </button>
-                                </div>
-                                {ended ? (
-                                  <div className="space-y-1">
-                                    <p className="text-[11px] tabular-nums text-zinc-600 dark:text-zinc-400">
-                                      {formatCheckedAt(loc.endedAt ?? loc.checkedAt)}
-                                    </p>
-                                    {hasEndGps ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => openGpsPin(loc, "end")}
-                                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:underline dark:text-emerald-300"
-                                      >
-                                        <MapPin className="size-3" aria-hidden />
-                                        {(loc.endedLatitude ?? loc.latitude)!.toFixed(5)},{" "}
-                                        {(loc.endedLongitude ?? loc.longitude)!.toFixed(5)}
-                                      </button>
-                                    ) : null}
-                                  </div>
-                                ) : (
-                                  <p className="text-[11px] text-zinc-500">
-                                    {started
-                                      ? "Captures GPS + time when you finish."
-                                      : "Available after Start."}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                              <div className="space-y-2">
-                              <label className="block text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-                                Remarks
-                                <textarea
-                                  rows={2}
-                                  defaultValue={loc.remarks ?? ""}
-                                  disabled={!locActionsEnabled}
-                                  onChange={(e) =>
-                                    scheduleRemarksSave(order.id, loc.id, e.target.value)
-                                  }
-                                  placeholder="Notes for this location…"
-                                  className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-normal normal-case tracking-normal text-zinc-900 placeholder:text-zinc-400 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-                                />
-                              </label>
-                              {!personnelGuard ? (
-                                <>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <input
-                                      id={`travel-loc-img-${loc.id}`}
-                                      type="file"
-                                      accept="image/*"
-                                      capture="environment"
-                                      className="pointer-events-none absolute h-0 w-0 overflow-hidden opacity-0"
-                                      tabIndex={-1}
-                                      aria-hidden
-                                      disabled={
-                                        !locActionsEnabled ||
-                                        loc.attachments.length >= MAX_LOCATION_IMAGES ||
-                                        busyKey === `img-${loc.id}`
-                                      }
-                                      onChange={(e) => {
-                                        void uploadLocationImages(order, loc, e.target.files);
-                                        e.target.value = "";
-                                      }}
-                                    />
-                                    <button
-                                      type="button"
-                                      disabled={
-                                        !locActionsEnabled ||
-                                        loc.attachments.length >= MAX_LOCATION_IMAGES ||
-                                        busyKey === `img-${loc.id}`
-                                      }
-                                      onClick={() =>
-                                        document.getElementById(`travel-loc-img-${loc.id}`)?.click()
-                                      }
-                                      title="Take photo"
-                                      aria-label="Take photo"
-                                      className={`inline-flex size-9 cursor-pointer items-center justify-center rounded-lg border border-orange-500/50 bg-orange-500/10 text-orange-800 hover:bg-orange-500/20 dark:border-orange-500/40 dark:text-orange-200 dark:hover:bg-orange-950/40 ${
-                                        !locActionsEnabled ||
-                                        loc.attachments.length >= MAX_LOCATION_IMAGES ||
-                                        busyKey === `img-${loc.id}`
-                                          ? "pointer-events-none opacity-50"
-                                          : ""
-                                      }`}
-                                    >
-                                      {busyKey === `img-${loc.id}` ? (
-                                        <Loader2 className="size-4 animate-spin" aria-hidden />
-                                      ) : (
-                                        <Camera className="size-4" aria-hidden />
-                                      )}
-                                    </button>
-                                    <span className="text-[10px] text-zinc-500">
-                                      {loc.attachments.length}/{MAX_LOCATION_IMAGES} · camera
-                                    </span>
-                                  </div>
-                                  {loc.attachments.length > 0 ? (
-                                    <div className="flex flex-wrap gap-2">
-                                      {loc.attachments.map((att) => {
-                                        const href = `/api/kpi-maintenance/${encodeURIComponent(resolveTaskId(order.id))}/travel-orders/${encodeURIComponent(order.id)}/files/${encodeURIComponent(att.storedFileName)}`;
-                                        const removing =
-                                          busyKey === `rm-${loc.id}-${att.storedFileName}`;
-                                        return (
-                                          <div
-                                            key={att.storedFileName}
-                                            className="relative overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-700"
-                                          >
-                                            <a
-                                              href={href}
-                                              target="_blank"
-                                              rel="noreferrer"
-                                              className="block"
-                                            >
-                                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                                              <img
-                                                src={href}
-                                                alt={att.originalName}
-                                                className="h-16 w-16 object-cover"
-                                              />
-                                            </a>
-                                            {locActionsEnabled ? (
-                                              <button
-                                                type="button"
-                                                disabled={removing}
-                                                onClick={() =>
-                                                  void removeLocationImage(
-                                                    order,
-                                                    loc,
-                                                    att.storedFileName,
-                                                  )
-                                                }
-                                                className="absolute right-0.5 top-0.5 inline-flex size-5 items-center justify-center rounded-full bg-black/70 text-white hover:bg-black/85 disabled:opacity-50"
-                                                aria-label={`Remove ${att.originalName}`}
-                                              >
-                                                {removing ? (
-                                                  <Loader2 className="size-3 animate-spin" aria-hidden />
-                                                ) : (
-                                                  <X className="size-3" aria-hidden />
-                                                )}
-                                              </button>
-                                            ) : null}
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ) : null}
-                                </>
-                              ) : null}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    {canAddLocationWhileRunning ? (
-                      <div className="rounded-lg border border-dashed border-orange-400/50 bg-orange-500/[0.04] p-2.5 dark:border-orange-500/40">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-orange-800 dark:text-orange-200">
-                          Add another location
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-zinc-500">
-                          Travelers can add a stop while this travel order is running.
-                        </p>
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          <input
-                            type="text"
-                            value={newLocationDrafts[order.id] ?? ""}
-                            disabled={busyKey === `add-loc-${order.id}`}
-                            placeholder="Location name / address…"
-                            onChange={(e) =>
-                              setNewLocationDrafts((prev) => ({
-                                ...prev,
-                                [order.id]: e.target.value,
-                              }))
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                void addLocationWhileRunning(order);
-                              }
-                            }}
-                            className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-900 placeholder:text-zinc-400 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-                          />
-                          <button
-                            type="button"
-                            disabled={
-                              busyKey === `add-loc-${order.id}` ||
-                              !(newLocationDrafts[order.id] ?? "").trim()
-                            }
-                            onClick={() => void addLocationWhileRunning(order)}
-                            className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-45"
-                          >
-                            {busyKey === `add-loc-${order.id}` ? (
-                              <Loader2 className="size-3 animate-spin" aria-hidden />
-                            ) : (
-                              <Plus className="size-3" aria-hidden />
-                            )}
-                            Add location
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
+                  <TravelOrderLocationVisitList
+                    order={order}
+                    approved={approved}
+                    hasGatePass={hasGatePass}
+                    locationsUnlocked={locationsUnlocked}
+                    gatePassOnly={gatePassOnly}
+                    allowCheckIn={allowCheckIn}
+                    personnelGuard={Boolean(personnelGuard)}
+                    busyKey={busyKey}
+                    formatCheckedAt={formatCheckedAt}
+                    resolveTaskId={resolveTaskId}
+                    onCaptureVisit={(loc, action) => void captureVisit(order, loc, action)}
+                    onOpenGps={(loc, kind) => openGpsPin(loc, kind)}
+                    onRemarksChange={(locationId, value) =>
+                      scheduleRemarksSave(order.id, locationId, value)
+                    }
+                    onUploadImages={(loc, files) => void uploadLocationImages(order, loc, files)}
+                    onRemoveImage={(loc, storedFileName) =>
+                      void removeLocationImage(order, loc, storedFileName)
+                    }
+                    canAddLocation={canAddLocationWhileRunning}
+                    newLocationDraft={newLocationDrafts[order.id] ?? ""}
+                    addLocationBusy={busyKey === `add-loc-${order.id}`}
+                    onNewLocationDraftChange={(value) =>
+                      setNewLocationDrafts((prev) => ({ ...prev, [order.id]: value }))
+                    }
+                    onAddLocation={() => void addLocationWhileRunning(order)}
+                  />
 
                   <div className="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-700">
                     {canSubmitDone ? (
@@ -1879,7 +1674,12 @@ export function TravelOrderSummaryPanel({
                     </p>
 
                     {hierarchical ? (
-                      <div className="space-y-2 rounded-lg border border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-700 dark:bg-zinc-900/40">
+                      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+                        <div
+                          className={cn(
+                            "flex w-max min-w-full items-stretch gap-3 rounded-lg border border-zinc-200 bg-zinc-50/80 p-3 dark:border-zinc-700 dark:bg-zinc-900/40",
+                          )}
+                        >
                         {sortTravelOrderLevelsByDisplayLayer(levels).map((lvl, index) => {
                           const totalLevels = levels.length;
                           const done = Boolean(lvl.approvedAt);
@@ -1913,13 +1713,20 @@ export function TravelOrderSummaryPanel({
                                   ? "text-sky-700 dark:text-sky-300"
                                   : "text-zinc-400 dark:text-zinc-600";
                           return (
-                            <div key={`${order.id}-lvl-${lvl.level}`}>
+                            <div
+                              key={`${order.id}-lvl-${lvl.level}`}
+                              className="flex w-[13.5rem] shrink-0 flex-col self-stretch sm:w-[14.5rem]"
+                            >
                               {index > 0 ? (
-                                <p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
-                                  then {travelOrderApprovalLayerLabel(lvl.level, totalLevels)}
+                                <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                                  then →
                                 </p>
-                              ) : null}
-                              <div className="min-w-0 rounded-lg border border-zinc-200 bg-white/80 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-950/50">
+                              ) : (
+                                <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-transparent select-none">
+                                  start
+                                </p>
+                              )}
+                              <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-zinc-200 bg-white/80 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-950/50">
                               <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-500">
                                 <span
                                   className={
@@ -2077,6 +1884,7 @@ export function TravelOrderSummaryPanel({
                             </div>
                           );
                         })}
+                        </div>
                       </div>
                     ) : (
                       <div

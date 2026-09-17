@@ -27,6 +27,8 @@ import {
   pillarScreenshotsEnabled,
   type NormalizedSubKpis,
   type SubKpiItem,
+  findSubKpiItem,
+  mapSubKpiItems,
   markEverySubKpiDone,
   normalizeSubKpis,
   removePillarScreenshot,
@@ -104,7 +106,27 @@ import { inferKpiPatchAudit, logKpiActivity } from "@/lib/kpi-activity";
 import { kpiMainTaskLabel } from "@/lib/kpi-main-task";
 import { isAgentOnDutyFromMergedDb } from "@/lib/load-on-duty-snapshot";
 import { isTaskAssignmentOnDutyRequired } from "@/lib/workforce-view-visibility-db";
+import { isTaskCompletionVerificationEnabled } from "@/lib/task-verification-settings-db";
 import { prisma } from "@/lib/prisma";
+import {
+  applySubKpiApproveVerification,
+  applySubKpiRejectVerification,
+  applySubKpiResubmitVerification,
+  approveCompletionDbPatch,
+  cardPendingFromSubKpiDbPatch,
+  clearCardVerificationDbPatch,
+  COMPLETION_VERIFICATION,
+  isCompletionEffectivelyVerified,
+  isSubKpiEffectivelyVerified,
+  isSubKpiPendingVerification,
+  rejectCompletionDbPatch,
+  resubmitCompletionDbPatch,
+} from "@/lib/task-completion-verification";
+import {
+  canVerifyTaskCompletion,
+  listPendingVerificationKpiIdsForOrgChartHead,
+  pendingSubKpiItemsForVerification,
+} from "@/lib/task-completion-verification-access";
 import { rosterTeamNameFilter } from "@/lib/company-roster";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
 import { timeZoneFromPeriodKey, upsertKpiPeriodSnapshot } from "@/lib/kpi-period-snapshots";
@@ -143,14 +165,90 @@ import {
 
 const allowedFrequencies = new Set(Object.values(KpiFrequency));
 
-function checklistFullyComplete(subKpis: unknown, taskTitle?: string): boolean {
-  // Segmented tasks cannot finalize while cards remain on Unassigned.
-  if (hasItemsInUnassignedSegment(subKpis)) return false;
-  const items = isItProjectEnvelope(subKpis)
+function checklistItems(subKpis: unknown, taskTitle?: string) {
+  return isItProjectEnvelope(subKpis)
     ? itProjectAllItems(parseItProjectSubKpis(subKpis))
     : collectChecklistProgressItems(subKpis, taskTitle);
+}
+
+/** Requirements met (submitted) — used for screenshot gates, not Done lane. */
+function checklistFullySubmitted(subKpis: unknown, taskTitle?: string): boolean {
+  if (hasItemsInUnassignedSegment(subKpis)) return false;
+  const items = checklistItems(subKpis, taskTitle);
   if (items.length === 0) return false;
   return items.every((x) => subKpiRequirementsMet(x));
+}
+
+/** Head-verified complete — only then does the card become Done. */
+function checklistFullyComplete(
+  subKpis: unknown,
+  taskTitle?: string,
+  opts?: { parentCardEffectivelyVerified?: boolean },
+): boolean {
+  if (hasItemsInUnassignedSegment(subKpis)) return false;
+  const items = checklistItems(subKpis, taskTitle);
+  if (items.length === 0) return false;
+  const parentVerified = Boolean(opts?.parentCardEffectivelyVerified);
+  return items.every(
+    (x) =>
+      subKpiRequirementsMet(x) &&
+      isSubKpiEffectivelyVerified(x, { parentCardEffectivelyVerified: parentVerified }),
+  );
+}
+
+function verificationDbPatchForSubKpiProgress(args: {
+  prevComplete: boolean;
+  nextComplete: boolean;
+  hasPendingSubKpis: boolean;
+  verificationEnabled?: boolean;
+}): Record<string, unknown> {
+  const { nextComplete, hasPendingSubKpis, verificationEnabled = true } = args;
+  if (nextComplete) {
+    // All sub-tasks verified → card Done (no second card-level approval).
+    return approveCompletionDbPatch(null);
+  }
+  if (hasPendingSubKpis && verificationEnabled) {
+    return cardPendingFromSubKpiDbPatch();
+  }
+  return clearCardVerificationDbPatch();
+}
+
+async function completionPatchAfterSubKpiJsonChange(
+  kpiRow: {
+    subKpis: unknown;
+    title: string;
+    mainTask?: string | null;
+    completionVerificationStatus?: string | null;
+    lastFullCompletionAt?: Date | string | null;
+  },
+  nextSubKpis: unknown,
+  opts?: { verificationEnabled?: boolean },
+): Promise<{ prevComplete: boolean; nextComplete: boolean; completionPatch: Record<string, unknown> }> {
+  const verificationEnabled =
+    opts?.verificationEnabled ?? (await isTaskCompletionVerificationEnabled());
+  const label = kpiMainTaskLabel(kpiRow);
+  const prevComplete = checklistFullyComplete(kpiRow.subKpis, label, {
+    parentCardEffectivelyVerified: isCompletionEffectivelyVerified(kpiRow),
+  });
+  const nextComplete = checklistFullyComplete(nextSubKpis, label);
+  const hasPendingSubKpis = verificationEnabled
+    ? pendingSubKpiItemsForVerification({
+        ...kpiRow,
+        subKpis: nextSubKpis,
+        completionVerificationStatus: COMPLETION_VERIFICATION.PENDING,
+        lastFullCompletionAt: null,
+      }).length > 0
+    : false;
+  return {
+    prevComplete,
+    nextComplete,
+    completionPatch: verificationDbPatchForSubKpiProgress({
+      prevComplete,
+      nextComplete,
+      hasPendingSubKpis,
+      verificationEnabled,
+    }),
+  };
 }
 
 function subKpiScreenshotsRequired(
@@ -181,18 +279,27 @@ function kpiRowVisibleToAgent(
   return row.assignedAgentId === id || hasSubKpiAssignedTo(row.subKpis, id);
 }
 
-/** Assignee / sub-assignee visibility, plus Field Assignments where the agent is a traveler or JO co-worker. */
-function filterKpiRowsForViewer<T extends { id: string; assignedAgentId: string | null; subKpis: unknown }>(
+/** Assignee / sub-assignee visibility, plus Field Assignments where the agent is a traveler or JO co-worker.
+ * Also keeps pending-verification cards visible when the viewer is the org-chart department head. */
+function filterKpiRowsForViewer<
+  T extends {
+    id: string;
+    assignedAgentId: string | null;
+    subKpis: unknown;
+  },
+>(
   rows: T[],
   agentId: string | null | undefined,
   travelerKpiIds: Set<string>,
   jobOrderWorkerKpiIds: Set<string>,
+  pendingApprovalIds?: Set<string>,
 ): T[] {
   return rows.filter(
     (row) =>
       kpiRowVisibleToAgent(row, agentId) ||
       travelerKpiIds.has(row.id) ||
-      jobOrderWorkerKpiIds.has(row.id),
+      jobOrderWorkerKpiIds.has(row.id) ||
+      Boolean(pendingApprovalIds?.has(row.id)),
   );
 }
 
@@ -263,10 +370,44 @@ export async function GET(req: Request) {
     ? await kpiIdsWhereAgentIsJobOrderWorker(viewerAgentId)
     : new Set<string>();
 
+  const pendingApprovalIdList = await listPendingVerificationKpiIdsForOrgChartHead({
+    email: session.user.email,
+    operatorAgentId: perms.operator?.id ?? null,
+    role: session.user.role,
+  });
+  const pendingApprovalIds = new Set(pendingApprovalIdList);
+
   if (!perms.canAssignWork) {
-    rows = filterKpiRowsForViewer(rows, viewerAgentId, travelerKpiIds, jobOrderWorkerKpiIds);
+    rows = filterKpiRowsForViewer(
+      rows,
+      viewerAgentId,
+      travelerKpiIds,
+      jobOrderWorkerKpiIds,
+      pendingApprovalIds,
+    );
   } else if (filterByAssigned) {
-    rows = filterKpiRowsForViewer(rows, filterByAssigned, travelerKpiIds, jobOrderWorkerKpiIds);
+    rows = filterKpiRowsForViewer(
+      rows,
+      filterByAssigned,
+      travelerKpiIds,
+      jobOrderWorkerKpiIds,
+      pendingApprovalIds,
+    );
+  }
+
+  // Ensure pending approvals for this department head are present even if they are not the assignee.
+  if (pendingApprovalIds.size > 0) {
+    const present = new Set(rows.map((r) => r.id));
+    const missing = pendingApprovalIdList.filter((id) => !present.has(id));
+    if (missing.length > 0) {
+      const extra = await prisma.kpiMaintenance.findMany({
+        where: { id: { in: missing } },
+        include: {
+          assignedAgent: { select: { id: true, name: true, team: { select: { id: true, name: true } } } },
+        },
+      });
+      rows = [...rows, ...extra];
+    }
   }
 
   const now = new Date();
@@ -295,7 +436,13 @@ export async function GET(req: Request) {
         timeZone,
       );
 
-    const patch: Prisma.KpiMaintenanceUpdateManyMutationInput = {};
+    const patch: Prisma.KpiMaintenanceUpdateManyMutationInput & {
+      completionVerificationStatus?: string | null;
+      pendingVerificationAt?: Date | null;
+      verifiedAt?: Date | null;
+      verifiedByAgentId?: string | null;
+      verificationRejectionComment?: string | null;
+    } = {};
     const expectedKey = computePeriodKey(freq, row.recurrenceWeekday, row.recurrenceMonthDay, now, timeZone);
 
     if (!row.periodCycleStartAt) {
@@ -307,7 +454,8 @@ export async function GET(req: Request) {
       patch.rolledOverIncomplete = false;
     }
 
-    const complete = checklistFullyComplete(row.subKpis, kpiMainTaskLabel(row));
+    const checklistDone = checklistFullyComplete(row.subKpis, kpiMainTaskLabel(row));
+    const complete = checklistDone && isCompletionEffectivelyVerified(row);
     const staleCycle = currentCycleStart.getTime() > anchor.getTime();
     if (staleCycle) {
       // Incomplete work stays Delayed after the cycle deadline before resetting — the 10-day
@@ -364,6 +512,11 @@ export async function GET(req: Request) {
       patch.periodCycleStartAt = currentCycleStart;
       patch.periodKey = expectedKey;
       patch.lastFullCompletionAt = null;
+      patch.completionVerificationStatus = null;
+      patch.pendingVerificationAt = null;
+      patch.verifiedAt = null;
+      patch.verifiedByAgentId = null;
+      patch.verificationRejectionComment = null;
       patch.rolledOverIncomplete = !complete;
     }
 
@@ -408,6 +561,11 @@ export async function GET(req: Request) {
         });
         patch.periodCycleStartAt = nextCycleStart;
         patch.lastFullCompletionAt = null;
+        patch.completionVerificationStatus = null;
+        patch.pendingVerificationAt = null;
+        patch.verifiedAt = null;
+        patch.verifiedByAgentId = null;
+        patch.verificationRejectionComment = null;
         patch.rolledOverIncomplete = false;
         patch.periodKey = computePeriodKey(freq, row.recurrenceWeekday, row.recurrenceMonthDay, nextCycleStart, timeZone);
       }
@@ -444,9 +602,36 @@ export async function GET(req: Request) {
       );
     }
     if (!perms.canAssignWork) {
-      rows = filterKpiRowsForViewer(rows, viewerAgentId, travelerKpiIds, jobOrderWorkerKpiIds);
+      rows = filterKpiRowsForViewer(
+        rows,
+        viewerAgentId,
+        travelerKpiIds,
+        jobOrderWorkerKpiIds,
+        pendingApprovalIds,
+      );
     } else if (filterByAssigned) {
-      rows = filterKpiRowsForViewer(rows, filterByAssigned, travelerKpiIds, jobOrderWorkerKpiIds);
+      rows = filterKpiRowsForViewer(
+        rows,
+        filterByAssigned,
+        travelerKpiIds,
+        jobOrderWorkerKpiIds,
+        pendingApprovalIds,
+      );
+    }
+    if (pendingApprovalIds.size > 0) {
+      const present = new Set(rows.map((r) => r.id));
+      const missing = pendingApprovalIdList.filter((id) => !present.has(id));
+      if (missing.length > 0) {
+        const extra = await prisma.kpiMaintenance.findMany({
+          where: { id: { in: missing } },
+          include: {
+            assignedAgent: {
+              select: { id: true, name: true, team: { select: { id: true, name: true } } },
+            },
+          },
+        });
+        rows = [...rows, ...extra];
+      }
     }
   }
 
@@ -456,7 +641,9 @@ export async function GET(req: Request) {
     if (row.isRecurring !== false || isItProjectImplementationPillar(row.title)) continue;
     if (!row.assignedAgentId) continue;
     if (!row.lastFullCompletionAt) continue;
-    const complete = checklistFullyComplete(row.subKpis, kpiMainTaskLabel(row));
+    const complete =
+      checklistFullyComplete(row.subKpis, kpiMainTaskLabel(row)) &&
+      isCompletionEffectivelyVerified(row);
     if (!complete) continue;
     const eligible = nextRolloverEligibleAtUtc(row.lastFullCompletionAt, timeZone);
     if (!eligible || now.getTime() < eligible.getTime()) continue;
@@ -525,6 +712,7 @@ export async function GET(req: Request) {
         isFieldAssignment: fieldAssignmentIds.has(r.id) || isFieldAssignmentTask(r.subKpis),
         linkedJobOrders: linkedJobOrdersForRow,
         travelOrderSummary: travelSummary,
+        viewerCanVerifyCompletion: pendingApprovalIds.has(r.id),
       };
     }),
     canAssignWork: perms.canAssignWork,
@@ -587,6 +775,7 @@ export async function POST(req: Request) {
       }>;
     }>;
     assignedAgentId?: string;
+    verifierAgentId?: string | null;
     recurrenceWeekday?: number;
     recurrenceMonthDay?: number;
     timeZone?: string;
@@ -673,6 +862,16 @@ export async function POST(req: Request) {
     : null;
   if (assigneeId && !assignee) {
     return NextResponse.json({ error: "Assignee not found." }, { status: 404 });
+  }
+  const verifierIdRaw = typeof body.verifierAgentId === "string" ? body.verifierAgentId.trim() : "";
+  const verifier = verifierIdRaw
+    ? await prisma.agent.findUnique({
+        where: { id: verifierIdRaw },
+        select: { id: true },
+      })
+    : null;
+  if (verifierIdRaw && !verifier) {
+    return NextResponse.json({ error: "Verifier not found." }, { status: 404 });
   }
   if (
     assigneeId &&
@@ -1012,6 +1211,7 @@ export async function POST(req: Request) {
         frequency,
         subKpis: initialJson,
         assignedAgentId: assignee?.id ?? null,
+        verifierAgentId: verifier?.id ?? null,
         scopedCompanyTeamId,
         recurrenceWeekday,
         recurrenceMonthDay,
@@ -1111,6 +1311,12 @@ export async function PATCH(req: Request) {
     markAllDone?: boolean;
     structuredSubKpis?: unknown;
     assignedAgentId?: string;
+    verifierAgentId?: string | null;
+    completionVerification?: {
+      action?: "approve" | "reject" | "resubmit";
+      comment?: string;
+      subKpiId?: string;
+    };
     itProjectName?: string | null;
     itProjectPhase?: string | null;
     taskPriority?: string | null;
@@ -1259,6 +1465,14 @@ export async function PATCH(req: Request) {
       periodCycleStartAt: true,
       periodKey: true,
       lastFullCompletionAt: true,
+      completionVerificationStatus: true,
+      verifierAgentId: true,
+      pendingVerificationAt: true,
+      verifiedAt: true,
+      verifiedByAgentId: true,
+      verificationRejectionComment: true,
+      createdBy: true,
+      scopedCompanyTeamId: true,
       itProjectName: true,
       itProjectPhase: true,
       enableSubtaskAssignees: true,
@@ -1286,6 +1500,23 @@ export async function PATCH(req: Request) {
         });
       } catch (e) {
         console.error("[kpi-maintenance PATCH] audit log failed", e);
+      }
+    }
+    const updatedRow = payload as { completionVerificationStatus?: string | null } | null;
+    if (
+      updatedRow &&
+      updatedRow.completionVerificationStatus === COMPLETION_VERIFICATION.PENDING &&
+      kpiRow.completionVerificationStatus !== COMPLETION_VERIFICATION.PENDING
+    ) {
+      try {
+        await logKpiActivity({
+          kpiMaintenanceId: id,
+          author: auditAuthor,
+          summary: "Submitted for verification",
+          detail: "Checklist complete — awaiting verifier approval before Done.",
+        });
+      } catch (e) {
+        console.error("[kpi-maintenance PATCH] verification submit log failed", e);
       }
     }
     return NextResponse.json(payload);
@@ -1394,6 +1625,314 @@ export async function PATCH(req: Request) {
     dumpOverallKpiToMerged();
   }
   const isAssignee = !!perms.operator && perms.operator.id === kpiRow.assignedAgentId;
+
+  if (body.completionVerification != null && typeof body.completionVerification === "object") {
+    const action = String(body.completionVerification.action ?? "").trim().toLowerCase();
+    if (action !== "approve" && action !== "reject" && action !== "resubmit") {
+      return NextResponse.json(
+        { error: "completionVerification.action must be approve, reject, or resubmit." },
+        { status: 400 },
+      );
+    }
+    const subKpiId = String(body.completionVerification.subKpiId ?? body.subKpiId ?? "").trim();
+
+    if (action === "resubmit") {
+      if (subKpiId) {
+        const target = findSubKpiItem(kpiRow.subKpis, subKpiId);
+        if (!target) {
+          return NextResponse.json({ error: "Sub-task not found." }, { status: 404 });
+        }
+        const mayResubmitSub =
+          isAssignee ||
+          perms.canAssignWork ||
+          isElevatedUserRole(session.user.role) ||
+          subKpiAssignedToOperator(target, {
+            id: perms.operator?.id,
+            name: perms.operator?.name,
+          });
+        if (!mayResubmitSub) {
+          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+        }
+        if (target.completionVerificationStatus !== COMPLETION_VERIFICATION.REJECTED) {
+          return NextResponse.json(
+            { error: "Only rejected sub-tasks can be re-submitted for verification." },
+            { status: 400 },
+          );
+        }
+        if (!subKpiRequirementsMet(target) && !target.done) {
+          return NextResponse.json(
+            { error: "Complete the sub-task before re-submitting for verification." },
+            { status: 400 },
+          );
+        }
+        const nextSubKpis = mapSubKpiItems(kpiRow.subKpis, (it) =>
+          it.id === subKpiId ? applySubKpiResubmitVerification(it) : it,
+        );
+        const label = kpiMainTaskLabel(kpiRow);
+        const nextComplete = checklistFullyComplete(nextSubKpis, label);
+        const hasPending = pendingSubKpiItemsForVerification({
+          ...kpiRow,
+          subKpis: nextSubKpis,
+          completionVerificationStatus: COMPLETION_VERIFICATION.PENDING,
+          lastFullCompletionAt: null,
+        }).length > 0;
+        const updated = await prisma.kpiMaintenance.update({
+          where: { id },
+          data: {
+            subKpis: nextSubKpis,
+            ...verificationDbPatchForSubKpiProgress({
+              prevComplete: false,
+              nextComplete,
+              hasPendingSubKpis: hasPending || !nextComplete,
+            }),
+          },
+        });
+        try {
+          await logKpiActivity({
+            kpiMaintenanceId: id,
+            author: auditAuthor,
+            summary: "Re-submitted for verification",
+            detail: `Sub-task "${target.title || subKpiId}" re-submitted after a rejection.`,
+          });
+        } catch (e) {
+          console.error("[kpi-maintenance PATCH] verification resubmit log failed", e);
+        }
+        dumpOverallKpiToMerged();
+        return NextResponse.json(updated);
+      }
+
+      if (!isAssignee && !perms.canAssignWork && !isElevatedUserRole(session.user.role)) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      if (kpiRow.completionVerificationStatus !== COMPLETION_VERIFICATION.REJECTED) {
+        return NextResponse.json(
+          { error: "Only rejected completions can be re-submitted for verification." },
+          { status: 400 },
+        );
+      }
+      if (!checklistFullySubmitted(kpiRow.subKpis, kpiMainTaskLabel(kpiRow))) {
+        return NextResponse.json(
+          { error: "Complete the checklist before re-submitting for verification." },
+          { status: 400 },
+        );
+      }
+      const updated = await prisma.kpiMaintenance.update({
+        where: { id },
+        data: resubmitCompletionDbPatch(),
+      });
+      try {
+        await logKpiActivity({
+          kpiMaintenanceId: id,
+          author: auditAuthor,
+          summary: "Re-submitted for verification",
+          detail: "Assignee re-submitted after a rejection.",
+        });
+      } catch (e) {
+        console.error("[kpi-maintenance PATCH] verification resubmit log failed", e);
+      }
+      dumpOverallKpiToMerged();
+      return NextResponse.json(updated);
+    }
+
+    const mayVerify = await canVerifyTaskCompletion(
+      kpiRow,
+      {
+        operatorAgentId: perms.operator?.id ?? null,
+        operatorEmail: session.user.email ?? null,
+        operatorName: session.user.name ?? null,
+        role: session.user.role,
+      },
+      { subKpiId: subKpiId || null },
+    );
+    if (!mayVerify) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const pendingSubs = pendingSubKpiItemsForVerification(kpiRow);
+    const effectiveSubKpiId =
+      subKpiId ||
+      (pendingSubs.length === 1 ? pendingSubs[0]!.id : "");
+
+    if (effectiveSubKpiId) {
+      const target = findSubKpiItem(kpiRow.subKpis, effectiveSubKpiId);
+      if (!target || !isSubKpiPendingVerification(target, {
+        parentCardEffectivelyVerified: isCompletionEffectivelyVerified(kpiRow),
+      })) {
+        return NextResponse.json(
+          { error: "This sub-task is not awaiting verification." },
+          { status: 400 },
+        );
+      }
+
+      if (action === "approve") {
+        const nextSubKpis = mapSubKpiItems(kpiRow.subKpis, (it) =>
+          it.id === effectiveSubKpiId
+            ? applySubKpiApproveVerification(it, {
+                id: perms.operator?.id ?? null,
+                name: perms.operator?.name ?? session.user.name ?? null,
+              })
+            : it,
+        );
+        const label = kpiMainTaskLabel(kpiRow);
+        const nextComplete = checklistFullyComplete(nextSubKpis, label);
+        const hasPending =
+          pendingSubKpiItemsForVerification({
+            ...kpiRow,
+            subKpis: nextSubKpis,
+            completionVerificationStatus: nextComplete
+              ? COMPLETION_VERIFICATION.VERIFIED
+              : COMPLETION_VERIFICATION.PENDING,
+            lastFullCompletionAt: nextComplete ? new Date() : null,
+          }).length > 0;
+        const patch = verificationDbPatchForSubKpiProgress({
+          prevComplete: false,
+          nextComplete,
+          hasPendingSubKpis: hasPending,
+        });
+        if (nextComplete) {
+          Object.assign(patch, approveCompletionDbPatch(perms.operator?.id ?? null));
+        }
+        const updated = await prisma.kpiMaintenance.update({
+          where: { id },
+          data: {
+            subKpis: nextSubKpis,
+            ...patch,
+          },
+        });
+        try {
+          await logKpiActivity({
+            kpiMaintenanceId: id,
+            author: auditAuthor,
+            summary: "Task completion verified",
+            detail: `Verified sub-task "${target.title || effectiveSubKpiId}"${
+              nextComplete ? " — task is now Done." : "."
+            }`,
+          });
+        } catch (e) {
+          console.error("[kpi-maintenance PATCH] verification approve log failed", e);
+        }
+        await afterProgressAffectingUpdate(nextSubKpis);
+        return NextResponse.json(updated);
+      }
+
+      const comment = String(body.completionVerification.comment ?? "").trim();
+      if (!comment) {
+        return NextResponse.json(
+          { error: "A comment is required when rejecting verification." },
+          { status: 400 },
+        );
+      }
+      const nextSubKpis = mapSubKpiItems(kpiRow.subKpis, (it) =>
+        it.id === effectiveSubKpiId ? applySubKpiRejectVerification(it, comment) : it,
+      );
+      const hasPending =
+        pendingSubKpiItemsForVerification({
+          ...kpiRow,
+          subKpis: nextSubKpis,
+          completionVerificationStatus: COMPLETION_VERIFICATION.PENDING,
+          lastFullCompletionAt: null,
+        }).length > 0;
+      const updated = await prisma.kpiMaintenance.update({
+        where: { id },
+        data: {
+          subKpis: nextSubKpis,
+          ...(hasPending ? cardPendingFromSubKpiDbPatch() : rejectCompletionDbPatch(comment)),
+        },
+      });
+      try {
+        await logKpiActivity({
+          kpiMaintenanceId: id,
+          author: auditAuthor,
+          summary: "Task completion rejected",
+          detail: `Rejected sub-task "${target.title || effectiveSubKpiId}": ${comment}`,
+        });
+      } catch (e) {
+        console.error("[kpi-maintenance PATCH] verification reject log failed", e);
+      }
+      dumpOverallKpiToMerged();
+      return NextResponse.json(updated);
+    }
+
+    if (kpiRow.completionVerificationStatus !== COMPLETION_VERIFICATION.PENDING) {
+      return NextResponse.json(
+        { error: "This task is not awaiting verification." },
+        { status: 400 },
+      );
+    }
+    if (pendingSubs.length > 1) {
+      return NextResponse.json(
+        { error: "Select which sub-task to verify (subKpiId required)." },
+        { status: 400 },
+      );
+    }
+
+    if (action === "approve") {
+      const updated = await prisma.kpiMaintenance.update({
+        where: { id },
+        data: approveCompletionDbPatch(perms.operator?.id ?? null),
+      });
+      try {
+        await logKpiActivity({
+          kpiMaintenanceId: id,
+          author: auditAuthor,
+          summary: "Task completion verified",
+          detail: "Verifier approved — task is now Done.",
+        });
+      } catch (e) {
+        console.error("[kpi-maintenance PATCH] verification approve log failed", e);
+      }
+      await afterProgressAffectingUpdate(kpiRow.subKpis);
+      return NextResponse.json(updated);
+    }
+
+    const comment = String(body.completionVerification.comment ?? "").trim();
+    if (!comment) {
+      return NextResponse.json(
+        { error: "A comment is required when rejecting verification." },
+        { status: 400 },
+      );
+    }
+    const updated = await prisma.kpiMaintenance.update({
+      where: { id },
+      data: rejectCompletionDbPatch(comment),
+    });
+    try {
+      await logKpiActivity({
+        kpiMaintenanceId: id,
+        author: auditAuthor,
+        summary: "Task completion rejected",
+        detail: comment,
+      });
+    } catch (e) {
+      console.error("[kpi-maintenance PATCH] verification reject log failed", e);
+    }
+    dumpOverallKpiToMerged();
+    return NextResponse.json(updated);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "verifierAgentId")) {
+    if (!perms.canAssignWork && !isElevatedUserRole(session.user.role)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    const raw = body.verifierAgentId;
+    const nextVerifier =
+      raw == null || (typeof raw === "string" && !raw.trim()) ? null : String(raw).trim();
+    if (nextVerifier) {
+      const agent = await prisma.agent.findUnique({
+        where: { id: nextVerifier },
+        select: { id: true },
+      });
+      if (!agent) {
+        return NextResponse.json({ error: "Verifier agent not found." }, { status: 404 });
+      }
+    }
+    const updated = await prisma.kpiMaintenance.update({
+      where: { id },
+      data: { verifierAgentId: nextVerifier },
+    });
+    return respondUpdated(updated);
+  }
+
   const timelineProject = isTimelineProjectKpi(kpiRow.title, kpiRow.subKpis);
   const subKpiItems = timelineProject
     ? itProjectAllItems(parseItProjectSubKpis(kpiRow.subKpis, kpiRow.itProjectPhase))
@@ -1623,11 +2162,7 @@ export async function PATCH(req: Request) {
       remarks: meta.remarks,
     });
     updatedJson = syncSubKpiDoneFromRequirements(updatedJson, subKpiIdMeta);
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(updatedJson, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, updatedJson);
     if (nextComplete) await afterProgressAffectingUpdate(updatedJson);
     else dumpOverallKpiToMerged();
 
@@ -1636,7 +2171,7 @@ export async function PATCH(req: Request) {
       data: {
         subKpis: updatedJson,
         ...(nextComplete ? { rolledOverIncomplete: false } : {}),
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     return respondUpdated(updated);
@@ -1725,18 +2260,14 @@ export async function PATCH(req: Request) {
       cardAssignedAgentId: kpiRow.assignedAgentId,
     });
     updatedJson = delayPass.json;
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(updatedJson, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, updatedJson);
 
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
       data: {
         subKpis: updatedJson,
         ...(nextComplete ? { rolledOverIncomplete: false } : {}),
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     dumpOverallKpiToMerged();
@@ -1780,18 +2311,14 @@ export async function PATCH(req: Request) {
     if (!life.ok) {
       return NextResponse.json({ error: life.error }, { status: 400 });
     }
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(life.json, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, life.json);
 
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
       data: {
         subKpis: life.json,
         ...(nextComplete ? { rolledOverIncomplete: false } : {}),
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     dumpOverallKpiToMerged();
@@ -1815,18 +2342,14 @@ export async function PATCH(req: Request) {
     });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
 
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(result.json, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, result.json);
 
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
       data: {
         subKpis: result.json,
         ...(nextComplete ? { rolledOverIncomplete: false } : {}),
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     dumpOverallKpiToMerged();
@@ -2052,16 +2575,12 @@ export async function PATCH(req: Request) {
     if (isPillarOnlyTask(updatedJson)) {
       updatedJson = syncPillarDoneFromRequirements(updatedJson);
     }
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(updatedJson, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, updatedJson);
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
       data: {
         subKpis: updatedJson,
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     dumpOverallKpiToMerged();
@@ -2161,17 +2680,13 @@ export async function PATCH(req: Request) {
       ...uploaded,
     ]);
     updatedJson = syncScreenshotOnlySubKpiDone(updatedJson, subKpiIdShot);
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(updatedJson, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, updatedJson);
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
       data: {
         subKpis: updatedJson,
         ...(nextComplete ? { rolledOverIncomplete: false } : {}),
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     await afterProgressAffectingUpdate(updatedJson);
@@ -2216,17 +2731,13 @@ export async function PATCH(req: Request) {
     }
     let updatedJson = removeSubKpiItemScreenshot(kpiRow.subKpis, subKpiIdShot, slot, storedFileName);
     updatedJson = syncScreenshotOnlySubKpiDone(updatedJson, subKpiIdShot);
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(updatedJson, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, updatedJson);
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
       data: {
         subKpis: updatedJson,
         ...(nextComplete ? { rolledOverIncomplete: false } : {}),
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     await afterProgressAffectingUpdate(updatedJson);
@@ -2338,18 +2849,14 @@ export async function PATCH(req: Request) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(result.json, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, result.json);
 
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
       data: {
         subKpis: result.json,
         ...(nextComplete ? { rolledOverIncomplete: false } : {}),
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     await afterProgressAffectingUpdate(result.json);
@@ -2526,18 +3033,14 @@ export async function PATCH(req: Request) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(result.json, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, result.json);
 
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
       data: {
         subKpis: result.json,
         ...(nextComplete ? { rolledOverIncomplete: false } : {}),
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     await afterProgressAffectingUpdate(result.json);
@@ -2565,18 +3068,14 @@ export async function PATCH(req: Request) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(result.json, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, result.json);
 
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
       data: {
         subKpis: result.json,
         ...(nextComplete ? { rolledOverIncomplete: false } : {}),
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     await afterProgressAffectingUpdate(result.json);
@@ -2707,18 +3206,14 @@ export async function PATCH(req: Request) {
       );
     }
     const wrapped = wrapForPersistWithExistingMeta(validated.norm, kpiRow.subKpis);
-    const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-    const nextComplete = checklistFullyComplete(wrapped, kpiMainTaskLabel(kpiRow));
-    let lastFullCompletionAt: Date | null | undefined;
-    if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-    else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+    const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, wrapped);
 
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
       data: {
         subKpis: wrapped,
         ...(nextComplete ? { rolledOverIncomplete: false } : {}),
-        ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+        ...completionPatch,
       },
     });
     await afterProgressAffectingUpdate(wrapped);
@@ -2773,17 +3268,18 @@ export async function PATCH(req: Request) {
     }
     updatedJson = toggled.json;
   } else {
+    const verificationEnabled = await isTaskCompletionVerificationEnabled();
+    const verifyOpts = { verificationEnabled };
     updatedJson =
       typeof markAllDone === "boolean"
-        ? markEverySubKpiDone(kpiRow.subKpis, markAllDone)
-        : setSubKpiItemDone(kpiRow.subKpis, subKpiId, body.done!);
+        ? markEverySubKpiDone(kpiRow.subKpis, markAllDone, verifyOpts)
+        : setSubKpiItemDone(kpiRow.subKpis, subKpiId, body.done!, verifyOpts);
   }
 
-  const prevComplete = checklistFullyComplete(kpiRow.subKpis, kpiMainTaskLabel(kpiRow));
-  const nextComplete = checklistFullyComplete(updatedJson, kpiMainTaskLabel(kpiRow));
-  let lastFullCompletionAt: Date | null | undefined;
-  if (!prevComplete && nextComplete) lastFullCompletionAt = new Date();
-  else if (prevComplete && !nextComplete) lastFullCompletionAt = null;
+  const { nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(
+    kpiRow,
+    updatedJson,
+  );
 
   const userResetProgress = typeof markAllDone === "boolean" && markAllDone === false;
   const updated = await prisma.kpiMaintenance.update({
@@ -2792,7 +3288,7 @@ export async function PATCH(req: Request) {
       subKpis: updatedJson,
       ...(nextComplete ? { rolledOverIncomplete: false } : {}),
       ...(userResetProgress ? { rolledOverIncomplete: false } : {}),
-      ...(lastFullCompletionAt !== undefined ? { lastFullCompletionAt } : {}),
+      ...completionPatch,
     },
   });
   await afterProgressAffectingUpdate(updatedJson);

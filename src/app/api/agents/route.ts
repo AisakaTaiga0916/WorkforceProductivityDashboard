@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { orgChartLayerById } from "@/app/admin/superadmin-settings/org-chart-layers";
+import { orgChartLayerById, orgChartReportingParentByNodeId } from "@/app/admin/superadmin-settings/org-chart-layers";
 import {
   resolveAgentIdsForPositionCode,
   resolveDirectManagerAgentId,
@@ -12,7 +12,11 @@ import { prisma } from "@/lib/prisma";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
 import { resolveAgentDesignatedCompanyId } from "@/lib/staff-company-scope";
 import { rosterTeamNameFilter } from "@/lib/company-roster";
-import { resolveAgentIdsForOrgChartSection, listOrgChartSectionHeads } from "@/lib/org-chart-section-roster";
+import {
+  listOrgChartSectionHeads,
+  resolveAgentIdsForOrgChartSection,
+  resolveDepartmentDesignationsByMergedIds,
+} from "@/lib/org-chart-section-roster";
 
 export async function GET(req: Request) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel", "SuperAdmin", "HighAdmin"]);
@@ -32,6 +36,18 @@ export async function GET(req: Request) {
     searchParams.get("assignToManager") === "1" || searchParams.get("assignToManager") === "true";
   const orgChartHeads =
     searchParams.get("orgChartHeads") === "1" || searchParams.get("orgChartHeads") === "true";
+  /** Skip portal profile images (base64) — prevents OOM on large rosters; enough for pickers. */
+  const lite =
+    searchParams.get("lite") === "1" ||
+    searchParams.get("lite") === "true" ||
+    searchParams.get("omitProfile") === "1";
+  const includeProfile =
+    !lite &&
+    (searchParams.get("includeProfile") === "1" ||
+      searchParams.get("includeProfile") === "true");
+  const includeOrgChartLayer =
+    searchParams.get("includeOrgChartLayer") === "1" ||
+    searchParams.get("includeOrgChartLayer") === "true";
 
   if (orgChartHeads) {
     const heads = await listOrgChartSectionHeads();
@@ -64,20 +80,38 @@ export async function GET(req: Request) {
     if (!companyIdFilter) return NextResponse.json([]);
   }
 
-  const [staff, orgNodes] = await Promise.all([
+  const [staff, orgNodes, orgSections] = await Promise.all([
     loadHrisAssignableStaff({
       // Company filter uses the same merged_users.company_name → Team mapping as Personnel.
       companyTeamId: companyIdFilter,
     }),
-    prisma.orgChartNode.findMany({
-      select: { id: true, parentId: true, mergedSourceUserId: true },
-    }),
+    includeOrgChartLayer
+      ? prisma.orgChartNode.findMany({
+          select: { id: true, parentId: true, mergedSourceUserId: true },
+        })
+      : Promise.resolve(
+          [] as Array<{ id: string; parentId: string | null; mergedSourceUserId: string }>,
+        ),
+    includeOrgChartLayer
+      ? prisma.orgChartSection.findMany({
+          select: { headNodeId: true, reportsToNodeId: true },
+        })
+      : Promise.resolve(
+          [] as Array<{ headNodeId: string | null; reportsToNodeId: string | null }>,
+        ),
   ]);
 
-  const layerByNodeId = orgChartLayerById(orgNodes);
+  const reportingParentByNodeId = includeOrgChartLayer
+    ? orgChartReportingParentByNodeId(orgNodes, orgSections)
+    : new Map<string, string | null>();
+  const layerByNodeId = includeOrgChartLayer
+    ? orgChartLayerById(orgNodes, reportingParentByNodeId)
+    : new Map<string, number>();
   const orgChartLayerByMergedId = new Map<string, number>();
-  for (const node of orgNodes) {
-    orgChartLayerByMergedId.set(node.mergedSourceUserId, layerByNodeId.get(node.id) ?? 1);
+  if (includeOrgChartLayer) {
+    for (const node of orgNodes) {
+      orgChartLayerByMergedId.set(node.mergedSourceUserId, layerByNodeId.get(node.id) ?? 1);
+    }
   }
 
   const agentIds = staff.map((s) => s.agentId);
@@ -97,20 +131,32 @@ export async function GET(req: Request) {
   const agentEmails = agents
     .map((a) => a.email?.trim().toLowerCase())
     .filter((email): email is string => Boolean(email));
-  const portalProfiles = agentEmails.length
-    ? await prisma.portalAccount.findMany({
-        where: { email: { in: agentEmails } },
-        select: {
-          email: true,
-          profileImage: true,
-          profileImageZoom: true,
-          profileImagePosX: true,
-          profileImagePosY: true,
-        },
-      })
-    : [];
+  // Never select profileImage (often multi‑MB data URLs) unless explicitly requested —
+  // loading every portal row with images OOMs Postgres/Node on large rosters.
+  const portalProfiles =
+    includeProfile && agentEmails.length
+      ? await prisma.portalAccount.findMany({
+          where: { email: { in: agentEmails } },
+          select: {
+            email: true,
+            profileImageZoom: true,
+            profileImagePosX: true,
+            profileImagePosY: true,
+          },
+        })
+      : [];
   const profileByEmail = new Map(portalProfiles.map((p) => [p.email.trim().toLowerCase(), p]));
   const onDutyIds = await loadOnDutyAgentIdSet(agentIds);
+  let departmentByMergedId = new Map<string, string>();
+  if (includeOrgChartLayer) {
+    try {
+      departmentByMergedId = await resolveDepartmentDesignationsByMergedIds(
+        staff.map((s) => s.mergedSourceUserId),
+      );
+    } catch {
+      departmentByMergedId = new Map();
+    }
+  }
 
   let payload = staff
     .map((s) => {
@@ -135,11 +181,16 @@ export async function GET(req: Request) {
         assignmentCompany,
         isOnDuty,
         dutyStatus: isOnDuty ? ("ON_DUTY" as const) : ("OFFLINE" as const),
-        profileImage: profile?.profileImage ?? null,
+        profileImage: null as string | null,
         profileImageZoom: profile?.profileImageZoom ?? 1,
         profileImagePosX: profile?.profileImagePosX ?? 50,
         profileImagePosY: profile?.profileImagePosY ?? 50,
-        orgChartLayer: orgChartLayerByMergedId.get(s.mergedSourceUserId) ?? null,
+        orgChartLayer: includeOrgChartLayer
+          ? (orgChartLayerByMergedId.get(s.mergedSourceUserId) ?? null)
+          : null,
+        departmentDesignation: includeOrgChartLayer
+          ? (departmentByMergedId.get(s.mergedSourceUserId) ?? null)
+          : null,
       };
     })
     .filter((row): row is NonNullable<typeof row> => row != null);

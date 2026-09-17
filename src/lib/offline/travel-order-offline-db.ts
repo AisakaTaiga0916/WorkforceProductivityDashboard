@@ -3,7 +3,15 @@
  * Workbox handles caching/network; this module owns the durable offline data.
  */
 import Dexie, { type Table } from "dexie";
-import type { TravelOrderDraft, TravelOrderDto } from "@/lib/travel-order";
+import {
+  emptyTravelOrderDraft,
+  type TravelOrderDraft,
+  type TravelOrderDto,
+} from "@/lib/travel-order";
+import {
+  deriveWorkPlanOrderRequest,
+  type WorkPlanDraft,
+} from "@/lib/work-plan";
 
 export type TravelOrderSyncStatus = "draft" | "pending" | "synced" | "failed";
 
@@ -25,7 +33,10 @@ export type OfflineTravelOrderDraft = {
   mainTaskName: string;
   scopedCompanyTeamId?: string | null;
   companyScopeAgentId?: string | null;
-  draft: TravelOrderDraft;
+  /** Legacy Travel Order draft (null when Work Plan). */
+  draft: TravelOrderDraft | null;
+  /** Work Plan for Management Approval draft. */
+  workPlanDraft?: WorkPlanDraft | null;
   /** Attachment meta only (blobs optional). */
   attachmentNames?: string[];
   syncStatus: TravelOrderSyncStatus;
@@ -222,7 +233,8 @@ export async function saveOfflineDraft(
     mainTaskName: input.mainTaskName,
     scopedCompanyTeamId: input.scopedCompanyTeamId ?? null,
     companyScopeAgentId: input.companyScopeAgentId ?? null,
-    draft: input.draft,
+    draft: input.draft ?? null,
+    workPlanDraft: input.workPlanDraft ?? existing?.workPlanDraft ?? null,
     attachmentNames: input.attachmentNames ?? existing?.attachmentNames ?? [],
     syncStatus: input.syncStatus ?? "pending",
     syncError: null,
@@ -253,9 +265,22 @@ export async function deleteOfflineDraft(localId: string): Promise<void> {
   await travelOrderOfflineDb.drafts.delete(localId);
 }
 
-/** True when a draft has enough content to show in the Travel Orders list. */
-export function offlineDraftHasContent(draft: Pick<OfflineTravelOrderDraft, "draft">): boolean {
+/** True when a draft has enough content to show in the Work Plans / Travel Orders list. */
+export function offlineDraftHasContent(
+  draft: Pick<OfflineTravelOrderDraft, "draft" | "workPlanDraft" | "attachmentNames">,
+): boolean {
+  if ((draft.attachmentNames?.length ?? 0) > 0) return true;
+  const wp = draft.workPlanDraft;
+  if (wp) {
+    if (wp.workPlan.purposeObjective.trim()) return true;
+    if (wp.workPlan.activityProposedWorkPlan.trim()) return true;
+    if (wp.approvalLevels.some((l) => l.agentId.trim())) return true;
+    if (wp.workPlan.personnel.some((p) => p.name.trim())) return true;
+    if (wp.confirmationByAgentId?.trim()) return true;
+    return false;
+  }
   const d = draft.draft;
+  if (!d) return false;
   if (d.orderRequest.trim()) return true;
   if (d.additionalTravelerAgentIds.length > 0) return true;
   if (d.vehicle.trim()) return true;
@@ -267,9 +292,54 @@ export function offlineDraftHasContent(draft: Pick<OfflineTravelOrderDraft, "dra
   return false;
 }
 
-/** Placeholder DTO so offline-queued creates appear in Travel Order lists before sync. */
+/** Placeholder DTO so offline-queued creates appear in lists before sync. */
 export function offlineDraftAsListItem(draft: OfflineTravelOrderDraft): TravelOrderDto {
-  const d = draft.draft;
+  const wp = draft.workPlanDraft;
+  if (wp) {
+    const levels = wp.approvalLevels;
+    return {
+      id: draft.serverTravelOrderId || draft.localId,
+      kpiMaintenanceId: draft.serverKpiId || "",
+      orderRequest: deriveWorkPlanOrderRequest(wp.workPlan),
+      workPlanMeta: wp.workPlan,
+      status: draft.syncStatus === "draft" ? "DRAFT" : "PENDING_SYNC",
+      approvedByAgentId: levels[0]?.agentId || null,
+      approvedByAgent: null,
+      approvedByAgentIds: levels.map((l) => l.agentId).filter(Boolean),
+      approvedByAgents: [],
+      approvalLevels: levels.map((lvl) => ({
+        level: lvl.level,
+        agentId: lvl.agentId,
+        agent: null,
+        optional: lvl.optional === true,
+        alternateAgentIds: Array.isArray(lvl.alternateAgentIds) ? lvl.alternateAgentIds : [],
+        alternateAgents: [],
+        approvedAt: null,
+        approvedByAgentId: null,
+        approvedByAgent: null,
+        roleCode: null,
+        label: `Level ${lvl.level}`,
+      })),
+      confirmationByAgentId: wp.confirmationByAgentId?.trim() || null,
+      confirmationByAgent: null,
+      vehicle: null,
+      driverPresent: false,
+      driverAgentId: null,
+      driverAgent: null,
+      driverLicenseNo: null,
+      gatePassIncluded: false,
+      kpiPercent: null,
+      kpiSubmittedAt: null,
+      createdBy: "offline",
+      createdAt: draft.createdAt,
+      updatedAt: draft.updatedAt,
+      locations: [],
+      kpiTitle: draft.mainTaskName,
+      kpiMainTask: draft.mainTaskName,
+    };
+  }
+
+  const d = draft.draft ?? emptyTravelOrderDraft();
   return {
     id: draft.serverTravelOrderId || draft.localId,
     kpiMaintenanceId: draft.serverKpiId || "",

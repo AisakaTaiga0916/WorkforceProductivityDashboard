@@ -171,6 +171,8 @@ type PatchBodyLike = {
   markAllDone?: boolean;
   subKpiId?: string;
   done?: boolean;
+  completionVerification?: { action?: string; comment?: string };
+  verifierAgentId?: string | null;
 };
 
 export type InferKpiPatchAuditOptions = {
@@ -195,6 +197,24 @@ export function inferKpiPatchAudit(
 
   if (body.deleteTask === true) {
     return { summary: "Task deleted" };
+  }
+  if (body.completionVerification?.action === "approve") {
+    return { summary: "Task completion verified" };
+  }
+  if (body.completionVerification?.action === "reject") {
+    return {
+      summary: "Task completion rejected",
+      detail: body.completionVerification.comment?.trim() || undefined,
+    };
+  }
+  if (body.completionVerification?.action === "resubmit") {
+    return { summary: "Re-submitted for verification" };
+  }
+  if (body.verifierAgentId !== undefined) {
+    return {
+      summary: body.verifierAgentId ? "Verifier assigned" : "Verifier cleared",
+      detail: body.verifierAgentId ? `Verifier id ${body.verifierAgentId}` : undefined,
+    };
   }
   if (typeof body.moveToTaskGroup === "string") {
     return {

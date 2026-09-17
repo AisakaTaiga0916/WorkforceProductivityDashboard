@@ -31,14 +31,14 @@ export const DEFAULT_REQUEST_BOARD_COLUMNS: Array<{
     name: "In Progress",
     sortOrder: 1,
     mappedStatus: "IN_PROGRESS",
-    acceptStatuses: ["IN_PROGRESS", "ESCALATED"],
+    acceptStatuses: ["IN_PROGRESS", "ESCALATED", "PENDING_INFO"],
     allowDrop: true,
   },
   {
     name: "For Confirmation",
     sortOrder: 2,
     mappedStatus: "FOR_CONFIRMATION",
-    acceptStatuses: ["FOR_CONFIRMATION", "PENDING_INFO", "RESOLVED"],
+    acceptStatuses: ["FOR_CONFIRMATION", "RESOLVED"],
     allowDrop: true,
   },
 ];
@@ -134,12 +134,14 @@ export function requestBoardLaneKey(
   const columnId = ticket.requestBoardColumnId?.trim();
   if (columnId) return `col:${columnId}`;
   if (ticket.status === "OPEN") return "lane:open";
-  if (ticket.status === "IN_PROGRESS" || ticket.status === "ESCALATED") return "lane:progress";
   if (
-    ticket.status === "FOR_CONFIRMATION" ||
-    ticket.status === "PENDING_INFO" ||
-    ticket.status === "RESOLVED"
+    ticket.status === "IN_PROGRESS" ||
+    ticket.status === "ESCALATED" ||
+    ticket.status === "PENDING_INFO"
   ) {
+    return "lane:progress";
+  }
+  if (ticket.status === "FOR_CONFIRMATION" || ticket.status === "RESOLVED") {
     return "lane:confirm";
   }
   return `lane:${ticket.status}`;

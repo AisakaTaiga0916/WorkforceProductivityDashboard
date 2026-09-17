@@ -3,6 +3,7 @@ import { timeZoneFromPeriodKey, upsertKpiPeriodSnapshot } from "@/lib/kpi-period
 import { collectChecklistProgressItems, hasItemsInUnassignedSegment } from "@/lib/kpi-subkpis";
 import { prisma } from "@/lib/prisma";
 import { subKpiRequirementsMet } from "@/lib/sub-kpi-completion-mode";
+import { isSubKpiEffectivelyVerified } from "@/lib/task-completion-verification";
 
 export const KPI_ROW_SELECT = {
   id: true,
@@ -34,7 +35,11 @@ export function checklistFullyComplete(subKpis: unknown, taskTitle?: string): bo
     ? itProjectAllItems(parseItProjectSubKpis(subKpis))
     : collectChecklistProgressItems(subKpis, taskTitle);
   if (items.length === 0) return false;
-  return items.every((x) => subKpiRequirementsMet(x));
+  return items.every(
+    (x) =>
+      subKpiRequirementsMet(x) &&
+      isSubKpiEffectivelyVerified(x, { parentCardEffectivelyVerified: false }),
+  );
 }
 
 export async function snapshotIfRecurring(kpiRow: KpiRow, subKpis: unknown, fallbackTz: string) {

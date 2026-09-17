@@ -9,7 +9,12 @@ export function getRealtimeSocket() {
   socketSingleton = io({
     path: "/socket.io",
     transports: ["websocket", "polling"],
+    autoConnect: true,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 800,
+    reconnectionDelayMax: 8_000,
+    withCredentials: true,
   });
   return socketSingleton;
 }
-

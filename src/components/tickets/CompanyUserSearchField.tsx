@@ -27,6 +27,8 @@ type CompanyUserSearchFieldProps = {
   /** Agent ids that must not be selectable (e.g. prior approvers on this request). */
   excludedIds?: ReadonlySet<string> | string[];
   emptyMessage?: string;
+  /** Bottom caption under a closed selection. Default keeps name + email. */
+  selectedFooter?: "default" | "subtitle";
 };
 
 function normalize(s: string): string {
@@ -47,6 +49,7 @@ export function CompanyUserSearchField({
   required = false,
   excludedIds,
   emptyMessage = "No matching users.",
+  selectedFooter = "default",
 }: CompanyUserSearchFieldProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -213,11 +216,17 @@ export function CompanyUserSearchField({
         ) : null}
       </div>
 
-      {selected && !open ? (
+      {selected && !open && (selectedFooter !== "subtitle" || Boolean(selected.subtitle?.trim())) ? (
         <p className="mt-1 truncate text-[11px] font-normal text-zinc-600 dark:text-zinc-400">
-          Selected: {selected.name}
-          {selected.subtitle ? ` · ${selected.subtitle}` : ""}
-          {!selected.subtitle && selected.email ? ` · ${selected.email}` : ""}
+          {selectedFooter === "subtitle"
+            ? selected.subtitle?.trim()
+            : `Selected: ${selected.name}${
+                selected.subtitle
+                  ? ` · ${selected.subtitle}`
+                  : selected.email
+                    ? ` · ${selected.email}`
+                    : ""
+              }`}
         </p>
       ) : null}
     </div>

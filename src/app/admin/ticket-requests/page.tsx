@@ -18,11 +18,10 @@ function statusChipClass(status: TicketStatus) {
     case "OPEN":
       return "bg-sky-500/15 text-sky-800 ring-sky-500/25 dark:text-sky-200";
     case "IN_PROGRESS":
+    case "PENDING_INFO":
       return "bg-orange-500/15 text-orange-900 ring-orange-500/25 dark:text-orange-200";
     case "ESCALATED":
       return "bg-rose-500/15 text-rose-900 ring-rose-500/25 dark:text-rose-200";
-    case "PENDING_INFO":
-      return "bg-amber-500/15 text-amber-950 ring-amber-500/25 dark:text-amber-100";
     case "FOR_CONFIRMATION":
     case "RESOLVED":
     case "CLOSED":

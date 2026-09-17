@@ -37,14 +37,36 @@ export function resolveExecutiveTitle(input: {
   return null;
 }
 
+/** Collapse "COO · COO" / repeated tokens into a single label. */
+export function collapseDuplicateDesignation(
+  label: string | null | undefined,
+): string {
+  const raw = (label ?? "").trim();
+  if (!raw) return "";
+  const parts = raw
+    .split(/\s*(?:·|•|,)\s*|\s+-\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const part of parts) {
+    const key = part.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(part);
+  }
+  return unique.join(" · ");
+}
+
 /** Sidebar department line: prefer title, then append scoped departments when present. */
 export function formatDepartmentDesignationWithExecutiveTitle(
   executiveTitle: string | null | undefined,
   departmentScopeLabel: string | null | undefined,
 ): string | null {
   const title = (executiveTitle ?? "").trim();
-  const scope = (departmentScopeLabel ?? "").trim();
-  if (title && scope) return `${title} · ${scope}`;
+  const scope = collapseDuplicateDesignation(departmentScopeLabel);
+  if (title && scope && title.toLowerCase() === scope.toLowerCase()) return title;
+  if (title && scope) return collapseDuplicateDesignation(`${title} · ${scope}`);
   if (title) return title;
   if (scope) return scope;
   return null;

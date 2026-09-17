@@ -60,6 +60,8 @@ export const POSITION_CODE_LABELS: Record<string, string> = {
   JO_APPROVED_BY: "JO — Approved By (1)",
   JO_APPROVED_BY_2: "JO — Approved By (2)",
   TRAVEL_APPROVER_L2: "Travel Order — Layer 2 Approver",
+  WPMA_COO: "Travel Order — Chief Operating Officer (COO)",
+  WPMA_CEO: "Travel Order — Chief Executive Officer (CEO)",
 };
 
 /** Catalog sections for admin UI (order = display order). */
@@ -70,6 +72,7 @@ export type PositionCatalogGroupId =
   | "ftr"
   | "jo"
   | "travel"
+  | "wpma"
   | "other";
 
 export type PositionCatalogGroup = {
@@ -119,9 +122,15 @@ export const POSITION_CATALOG_GROUPS: PositionCatalogGroup[] = [
   },
   {
     id: "travel",
-    label: "Travel Order",
-    description: "Org-chart layer approvers",
+    label: "Travel Order (legacy)",
+    description: "Org-chart layer approvers for legacy travel orders",
     match: (code) => code.startsWith("TRAVEL_"),
+  },
+  {
+    id: "wpma",
+    label: "Travel Order for Management Approval",
+    description: "COO → CEO management approval seats",
+    match: (code) => code === "WPMA_COO" || code === "WPMA_CEO",
   },
   {
     id: "other",

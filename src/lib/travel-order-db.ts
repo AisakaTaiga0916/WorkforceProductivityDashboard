@@ -20,6 +20,12 @@ import {
   type TravelOrderFileAttachment,
   type TravelOrderAgentRef,
 } from "@/lib/travel-order";
+import {
+  normalizeWorkPlanMetaForStore,
+  parseWorkPlanMeta,
+  workPlanVenueLabels,
+  type WorkPlanMeta,
+} from "@/lib/work-plan";
 
 /** Missing/partial travel-order schema must not take down Task Board or nav badges. */
 function isMissingTravelOrderSchemaError(error: unknown): boolean {
@@ -71,6 +77,7 @@ export type TravelOrderRow = {
   id: string;
   kpiMaintenanceId: string;
   orderRequest: string;
+  workPlanMeta: WorkPlanMeta | null;
   attachments: TravelOrderFileAttachment[];
   status: string;
   approvedByAgentId: string | null;
@@ -133,6 +140,7 @@ type RawTravelOrder = {
   id: string;
   kpi_maintenance_id: string;
   order_request: string;
+  work_plan_meta?: unknown;
   attachments?: unknown;
   status: string;
   approved_by_agent_id: string | null;
@@ -260,6 +268,7 @@ function mapOrderBase(
     id: order.id,
     kpiMaintenanceId: order.kpi_maintenance_id,
     orderRequest: order.order_request,
+    workPlanMeta: parseWorkPlanMeta(order.work_plan_meta),
     attachments: parseTravelOrderFileAttachments(order.attachments),
     status: order.status,
     approvedByAgentId: order.approved_by_agent_id ?? approvedByAgentIds[0] ?? null,
@@ -272,6 +281,9 @@ function mapOrderBase(
       approvedByAgentId: lvl.approvedByAgentId,
       approvedByAgent: null,
       optional: lvl.optional === true,
+      ...(lvl.alternateAgentIds?.length ? { alternateAgentIds: lvl.alternateAgentIds } : {}),
+      ...(lvl.roleCode ? { roleCode: lvl.roleCode } : {}),
+      ...(lvl.label ? { label: lvl.label } : {}),
     })),
     confirmationByAgentId: order.confirmation_by_agent_id,
     createdByAgentId,
@@ -444,12 +456,15 @@ async function hydrateApprovedByAgents(orders: TravelOrderRow[]): Promise<Travel
 export async function createTravelOrderWithLocations(input: {
   kpiMaintenanceId: string;
   orderRequest: string;
+  workPlanMeta?: WorkPlanMeta | null;
   approvedByAgentIds: string[];
   approvalLevels?: Array<{
     level?: number;
     agentId?: string | null;
     optional?: boolean;
     alternateAgentIds?: string[] | null;
+    roleCode?: string | null;
+    label?: string | null;
   }>;
   confirmationByAgentId?: string | null;
   createdBy: string;
@@ -479,6 +494,10 @@ export async function createTravelOrderWithLocations(input: {
   const id = newId();
   const status = input.status ?? "SUBMITTED";
   const now = new Date();
+  const workPlanMeta = input.workPlanMeta
+    ? normalizeWorkPlanMetaForStore(input.workPlanMeta)
+    : null;
+  const isWorkPlan = workPlanMeta != null;
   const approvalLevels = normalizeApprovalLevelsForStore(input.approvalLevels ?? []);
   const fromLevels = agentIdsFromApprovalLevels(approvalLevels);
   const approvedByAgentIds = [
@@ -499,35 +518,70 @@ export async function createTravelOrderWithLocations(input: {
     }
   }
   const primaryApproverId = approvedByAgentIds[0]!;
+  const includesTravel = Boolean(isWorkPlan && workPlanMeta?.includesTravel);
   const confirmationByAgentId = input.confirmationByAgentId?.trim() || null;
   const createdByAgentId = input.createdByAgentId?.trim() || null;
   const companyTeamId = input.companyTeamId?.trim() || null;
-  const travelerAgentIds = parseTravelerAgentIds(
-    input.travelerAgentIds ?? [],
-    createdByAgentId,
-  );
+  const travelerAgentIds = isWorkPlan
+    ? parseTravelerAgentIds(
+        [
+          createdByAgentId,
+          workPlanMeta.personInChargeAgentId,
+          includesTravel ? workPlanMeta.travel?.driverAgentId : null,
+        ].filter((v): v is string => Boolean(v)),
+        createdByAgentId,
+      )
+    : parseTravelerAgentIds(input.travelerAgentIds ?? [], createdByAgentId);
+  const vehicleFromMeta =
+    includesTravel && workPlanMeta.travel?.vehicle?.trim()
+      ? workPlanMeta.travel.vehicle.trim()
+      : null;
   const vehicle =
-    typeof input.vehicle === "string" && input.vehicle.trim() ? input.vehicle.trim() : null;
-  const driverPresent = input.driverPresent === true;
+    includesTravel || !isWorkPlan
+      ? vehicleFromMeta ||
+        (typeof input.vehicle === "string" && input.vehicle.trim()
+          ? input.vehicle.trim()
+          : null)
+      : null;
+  const driverPresent = includesTravel
+    ? workPlanMeta.travel?.driverPresent === true
+    : isWorkPlan
+      ? false
+      : input.driverPresent === true;
   const driverAgentId = driverPresent
-    ? typeof input.driverAgentId === "string" && input.driverAgentId.trim()
-      ? input.driverAgentId.trim()
-      : null
+    ? (includesTravel
+        ? workPlanMeta.travel?.driverAgentId?.trim() || null
+        : typeof input.driverAgentId === "string" && input.driverAgentId.trim()
+          ? input.driverAgentId.trim()
+          : null)
     : null;
   const driverLicenseNo = driverPresent
-    ? typeof input.driverLicenseNo === "string" && input.driverLicenseNo.trim()
-      ? input.driverLicenseNo.trim()
-      : null
+    ? (includesTravel
+        ? workPlanMeta.travel?.driverLicenseNo?.trim() || null
+        : typeof input.driverLicenseNo === "string" && input.driverLicenseNo.trim()
+          ? input.driverLicenseNo.trim()
+          : null)
     : null;
   if (driverPresent) {
     if (!driverAgentId) {
       throw new Error("Select a driver from the travelers list.");
     }
-    if (!travelerAgentIds.includes(driverAgentId)) {
+    if (!includesTravel && !travelerAgentIds.includes(driverAgentId)) {
       throw new Error("Driver must be one of the selected travelers.");
     }
   }
-  const gp = input.gatePass ?? null;
+  const travelGatePass = includesTravel
+    ? {
+        included: true,
+        estDepartureAt: workPlanMeta.travel?.estDepartureAt?.trim()
+          ? new Date(workPlanMeta.travel.estDepartureAt)
+          : null,
+        estArrivalAt: workPlanMeta.travel?.estArrivalAt?.trim()
+          ? new Date(workPlanMeta.travel.estArrivalAt)
+          : null,
+      }
+    : null;
+  const gp = isWorkPlan ? travelGatePass : (input.gatePass ?? null);
   const gatePassIncluded = Boolean(gp?.included);
   const estDepartureAt = gatePassIncluded ? (gp?.estDepartureAt ?? null) : null;
   const estArrivalAt = gatePassIncluded ? (gp?.estArrivalAt ?? null) : null;
@@ -560,7 +614,7 @@ export async function createTravelOrderWithLocations(input: {
 
   await prisma.$executeRaw`
     INSERT INTO travel_orders (
-      id, kpi_maintenance_id, order_request, attachments, status,
+      id, kpi_maintenance_id, order_request, work_plan_meta, attachments, status,
       approved_by_agent_id, approved_by_agent_ids, approval_levels, confirmation_by_agent_id,
       created_by_agent_id, company_team_id, traveler_agent_ids, vehicle,
       driver_present, driver_agent_id, driver_license_no,
@@ -574,6 +628,7 @@ export async function createTravelOrderWithLocations(input: {
       ${id},
       ${input.kpiMaintenanceId},
       ${input.orderRequest},
+      ${workPlanMeta ? JSON.stringify(workPlanMeta) : null}::jsonb,
       ${JSON.stringify([])}::jsonb,
       ${status},
       ${primaryApproverId},
@@ -604,25 +659,37 @@ export async function createTravelOrderWithLocations(input: {
     )
   `;
 
-  for (const loc of input.locations) {
-    const locId = newId();
-    await prisma.$executeRaw`
-      INSERT INTO travel_order_locations (
-        id, travel_order_id, label, latitude, longitude,
-        remarks, attachments, sort_order, created_at, updated_at
-      ) VALUES (
-        ${locId},
-        ${id},
-        ${loc.label},
-        ${loc.latitude ?? null},
-        ${loc.longitude ?? null},
-        ${loc.remarks ?? null},
-        ${JSON.stringify([])}::jsonb,
-        ${loc.sortOrder},
-        ${now},
-        ${now}
-      )
-    `;
+  const locationInputs =
+    isWorkPlan && workPlanMeta
+      ? workPlanVenueLabels(workPlanMeta).map((label, i) => ({
+          label,
+          latitude: null as number | null,
+          longitude: null as number | null,
+          remarks: null as string | null,
+          sortOrder: i,
+        }))
+      : input.locations;
+  if (locationInputs.length > 0) {
+    for (const loc of locationInputs) {
+      const locId = newId();
+      await prisma.$executeRaw`
+        INSERT INTO travel_order_locations (
+          id, travel_order_id, label, latitude, longitude,
+          remarks, attachments, sort_order, created_at, updated_at
+        ) VALUES (
+          ${locId},
+          ${id},
+          ${loc.label},
+          ${loc.latitude ?? null},
+          ${loc.longitude ?? null},
+          ${loc.remarks ?? null},
+          ${JSON.stringify([])}::jsonb,
+          ${loc.sortOrder},
+          ${now},
+          ${now}
+        )
+      `;
+    }
   }
 
   const created = await findTravelOrderById(id);
@@ -640,6 +707,7 @@ export async function findTravelOrdersByKpiId(
       t.id,
       t.kpi_maintenance_id,
       t.order_request,
+      t.work_plan_meta,
       COALESCE(t.attachments, '[]'::jsonb) AS attachments,
       t.status,
       t.approved_by_agent_id,
@@ -721,6 +789,7 @@ export async function findTravelOrderById(
       t.id,
       t.kpi_maintenance_id,
       t.order_request,
+      t.work_plan_meta,
       COALESCE(t.attachments, '[]'::jsonb) AS attachments,
       t.status,
       t.approved_by_agent_id,
@@ -799,8 +868,9 @@ export async function findTravelOrdersByCompanyTeamId(
 }
 
 /**
- * Travel orders visible to an agent: same-company orders, plus any where they
- * are creator, traveler, designated approver, or confirmer (cross-company OK).
+ * Travel orders visible to an agent (no company-wide dump):
+ * - Requestor (creator) or listed traveler / driver
+ * - Designated approver (flat or any hierarchical seat) or confirmer
  *
  * Personnel-Guard (`gatePassOnly`): site-wide kiosk list of running (APPROVED)
  * trips. Guards are often not travelers and may lack a merged company match, so
@@ -824,11 +894,13 @@ export async function findTravelOrdersVisibleToAgent(input: {
   const agentId = input.agentId?.trim() || null;
   if (!input.gatePassOnly && !input.allVisible && !companyTeamId && !agentId) return [];
 
+  return withTravelOrderFallback("findTravelOrdersVisibleToAgent", [], async () => {
   const selectSql = Prisma.sql`
     SELECT
       t.id,
       t.kpi_maintenance_id,
       t.order_request,
+      t.work_plan_meta,
       COALESCE(t.attachments, '[]'::jsonb) AS attachments,
       t.status,
       t.approved_by_agent_id,
@@ -895,31 +967,26 @@ export async function findTravelOrdersVisibleToAgent(input: {
   } else if (input.allVisible) {
     // Platform-wide view (SuperAdmin / elevated admin without company scope).
     whereSql = Prisma.sql`TRUE`;
+  } else if (agentId) {
+    // Stakeholder scope only — not every order in the company.
+    whereSql = Prisma.sql`(
+      t.created_by_agent_id = ${agentId}
+      OR t.approved_by_agent_id = ${agentId}
+      OR t.confirmation_by_agent_id = ${agentId}
+      OR t.driver_agent_id = ${agentId}
+      OR t.traveler_agent_ids @> ${JSON.stringify([agentId])}::jsonb
+      OR t.approved_by_agent_ids @> ${JSON.stringify([agentId])}::jsonb
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(COALESCE(t.approval_levels, '[]'::jsonb)) AS lvl
+        WHERE COALESCE(lvl->>'agentId', '') = ${agentId}
+      )
+    )`;
+  } else if (companyTeamId) {
+    // Legacy company-only helper (`findTravelOrdersByCompanyTeamId`).
+    whereSql = Prisma.sql`t.company_team_id = ${companyTeamId}`;
   } else {
-    const whereParts: Prisma.Sql[] = [];
-    if (companyTeamId) {
-      whereParts.push(Prisma.sql`t.company_team_id = ${companyTeamId}`);
-    }
-    if (agentId) {
-      whereParts.push(
-        Prisma.sql`(
-          t.created_by_agent_id = ${agentId}
-          OR t.approved_by_agent_id = ${agentId}
-          OR t.confirmation_by_agent_id = ${agentId}
-          OR t.traveler_agent_ids @> ${JSON.stringify([agentId])}::jsonb
-          OR t.approved_by_agent_ids @> ${JSON.stringify([agentId])}::jsonb
-          OR EXISTS (
-            SELECT 1
-            FROM jsonb_array_elements(COALESCE(t.approval_levels, '[]'::jsonb)) AS lvl
-            WHERE COALESCE(lvl->>'agentId', '') = ${agentId}
-          )
-        )`,
-      );
-    }
-    whereSql =
-      whereParts.length === 1
-        ? whereParts[0]!
-        : Prisma.sql`(${Prisma.join(whereParts, " OR ")})`;
+    whereSql = Prisma.sql`FALSE`;
   }
 
   const orders = await prisma.$queryRaw<RawTravelOrder[]>`
@@ -938,6 +1005,7 @@ export async function findTravelOrdersVisibleToAgent(input: {
   `;
 
   return hydrateApprovedByAgents(orders.map((o) => mapOrderBase(o, locations)));
+  });
 }
 
 /**
@@ -956,6 +1024,7 @@ export async function listPendingTravelApprovalsForAgent(
       t.id,
       t.kpi_maintenance_id,
       t.order_request,
+      t.work_plan_meta,
       COALESCE(t.attachments, '[]'::jsonb) AS attachments,
       t.status,
       t.approved_by_agent_id,
@@ -1060,6 +1129,7 @@ export async function listPendingTravelConfirmationsForAgent(
         t.id,
         t.kpi_maintenance_id,
         t.order_request,
+      t.work_plan_meta,
         COALESCE(t.attachments, '[]'::jsonb) AS attachments,
         t.status,
         t.approved_by_agent_id,
@@ -1400,6 +1470,9 @@ export async function approveTravelOrderSequential(input: {
     approvedAt: l.approvedAt,
     approvedByAgentId: l.approvedByAgentId,
     optional: l.optional === true,
+    ...(l.alternateAgentIds?.length ? { alternateAgentIds: l.alternateAgentIds } : {}),
+    ...(l.roleCode ? { roleCode: l.roleCode } : {}),
+    ...(l.label ? { label: l.label } : {}),
   }));
 
   if (!hasHierarchicalApprovals(stored)) {
@@ -1683,11 +1756,14 @@ export async function kpiIdsWhereAgentIsTravelOrderTraveler(
 
 export type TravelOrderBoardSummary = {
   orderRequest: string;
+  /** @deprecated Prefer personInCharge for Work Plans. */
   travelers: string[];
+  personInCharge?: string | null;
+  isWorkPlan?: boolean;
 };
 
 /**
- * Latest travel-order purpose + traveler names per KPI (for Task Board Field Assignment cards).
+ * Latest Work Plan / travel-order purpose + people for Task Board Field Assignment cards.
  */
 export async function travelOrderBoardSummariesByKpiIds(
   kpiIds: string[],
@@ -1700,6 +1776,7 @@ export async function travelOrderBoardSummariesByKpiIds(
     Array<{
       kpi_maintenance_id: string;
       order_request: string;
+      work_plan_meta: unknown;
       traveler_agent_ids: unknown;
       created_by_agent_id: string | null;
       creator_name: string | null;
@@ -1708,6 +1785,7 @@ export async function travelOrderBoardSummariesByKpiIds(
     SELECT DISTINCT ON (t.kpi_maintenance_id)
       t.kpi_maintenance_id,
       t.order_request,
+      t.work_plan_meta,
       COALESCE(t.traveler_agent_ids, '[]'::jsonb) AS traveler_agent_ids,
       t.created_by_agent_id,
       cr.name AS creator_name
@@ -1740,9 +1818,17 @@ export async function travelOrderBoardSummariesByKpiIds(
     if (names.length === 0 && row.creator_name?.trim()) {
       names.push(row.creator_name.trim());
     }
+    const meta = parseWorkPlanMeta(row.work_plan_meta);
+    const personInCharge =
+      meta?.personInChargeName?.trim() ||
+      meta?.requestingParty?.trim() ||
+      row.creator_name?.trim() ||
+      null;
     out.set(row.kpi_maintenance_id, {
       orderRequest: typeof row.order_request === "string" ? row.order_request : "",
       travelers: names,
+      personInCharge,
+      isWorkPlan: meta != null,
     });
   }
   return out;
@@ -1754,6 +1840,7 @@ export function serializeTravelOrder(row: TravelOrderRow) {
     id: row.id,
     kpiMaintenanceId: row.kpiMaintenanceId,
     orderRequest: row.orderRequest,
+    workPlanMeta: row.workPlanMeta,
     attachments: row.attachments,
     status: row.status,
     approvedByAgentId: row.approvedByAgentId,

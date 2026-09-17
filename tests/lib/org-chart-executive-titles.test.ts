@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  collapseDuplicateDesignation,
   formatDepartmentDesignationWithExecutiveTitle,
   resolveExecutiveTitle,
 } from "@/lib/org-chart-executive-titles";
@@ -29,5 +30,14 @@ describe("formatDepartmentDesignationWithExecutiveTitle", () => {
 
   it("returns title alone when there is no department scope", () => {
     expect(formatDepartmentDesignationWithExecutiveTitle("COO", null)).toBe("COO");
+  });
+
+  it("does not repeat the title when scope is the same", () => {
+    expect(formatDepartmentDesignationWithExecutiveTitle("COO", "COO")).toBe("COO");
+  });
+
+  it("collapses duplicated designation tokens", () => {
+    expect(collapseDuplicateDesignation("COO · COO")).toBe("COO");
+    expect(collapseDuplicateDesignation("COO - COO")).toBe("COO");
   });
 });

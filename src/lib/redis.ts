@@ -1,10 +1,11 @@
 import IORedis from "ioredis";
+import { resolveRedisUrl } from "@/lib/redis-connection";
 
 /**
  * Shared Redis client.
  *
- * Reads `REDIS_URL` (e.g. `redis://127.0.0.1:6379` or `rediss://…`), falling
- * back to `redis://127.0.0.1:6379` when unset.
+ * Prefer `REDIS_URL`, otherwise `REDIS_HOST` (+ PORT / PASSWORD / USERNAME / TLS),
+ * falling back to `redis://127.0.0.1:6379`.
  *
  * The app must keep working when Redis is down: every consumer guards calls
  * with `redisClient()` and degrades gracefully (in-memory cache fallback,
@@ -14,8 +15,6 @@ import IORedis from "ioredis";
  * builds and tests are not held up when Redis is absent.
  */
 
-const REDIS_URL = process.env.REDIS_URL?.trim() || "redis://127.0.0.1:6379";
-
 let client: IORedis | null = null;
 let available = false;
 let warned = false;
@@ -23,7 +22,7 @@ let startAttempted = false;
 let connectPromise: Promise<void> | null = null;
 
 function createClient(): IORedis {
-  const c = new IORedis(REDIS_URL, {
+  const c = new IORedis(resolveRedisUrl(), {
     lazyConnect: true,
     enableOfflineQueue: false,
     maxRetriesPerRequest: 1,
@@ -43,7 +42,7 @@ function createClient(): IORedis {
     available = false;
     if (!warned) {
       warned = true;
-      console.warn(`[redis] unreachable at ${REDIS_URL} — using fallbacks (cache, rate limit, jobs)`);
+      console.warn(`[redis] unreachable at ${resolveRedisUrl()} — using fallbacks (cache, rate limit, jobs)`);
     }
   });
   c.on("close", () => {
@@ -107,7 +106,7 @@ export function isRedisAvailable(): boolean {
 export async function pingRedis(): Promise<boolean> {
   let probe: IORedis | null = null;
   try {
-    probe = new IORedis(REDIS_URL, {
+    probe = new IORedis(resolveRedisUrl(), {
       lazyConnect: true,
       connectTimeout: 2_000,
       maxRetriesPerRequest: 1,

@@ -4,29 +4,48 @@ import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-export type TravelOrderFormPage = 1 | 2 | 3;
+export type TravelOrderFormPage = 1 | 2 | 3 | 4;
 
 type TravelOrderPageNavProps = {
   page: TravelOrderFormPage;
   onPageChange: (page: TravelOrderFormPage) => void;
   /** When false, hide the Gate Pass tab (Details + Approvals only). Default true. */
   showGatePass?: boolean;
+  /** Work plans: insert Venues / Locations between Details and Approvals. */
+  showLocationsTab?: boolean;
   /** When false, omit Back/Next (tabs only). Default true. */
   showStepButtons?: boolean;
   /** Disable Next (e.g. while busy). */
   nextDisabled?: boolean;
   /** Disable Back. */
   backDisabled?: boolean;
-  /** Extra controls rendered beside Back/Next (e.g. Cancel T.O.). */
+  /** Extra controls rendered beside Back/Next (e.g. Cancel). */
   stepActions?: ReactNode;
   className?: string;
 };
 
-/** Tab switcher + optional Back/Next for Travel Order multi-page forms. */
+function workPlanPageTabs(showLocationsTab: boolean, showGatePass: boolean) {
+  if (showLocationsTab) {
+    return [
+      { page: 1 as const, label: "Details" },
+      { page: 2 as const, label: "Venues / Locations" },
+      { page: 3 as const, label: "Approvals" },
+      ...(showGatePass ? [{ page: 4 as const, label: "Gate Pass" }] : []),
+    ];
+  }
+  return [
+    { page: 1 as const, label: "Details" },
+    { page: 2 as const, label: "Approvals" },
+    ...(showGatePass ? [{ page: 3 as const, label: "Gate Pass" }] : []),
+  ];
+}
+
+/** Tab switcher + optional Back/Next for Work Plan / legacy Travel Order forms. */
 export function TravelOrderPageNav({
   page,
   onPageChange,
   showGatePass = true,
+  showLocationsTab = false,
   showStepButtons = true,
   nextDisabled = false,
   backDisabled = false,
@@ -34,7 +53,11 @@ export function TravelOrderPageNav({
   className,
 }: TravelOrderPageNavProps) {
   const showActions = showStepButtons || stepActions;
-  const lastPage: TravelOrderFormPage = showGatePass ? 3 : 2;
+  const tabs = workPlanPageTabs(showLocationsTab, showGatePass);
+  const tabIndex = Math.max(
+    0,
+    tabs.findIndex((tab) => tab.page === page),
+  );
   return (
     <div
       className={cn(
@@ -47,75 +70,48 @@ export function TravelOrderPageNav({
         role="tablist"
         aria-label="Travel order pages"
       >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={page === 1}
-          onClick={() => onPageChange(1)}
-          className={cn(
-            "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
-            page === 1
-              ? "bg-orange-600 text-white shadow-sm"
-              : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
-          )}
-        >
-          1 · Details
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={page === 2}
-          onClick={() => onPageChange(2)}
-          className={cn(
-            "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
-            page === 2
-              ? "bg-orange-600 text-white shadow-sm"
-              : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
-          )}
-        >
-          2 · Approvals
-        </button>
-        {showGatePass ? (
+        {tabs.map((tab, index) => (
           <button
+            key={tab.page}
             type="button"
             role="tab"
-            aria-selected={page === 3}
-            onClick={() => onPageChange(3)}
+            aria-selected={page === tab.page}
+            onClick={() => onPageChange(tab.page)}
             className={cn(
               "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
-              page === 3
+              page === tab.page
                 ? "bg-orange-600 text-white shadow-sm"
                 : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100",
             )}
           >
-            3 · Gate Pass
+            {index + 1} · {tab.label}
           </button>
-        ) : null}
+        ))}
       </div>
 
       {showActions ? (
         <div className="flex flex-wrap items-center gap-1.5">
-          {showStepButtons && page > 1 ? (
+          {showStepButtons && tabIndex > 0 ? (
             <button
               type="button"
               disabled={backDisabled}
-              onClick={() => onPageChange((page - 1) as TravelOrderFormPage)}
-              className="inline-flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              onClick={() => onPageChange(tabs[tabIndex - 1]!.page)}
+              className="inline-flex items-center gap-1 rounded-md border border-zinc-200 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
             >
-              <ChevronLeft className="size-3.5" aria-hidden />
+              <ChevronLeft className="h-3.5 w-3.5" />
               Back
             </button>
           ) : null}
           {stepActions}
-          {showStepButtons && page < lastPage ? (
+          {showStepButtons && tabIndex < tabs.length - 1 ? (
             <button
               type="button"
               disabled={nextDisabled}
-              onClick={() => onPageChange((page + 1) as TravelOrderFormPage)}
-              className="inline-flex items-center gap-1 rounded-lg bg-orange-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => onPageChange(tabs[tabIndex + 1]!.page)}
+              className="inline-flex items-center gap-1 rounded-md bg-orange-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
             >
               Next
-              <ChevronRight className="size-3.5" aria-hidden />
+              <ChevronRight className="h-3.5 w-3.5" />
             </button>
           ) : null}
         </div>

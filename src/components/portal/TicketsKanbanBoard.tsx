@@ -30,13 +30,13 @@ const columns: {
     id: "pending",
     title: "Pending",
     dotClassName: "bg-blue-500",
-    match: (s) => s === "OPEN" || s === "PENDING_INFO",
+    match: (s) => s === "OPEN",
   },
   {
     id: "inProgress",
     title: "In progress",
     dotClassName: "bg-cyan-400",
-    match: (s) => s === "IN_PROGRESS" || s === "ESCALATED",
+    match: (s) => s === "IN_PROGRESS" || s === "ESCALATED" || s === "PENDING_INFO",
   },
   {
     id: "done",
@@ -74,7 +74,10 @@ function statusPill(status: TicketStatus) {
     case "ESCALATED":
       return { label: "Urgent", className: "border-red-500/30 bg-red-500/15 text-red-300" };
     case "PENDING_INFO":
-      return { label: "Pending", className: "border-amber-500/30 bg-amber-500/15 text-amber-300" };
+      return {
+        label: "In progress",
+        className: "border-orange-500/30 bg-orange-500/15 text-orange-300",
+      };
     case "FOR_CONFIRMATION":
     case "RESOLVED":
       return {

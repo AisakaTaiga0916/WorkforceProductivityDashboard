@@ -38,9 +38,13 @@ const http = require("http");
 const crypto = require("crypto");
 const next = require("next");
 const { Server } = require("socket.io");
+const { createAdapter } = require("@socket.io/redis-adapter");
+const IORedis = require("ioredis");
 const { PrismaClient: PrimaryClient } = require("@prisma/client/primary");
 const { PrismaClient: AuthClient } = require("@prisma/client/auth");
 const { startRedisJobs, stopRedisJobs } = require("./scripts/redis-jobs.cjs");
+const { resolveRedisUrl } = require("./scripts/redis-connection.cjs");
+const { attachRequestChatHandlers } = require("./scripts/socket-request-chat.cjs");
 
 const port = Number(process.env.PORT || 3000);
 const host = process.env.HOSTNAME || "0.0.0.0";
@@ -152,15 +156,42 @@ app
       path: "/socket.io",
       cors: { origin: "*" },
     });
-    io.on("connection", (socket) => {
-      socket.emit("connected", { ok: true, at: new Date().toISOString() });
-    });
+
+    // Redis adapter for multi-instance PM2 (optional — falls back to in-process).
+    let pubClient = null;
+    let subClient = null;
+    try {
+      const redisUrl = resolveRedisUrl();
+      pubClient = new IORedis(redisUrl, {
+        lazyConnect: true,
+        maxRetriesPerRequest: null,
+        enableOfflineQueue: false,
+        connectTimeout: 2_000,
+      });
+      subClient = pubClient.duplicate();
+      await Promise.all([pubClient.connect(), subClient.connect()]);
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log("[socket.io] Redis adapter enabled");
+    } catch (err) {
+      console.warn("[socket.io] Redis adapter unavailable — single-process mode", err?.message || err);
+      try {
+        pubClient?.disconnect();
+        subClient?.disconnect();
+      } catch {
+        /* ignore */
+      }
+      pubClient = null;
+      subClient = null;
+    }
+
+    const jobHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+    attachRequestChatHandlers(io, prisma, { jobHost, port });
+
     const timer = setInterval(() => {
       void emitRealtimeSnapshot(io);
     }, 3000);
 
     // Prefer BullMQ (Redis) for background jobs; keep timer fallback if Redis is down.
-    const jobHost = host === "0.0.0.0" ? "127.0.0.1" : host;
     const redisJobs = await startRedisJobs({
       internalJobKey,
       jobHost,
@@ -202,6 +233,12 @@ app
       if (portalMergedSyncTimer) clearInterval(portalMergedSyncTimer);
       for (const t of bootTimeouts) clearTimeout(t);
       if (useRedisJobs) await stopRedisJobs();
+      try {
+        pubClient?.disconnect();
+        subClient?.disconnect();
+      } catch {
+        /* ignore */
+      }
       await prisma.$disconnect();
       await prismaAuth.$disconnect();
       io.close();

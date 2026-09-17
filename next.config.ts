@@ -22,7 +22,7 @@ for (const envUrl of [process.env.NEXTAUTH_URL, process.env.APP_BASE_URL]) {
 
 const nextConfig: NextConfig = {
   allowedDevOrigins,
-  serverExternalPackages: ["ioredis", "bullmq"],
+  serverExternalPackages: ["ioredis", "bullmq", "@socket.io/redis-adapter", "@socket.io/redis-emitter"],
   images: {
     remotePatterns: [
       {

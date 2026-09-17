@@ -72,7 +72,7 @@ export function TravelOrderOfflineBanner({ className }: { className?: string }) 
                 : sync.lastError
                   ? sync.lastError
                   : "Travel Orders are synced"
-            : "Create / GPS still work offline. If a reload fails, open the offline Travel Orders page."}
+            : "Drafts still work offline. If a reload fails, open the offline Travel Orders page."}
         </span>
       </div>
       <div className="flex items-center gap-1.5">

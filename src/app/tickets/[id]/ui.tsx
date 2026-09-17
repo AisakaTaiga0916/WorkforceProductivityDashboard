@@ -2,8 +2,6 @@
 
 import type { Ticket, TicketFeedback } from "@prisma/client/primary";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 import { CancelRequestButton } from "@/components/tickets/CancelRequestButton";
 
 type TicketWithRelations = Ticket & { feedback: TicketFeedback | null };
@@ -15,34 +13,7 @@ export function CustomerTicketPanel({
   ticket: TicketWithRelations;
   canCancelRequest?: boolean;
 }) {
-  const router = useRouter();
-  const [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const canCancel = canCancelRequest && !ticket.assignedAgentId && ticket.status !== "CLOSED";
-
-  async function postMessage() {
-    if (!message.trim()) return;
-    setBusy(true);
-    setError(null);
-    const res = await fetch(`/api/tickets/${ticket.id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        actor: "USER",
-        author: ticket.contactName,
-        body: message.trim(),
-      }),
-    });
-    setBusy(false);
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Could not send message.");
-      return;
-    }
-    setMessage("");
-    router.refresh();
-  }
 
   return (
     <div className="space-y-4">
@@ -61,30 +32,6 @@ export function CustomerTicketPanel({
           />
         </article>
       ) : null}
-
-      <article className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_12px_32px_rgba(15,23,42,0.08)] sm:p-5 dark:border-zinc-800 dark:bg-surface dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
-        <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-500">
-          Add information
-        </h2>
-        <p className="mt-1 text-xs text-zinc-500">
-          Mirrors the “Need more info?” branch: your reply returns the ticket to active work.
-        </p>
-        <textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          rows={3}
-          className="mt-3 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none ring-orange-500/40 focus:border-orange-500 focus:ring dark:border-zinc-700 dark:bg-[#181716] dark:text-zinc-100"
-          placeholder="Provide missing details or answer agent questions"
-        />
-        <button
-          type="button"
-          disabled={busy}
-          onClick={postMessage}
-          className="mt-3 inline-flex w-full items-center justify-center rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-orange-500 disabled:opacity-60"
-        >
-          Send update
-        </button>
-      </article>
 
       {ticket.status === "FOR_CONFIRMATION" || ticket.status === "RESOLVED" ? (
         <article className="rounded-2xl border border-orange-500/40 bg-orange-500/10 p-4 shadow-[0_12px_32px_rgba(15,23,42,0.08)] sm:p-5 dark:border-orange-500/40">
@@ -119,12 +66,6 @@ export function CustomerTicketPanel({
             <p className="mt-2 text-sm text-zinc-500">No additional comment was submitted.</p>
           )}
         </article>
-      ) : null}
-
-      {error ? (
-        <p className="text-sm text-red-400" role="alert">
-          {error}
-        </p>
       ) : null}
     </div>
   );

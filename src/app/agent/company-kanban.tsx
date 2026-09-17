@@ -413,7 +413,7 @@ export function CompanyKanban({
 
   return (
     <>
-      <div className="flex min-h-0 w-full flex-col gap-3">
+    <div className="flex min-h-0 w-full flex-col gap-3">
         {boardLayer === "department" && (breadcrumb.length > 0 || overviewHref) ? (
           <nav
             aria-label="Department breadcrumb"
@@ -451,7 +451,7 @@ export function CompanyKanban({
         ) : null}
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] text-zinc-600 dark:text-zinc-500">
+      <p className="text-[11px] text-zinc-600 dark:text-zinc-500">
             {editing
               ? "Editing layout — drag cards by the grip, then Save to lock. Reset restores the last saved order."
               : boardLayer === "department"
@@ -966,12 +966,12 @@ function CompanyCard({
         />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold text-zinc-900 dark:text-zinc-100" title={col.companyName}>
-            {col.companyName}
-          </p>
+          {col.companyName}
+        </p>
           <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-500">
-            {tickets.length} request{tickets.length === 1 ? "" : "s"}
+          {tickets.length} request{tickets.length === 1 ? "" : "s"}
             {col.canDrillDown ? " · has sub-departments" : ""}
-          </p>
+        </p>
         </div>
         {onDrillDown && !reorderEnabled ? (
           <button
@@ -1110,9 +1110,9 @@ function PriorityRequestsModal({
 
         <ul className="min-h-0 flex-1 divide-y divide-zinc-200 overflow-y-auto dark:divide-zinc-800">
           {visibleTickets.map((t) => (
-            <li key={t.id}>
-              <AgentTicketDeepLink
-                ticketId={t.id}
+              <li key={t.id}>
+                <AgentTicketDeepLink
+                  ticketId={t.id}
                 className="flex w-full flex-col gap-1 px-5 py-3 text-left transition hover:bg-orange-500/[0.05] dark:hover:bg-orange-500/10"
               >
                 <div className="flex items-center justify-between gap-2">
@@ -1134,36 +1134,36 @@ function PriorityRequestsModal({
                 ) : (
                   <span className="text-[11px] text-zinc-500">Unassigned</span>
                 )}
-              </AgentTicketDeepLink>
-            </li>
+                </AgentTicketDeepLink>
+              </li>
           ))}
-        </ul>
+      </ul>
 
         {totalPages > 1 ? (
           <div className="flex items-center justify-between gap-2 border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
             <p className="text-[11px] text-zinc-500">
-              {start}-{end} of {tickets.length}
-            </p>
+            {start}-{end} of {tickets.length}
+          </p>
             <div className="flex gap-1.5">
-              <button
-                type="button"
-                disabled={safePage <= 1}
+            <button
+              type="button"
+              disabled={safePage <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 className="rounded-md border border-zinc-300 px-2 py-1 text-[11px] disabled:opacity-40 dark:border-zinc-600"
-              >
-                Prev
-              </button>
-              <button
-                type="button"
-                disabled={safePage >= totalPages}
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              disabled={safePage >= totalPages}
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 className="rounded-md border border-zinc-300 px-2 py-1 text-[11px] disabled:opacity-40 dark:border-zinc-600"
-              >
-                Next
-              </button>
-            </div>
+            >
+              Next
+            </button>
           </div>
-        ) : null}
+        </div>
+      ) : null}
       </DialogContent>
     </Dialog>
   );

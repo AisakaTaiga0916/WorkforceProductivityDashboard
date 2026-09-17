@@ -1,4 +1,5 @@
 import { PrismaClient as PrismaClientSecondary } from "@prisma/client/secondary";
+import { withPoolLimit } from "@/lib/prisma";
 
 /**
  * Write URL for the MySQL merge DB.
@@ -28,7 +29,7 @@ export async function withSecondaryWriteClient<T>(
 ): Promise<T> {
   const db = new PrismaClientSecondary({
     log: process.env.NODE_ENV === "development" ? ["warn"] : ["error"],
-    datasources: { db: { url: resolveSecondaryWriteUrl() } },
+    datasources: { db: { url: withPoolLimit(resolveSecondaryWriteUrl(), 3) } },
   });
   try {
     return await fn(db);

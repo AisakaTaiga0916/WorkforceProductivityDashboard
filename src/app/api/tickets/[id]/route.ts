@@ -201,14 +201,13 @@ function canTransition(from: TicketStatus, to: TicketStatus) {
     ["OPEN", "IN_PROGRESS"],
     ["OPEN", "RESOLVED"],
     ["OPEN", "FOR_CONFIRMATION"],
-    ["IN_PROGRESS", "PENDING_INFO"],
     ["IN_PROGRESS", "RESOLVED"],
     ["IN_PROGRESS", "FOR_CONFIRMATION"],
+    // Legacy PENDING_INFO tickets may still exit to active/resolved states.
     ["PENDING_INFO", "IN_PROGRESS"],
     ["PENDING_INFO", "RESOLVED"],
     ["PENDING_INFO", "FOR_CONFIRMATION"],
     ["ESCALATED", "IN_PROGRESS"],
-    ["ESCALATED", "PENDING_INFO"],
     ["ESCALATED", "RESOLVED"],
     ["ESCALATED", "FOR_CONFIRMATION"],
     ["RESOLVED", "CLOSED"],
@@ -313,15 +312,30 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const payload = await ticketJsonWithAssigneeColor(ticket);
-  const laneMap = await (await import("@/lib/request-board-columns")).loadTicketBoardLaneEnteredAtMap([
-    id,
+  const { loadTicketBoardLaneEnteredAtMap, loadTicketLastActivityAtMap, loadTicketForConfirmationEnteredAtMap } =
+    await import("@/lib/request-board-columns");
+  const [laneMap, activityMap, confirmationMap] = await Promise.all([
+    loadTicketBoardLaneEnteredAtMap([id]),
+    loadTicketLastActivityAtMap([id]),
+    loadTicketForConfirmationEnteredAtMap([id]),
   ]);
+  const boardLaneEnteredAt = laneMap.get(id) ?? ticket.updatedAt;
+  const lastActivityAt = activityMap.get(id) ?? null;
+  const forConfirmationAt =
+    confirmationMap.get(id) ??
+    (ticket.status === "FOR_CONFIRMATION"
+      ? (ticket.resolvedAt ?? boardLaneEnteredAt)
+      : null);
   return NextResponse.json({
     ...payload,
     boardLaneEnteredAt: laneMap.get(id)?.toISOString() ?? null,
+    lastActivityAt: lastActivityAt?.toISOString() ?? null,
+    forConfirmationAt: forConfirmationAt?.toISOString() ?? null,
     slaState: getTicketSlaState({
       ...ticket,
-      boardLaneEnteredAt: laneMap.get(id) ?? ticket.updatedAt,
+      boardLaneEnteredAt,
+      lastActivityAt,
+      forConfirmationAt,
     }),
   });
 }
@@ -854,28 +868,13 @@ export async function PATCH(
     }
 
     if (action === "request_more_info") {
-      if (!canStaffMutateTicket) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-      if (!["OPEN", "IN_PROGRESS", "ESCALATED"].includes(ticket.status)) {
-        return NextResponse.json(
-          { error: "More information can only be requested while the ticket is open, in progress, or transfer pending." },
-          { status: 400 },
-        );
-      }
-      const note =
-        typeof body.note === "string" && body.note.trim()
-          ? body.note.trim()
-          : "Personnel requested additional details from the requestor.";
-      await logActivity(id, "AGENT", "More information requested", note);
-      const unchanged = await prisma.ticket.findUnique({
-        where: { id },
-        include: { team: true, assignedAgent: true },
-      });
-      if (!unchanged) {
-        return NextResponse.json({ error: "Not found" }, { status: 404 });
-      }
-      return NextResponse.json(await ticketJsonWithAssigneeColor(unchanged));
+      return NextResponse.json(
+        {
+          error:
+            "Pending info / request more information is no longer used. Use Request chat instead.",
+        },
+        { status: 410 },
+      );
     }
 
     if (action === "priority") {
@@ -2065,6 +2064,9 @@ export async function PATCH(
           "All Request for Payment approval roles are complete. Sent for customer confirmation.",
         );
         await logActivity(id, "AGENT", "Status → FOR_CONFIRMATION", "All payment approvals complete.");
+        await (
+          await import("@/lib/request-board-columns")
+        ).stampForConfirmationBoardLane(id);
         const smtpRecipient =
           updated.requestorEmail?.trim() || updated.contactEmail;
         await sendResolutionEmail({
@@ -2622,6 +2624,9 @@ export async function PATCH(
           "Status → FOR_CONFIRMATION",
           "All item requisition approvals complete.",
         );
+        await (
+          await import("@/lib/request-board-columns")
+        ).stampForConfirmationBoardLane(id);
         const smtpRecipient =
           updated.requestorEmail?.trim() || updated.contactEmail;
         await sendResolutionEmail({
@@ -2921,6 +2926,9 @@ export async function PATCH(
           "Status → FOR_CONFIRMATION",
           "All fund transfer approvals complete.",
         );
+        await (
+          await import("@/lib/request-board-columns")
+        ).stampForConfirmationBoardLane(id);
         const smtpRecipient =
           updated.requestorEmail?.trim() || updated.contactEmail;
         await sendResolutionEmail({
@@ -3239,6 +3247,9 @@ export async function PATCH(
 
       if (sendForConfirmation) {
         await logActivity(id, "AGENT", "Status → FOR_CONFIRMATION", "Approved By complete after Job Done.");
+        await (
+          await import("@/lib/request-board-columns")
+        ).stampForConfirmationBoardLane(id);
         const smtpRecipient =
           updated.requestorEmail?.trim() || updated.contactEmail;
         await sendResolutionEmail({

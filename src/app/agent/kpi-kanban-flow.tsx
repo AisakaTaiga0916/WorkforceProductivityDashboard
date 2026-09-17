@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -47,6 +47,7 @@ import {
   canAdjustNumericalTarget,
   collectAllSubKpiItems,
   collectChecklistProgressItems,
+  listPendingVerificationSubKpiItems,
   getPillarScreenshots,
   getPillarCompletionRequirements,
   getTaskPriority,
@@ -119,7 +120,7 @@ import { TravelOrderApprovalModal } from "@/components/task-board/TravelOrderApp
 import { TravelOrderOfflineBanner } from "@/components/offline/TravelOrderOfflineBanner";
 import { TaskBoardPopup } from "@/components/task-board/TaskBoardPopup";
 import type { TravelOrderDto } from "@/lib/travel-order";
-import { travelOrderVehicleLabel } from "@/lib/travel-order";
+import { isWorkPlanOrder } from "@/lib/work-plan";
 import {
   cacheTravelOrders,
   deleteOfflineDraft,
@@ -130,8 +131,39 @@ import {
 import { isElevatedPlatformRole, isPlatformSuperAdminPortalRole } from "@/lib/staff-role";
 import { isBrowserOnline, fetchTravelOrderWithTimeout, isTravelOrderNetworkFailure, flushTravelOrderPendingQueue, subscribeTravelOrderConnectivity } from "@/lib/offline/travel-order-sync";
 import { DatePickerField } from "@/components/ui/DatePickerField";
+import {
+  COMPLETION_VERIFICATION,
+  isCompletionEffectivelyVerified,
+  isSubKpiEffectivelyVerified,
+  isSubKpiPendingVerification,
+  isSubKpiVerificationRejected,
+  laneStatusLabel,
+  type KpiBoardLaneStatus,
+} from "@/lib/task-completion-verification";
 
-type KpiBoardStatus = "CURRENT" | "DONE" | "DELAYED";
+type KpiBoardStatus = KpiBoardLaneStatus;
+
+function taskApprovalSeenIdsKey(operatorKey: string) {
+  return `task-approval-seen-ids:${operatorKey}`;
+}
+
+function readTaskApprovalSeenIds(operatorKey: string): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(taskApprovalSeenIdsKey(operatorKey));
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((id): id is string => typeof id === "string" && id.trim().length > 0));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeTaskApprovalSeenIds(operatorKey: string, ids: Set<string>) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(taskApprovalSeenIdsKey(operatorKey), JSON.stringify([...ids]));
+}
 
 const ASSIGNMENT_NO_COMPANY = "__NO_COMPANY__";
 
@@ -210,6 +242,7 @@ function ChecklistProgressRing({
 
 function laneProgressStrokeClass(col: KpiBoardStatus, itProject: boolean): string {
   if (col === "DONE") return "stroke-emerald-500 dark:stroke-emerald-400";
+  if (col === "PENDING_VERIFICATION") return "stroke-violet-500 dark:stroke-violet-400";
   if (col === "DELAYED") return "stroke-rose-500 dark:stroke-rose-400";
   if (itProject) return "stroke-orange-500 dark:stroke-orange-400";
   return "stroke-blue-500 dark:stroke-blue-400";
@@ -231,6 +264,14 @@ type KpiRecord = {
   /** Active cycle anchor (UTC); backlog rows may be null until first GET normalizes */
   periodCycleStartAt?: string | null;
   lastFullCompletionAt?: string | null;
+  completionVerificationStatus?: string | null;
+  verifierAgentId?: string | null;
+  pendingVerificationAt?: string | null;
+  verifiedAt?: string | null;
+  verificationRejectionComment?: string | null;
+  createdBy?: string | null;
+  /** Server: current viewer is org-chart head (or elevated) for this pending task. */
+  viewerCanVerifyCompletion?: boolean;
   assignedAgent?: { id: string; name: string; team?: { id?: string | null; name?: string | null } | null } | null;
   itProjectName?: string | null;
   itProjectPhase?: string | null;
@@ -238,7 +279,12 @@ type KpiRecord = {
   /** True when this card has a linked Request for Travel Order. */
   isFieldAssignment?: boolean;
   /** Purpose + travelers from the latest linked travel order (Field Assignment cards). */
-  travelOrderSummary?: { orderRequest: string; travelers: string[] } | null;
+  travelOrderSummary?: {
+    orderRequest: string;
+    travelers: string[];
+    personInCharge?: string | null;
+    isWorkPlan?: boolean;
+  } | null;
   /** Job Orders linked to this Task Board project. */
   linkedJobOrders?: Array<{ id: string; ticketNumber: string; title: string }>;
 };
@@ -528,6 +574,10 @@ export function AgentKpiKanbanFlow({
     Array<{ id: string; author: string; summary: string; detail: string | null; createdAt: string }>
   >([]);
   const [taskAuditLoading, setTaskAuditLoading] = useState(false);
+  const [verificationRejectComment, setVerificationRejectComment] = useState("");
+  const [verificationRejectOpen, setVerificationRejectOpen] = useState(false);
+  /** Task id whose reject form is open inside the For My Approval modal. */
+  const [approvalRejectTaskId, setApprovalRejectTaskId] = useState<string | null>(null);
   const [subTasksManagerTaskId, setSubTasksManagerTaskId] = useState<string | null>(null);
   const [seekAssistModal, setSeekAssistModal] = useState<{
     kpiId: string;
@@ -536,6 +586,11 @@ export function AgentKpiKanbanFlow({
     candidates: { id: string; title: string }[];
   } | null>(null);
   const [taskManagementOpen, setTaskManagementOpen] = useState(false);
+  const [forMyApprovalOpen, setForMyApprovalOpen] = useState(false);
+  /** SuperAdmin platform toggle — when false, skip pending-verification UI. */
+  const [taskVerificationEnabled, setTaskVerificationEnabled] = useState(true);
+  /** Pending approval task ids the viewer has already opened in For My Approval. */
+  const [approvalSeenIds, setApprovalSeenIds] = useState<Set<string>>(() => new Set());
   const [fromJobOrderId, setFromJobOrderId] = useState<string | null>(
     fromJobOrderTicketId?.trim() || null,
   );
@@ -670,48 +725,52 @@ export function AgentKpiKanbanFlow({
   }
 
   async function loadContext() {
-    const agentsUrl =
-      companyFilterTeamId && companyFilterTeamId !== "ALL"
-        ? `/api/agents?company=${encodeURIComponent(companyFilterTeamId)}`
-        : isElevatedAssign
-          ? "/api/agents?anyCompany=1"
-          : "/api/agents";
-    const [permRes, agentsRes, allAgentsRes, scopeRes] = await Promise.all([
-      fetch("/api/me/permissions", { cache: "no-store" }),
-      fetch(agentsUrl, { cache: "no-store" }),
-      fetch(isElevatedAssign ? "/api/agents?anyCompany=1" : "/api/agents", { cache: "no-store" }),
-      fetch("/api/me/assign-roster-scope", { cache: "no-store" }),
-    ]);
-    if (permRes.ok) {
-      const p = (await permRes.json()) as {
-        operatorAgentId?: string | null;
-        operatorAgentName?: string | null;
-      };
-      if (typeof p.operatorAgentId === "string" && p.operatorAgentId.trim()) {
-        setOperatorAgentId(p.operatorAgentId);
+    try {
+      const agentsUrl =
+        companyFilterTeamId && companyFilterTeamId !== "ALL"
+          ? `/api/agents?company=${encodeURIComponent(companyFilterTeamId)}`
+          : isElevatedAssign
+            ? "/api/agents?anyCompany=1"
+            : "/api/agents";
+      const [permRes, agentsRes, allAgentsRes, scopeRes] = await Promise.all([
+        fetch("/api/me/permissions", { cache: "no-store" }),
+        fetch(agentsUrl, { cache: "no-store" }),
+        fetch(isElevatedAssign ? "/api/agents?anyCompany=1" : "/api/agents", { cache: "no-store" }),
+        fetch("/api/me/assign-roster-scope", { cache: "no-store" }),
+      ]);
+      if (permRes.ok) {
+        const p = (await permRes.json()) as {
+          operatorAgentId?: string | null;
+          operatorAgentName?: string | null;
+        };
+        if (typeof p.operatorAgentId === "string" && p.operatorAgentId.trim()) {
+          setOperatorAgentId(p.operatorAgentId);
+        }
+        if (typeof p.operatorAgentName === "string" && p.operatorAgentName.trim()) {
+          setOperatorAgentName(p.operatorAgentName);
+        }
       }
-      if (typeof p.operatorAgentName === "string" && p.operatorAgentName.trim()) {
-        setOperatorAgentName(p.operatorAgentName);
+      if (agentsRes.ok) {
+        const a = (await agentsRes.json()) as AssignableAgent[];
+        if (Array.isArray(a)) setAgents(dedupeAssignableAgents(a));
       }
-    }
-    if (agentsRes.ok) {
-      const a = (await agentsRes.json()) as AssignableAgent[];
-      if (Array.isArray(a)) setAgents(dedupeAssignableAgents(a));
-    }
-    if (allAgentsRes.ok) {
-      const a = (await allAgentsRes.json()) as AssignableAgent[];
-      if (Array.isArray(a)) setAllAssignableAgents(dedupeAssignableAgents(a));
-    }
-    if (scopeRes.ok) {
-      const scope = (await scopeRes.json()) as AssignRosterScopePayload;
-      setAssignRosterScope({
-        elevated: Boolean(scope.elevated),
-        companies: Array.isArray(scope.companies) ? scope.companies : [],
-        departments: Array.isArray(scope.departments) ? scope.departments : [],
-        lockedCompanyId: scope.lockedCompanyId ?? null,
-        lockedCompanyName: scope.lockedCompanyName ?? null,
-        lockedAgentIds: Array.isArray(scope.lockedAgentIds) ? scope.lockedAgentIds : [],
-      });
+      if (allAgentsRes.ok) {
+        const a = (await allAgentsRes.json()) as AssignableAgent[];
+        if (Array.isArray(a)) setAllAssignableAgents(dedupeAssignableAgents(a));
+      }
+      if (scopeRes.ok) {
+        const scope = (await scopeRes.json()) as AssignRosterScopePayload;
+        setAssignRosterScope({
+          elevated: Boolean(scope.elevated),
+          companies: Array.isArray(scope.companies) ? scope.companies : [],
+          departments: Array.isArray(scope.departments) ? scope.departments : [],
+          lockedCompanyId: scope.lockedCompanyId ?? null,
+          lockedCompanyName: scope.lockedCompanyName ?? null,
+          lockedAgentIds: Array.isArray(scope.lockedAgentIds) ? scope.lockedAgentIds : [],
+        });
+      }
+    } catch {
+      // Poll / HMR / brief disconnects — keep last good roster state.
     }
   }
 
@@ -914,6 +973,8 @@ export function AgentKpiKanbanFlow({
 
   function closeActiveTask() {
     setActiveTaskId(null);
+    setVerificationRejectOpen(false);
+    setVerificationRejectComment("");
     setDetailSegmentFilter("ALL");
     setScheduleDraft(null);
     setTaskAuditLog([]);
@@ -1014,7 +1075,9 @@ export function AgentKpiKanbanFlow({
         negative: missing,
       };
     }
-    const p = kpiChecklistProgress(r.subKpis, taskLabel(r));
+    const p = kpiChecklistProgress(r.subKpis, taskLabel(r), {
+      parentCardEffectivelyVerified: isCompletionEffectivelyVerified(r),
+    });
     const view = kpiChecklistMetricView(
       p,
       taskUsesInvertedRecording({ title: r.title, subKpis: r.subKpis }),
@@ -1099,12 +1162,21 @@ export function AgentKpiKanbanFlow({
       }
       return "CURRENT";
     }
-    return taskKanbanDerivedStatus(r, {
+    const derived = taskKanbanDerivedStatus(r, {
       total: p.total,
       done: p.done,
       nowMs,
       timeZone: tz,
     });
+    // Pending verification stays on Current; approvals are handled via "For My Approval".
+    if (derived === "PENDING_VERIFICATION") return "CURRENT";
+    return derived;
+  }
+
+  function isAwaitingVerification(r: KpiRecord): boolean {
+    if (!taskVerificationEnabled) return false;
+    if (r.completionVerificationStatus === COMPLETION_VERIFICATION.PENDING) return true;
+    return pendingApprovalSubtasks(r).length > 0;
   }
 
   function canEditChecklist(r: KpiRecord) {
@@ -1187,6 +1259,7 @@ export function AgentKpiKanbanFlow({
   }
 
   async function move(id: string, to: KpiBoardStatus) {
+    if (to === "DELAYED") return;
     setBusyId(id);
     setError(null);
     try {
@@ -1205,6 +1278,61 @@ export function AgentKpiKanbanFlow({
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function submitCompletionVerification(
+    id: string,
+    action: "approve" | "reject" | "resubmit",
+    comment?: string,
+    subKpiId?: string,
+  ) {
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/kpi-maintenance?tz=${encodeURIComponent(tz)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id,
+          completionVerification: { action, comment, ...(subKpiId ? { subKpiId } : {}) },
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setError(body.error ?? "Could not update verification.");
+        return;
+      }
+      setVerificationRejectOpen(false);
+      setVerificationRejectComment("");
+      setApprovalRejectTaskId(null);
+      await load();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function canVerifyCompletion(r: KpiRecord): boolean {
+    if (!taskVerificationEnabled) return false;
+    // Server marks cards the viewer may approve (incl. pending sub-tasks under their department).
+    if (r.viewerCanVerifyCompletion === true) return true;
+    if (r.completionVerificationStatus !== COMPLETION_VERIFICATION.PENDING) return false;
+    // Elevated platform roles can always verify pending completions.
+    if (isElevatedAssign) return true;
+    return false;
+  }
+
+  function pendingApprovalSubtasks(r: KpiRecord) {
+    return listPendingVerificationSubKpiItems(r.subKpis, {
+      taskTitle: taskLabel(r),
+      parentCardEffectivelyVerified: isCompletionEffectivelyVerified(r),
+    });
+  }
+
+  function canResubmitCompletion(r: KpiRecord): boolean {
+    if (!taskVerificationEnabled) return false;
+    if (r.completionVerificationStatus !== COMPLETION_VERIFICATION.REJECTED) return false;
+    if (canAssignWork || isElevatedAssign) return true;
+    return Boolean(operatorAgentId && r.assignedAgent?.id === operatorAgentId);
   }
 
   async function assignKpi(id: string, assignedAgentId: string) {
@@ -2017,12 +2145,70 @@ export function AgentKpiKanbanFlow({
   ]);
   const hasBoardRows = boardRows.length > 0;
   const laneCounts = useMemo(() => {
-    const counts: Record<KpiBoardStatus, number> = { CURRENT: 0, DONE: 0, DELAYED: 0 };
+    const counts: Record<"CURRENT" | "DONE" | "DELAYED", number> = {
+      CURRENT: 0,
+      DONE: 0,
+      DELAYED: 0,
+    };
     for (const row of boardRows) {
-      counts[statusOf(row)] += 1;
+      const lane = statusOf(row);
+      if (lane === "DONE") counts.DONE += 1;
+      else if (lane === "DELAYED") counts.DELAYED += 1;
+      else counts.CURRENT += 1;
     }
     return counts;
   }, [boardRows, nowMs, tz]);
+
+  const forMyApprovalTasks = useMemo(
+    () => rows.filter((row) => canVerifyCompletion(row)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, isElevatedAssign],
+  );
+
+  const approvalOperatorKey = operatorAgentId?.trim() || "unknown";
+  const forMyApprovalUnreadCount = useMemo(() => {
+    let n = 0;
+    for (const row of forMyApprovalTasks) {
+      if (!approvalSeenIds.has(row.id)) n += 1;
+    }
+    return n;
+  }, [forMyApprovalTasks, approvalSeenIds]);
+
+  useEffect(() => {
+    if (!operatorAgentId) return;
+    queueMicrotask(() => {
+      setApprovalSeenIds(readTaskApprovalSeenIds(operatorAgentId));
+    });
+  }, [operatorAgentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    function refreshVerificationSetting() {
+      void fetch("/api/admin/task-verification-settings", { cache: "no-store" })
+        .then(async (res) => {
+          if (!res.ok || cancelled) return;
+          const body = (await res.json().catch(() => ({}))) as { enabled?: boolean };
+          if (!cancelled) setTaskVerificationEnabled(body.enabled !== false);
+        })
+        .catch(() => undefined);
+    }
+    refreshVerificationSetting();
+    window.addEventListener("task-verification-settings-changed", refreshVerificationSetting);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("task-verification-settings-changed", refreshVerificationSetting);
+    };
+  }, []);
+
+  function openForMyApproval() {
+    const pendingIds = new Set(forMyApprovalTasks.map((row) => row.id));
+    // Drop stale ids (already verified / no longer pending) and mark current queue as seen.
+    const nextSeen = new Set([...approvalSeenIds].filter((id) => pendingIds.has(id)));
+    for (const id of pendingIds) nextSeen.add(id);
+    setApprovalSeenIds(nextSeen);
+    writeTaskApprovalSeenIds(approvalOperatorKey, nextSeen);
+    setForMyApprovalOpen(true);
+  }
 
   const loadLocalTravelOrderListItems = useCallback(async () => {
     // Only queued offline creates are listed — local "saved draft" rows are intentionally
@@ -2062,50 +2248,80 @@ export function AgentKpiKanbanFlow({
   const reloadCompanyTravelOrders = useCallback(async () => {
     setCompanyTravelOrdersLoading(true);
     setCompanyTravelOrdersError(null);
-    try {
-      const localItems = await loadLocalTravelOrderListItems();
-      const savedDrafts = await loadSavedTravelOrderDraftItems();
 
+    const localItems = await loadLocalTravelOrderListItems().catch(() => []);
+    const savedDrafts = await loadSavedTravelOrderDraftItems().catch(() => []);
+    const cachedEarly = await listAllCachedTravelOrders().catch(() => []);
+    // Paint cache immediately so the modal is never empty while the network hangs.
+    if (localItems.length > 0 || cachedEarly.length > 0 || savedDrafts.length > 0) {
+      setCompanyTravelOrders([...localItems, ...cachedEarly, ...savedDrafts]);
+    }
+
+    try {
       if (!isBrowserOnline()) {
-        const cached = await listAllCachedTravelOrders();
-        setCompanyTravelOrders([...localItems, ...cached, ...savedDrafts]);
-        if (localItems.length === 0 && cached.length === 0) {
+        if (localItems.length === 0 && cachedEarly.length === 0 && savedDrafts.length === 0) {
           setCompanyTravelOrdersError(
             "You are offline and no cached travel orders are available yet.",
           );
         }
         return;
       }
-      const res = await fetchTravelOrderWithTimeout("/api/travel-orders", { cache: "no-store" });
-      const body = (await res.json().catch(() => ({}))) as {
-        travelOrders?: TravelOrderDto[];
-        error?: string;
-      };
-      if (!res.ok) {
-        throw new Error(body.error ?? "Could not load travel orders.");
+
+      async function fetchListOnce(timeoutMs: number): Promise<TravelOrderDto[]> {
+        const res = await fetchTravelOrderWithTimeout(
+          "/api/travel-orders",
+          { cache: "no-store", credentials: "same-origin" },
+          timeoutMs,
+        );
+        const body = (await res.json().catch(() => ({}))) as {
+          travelOrders?: TravelOrderDto[];
+          error?: string;
+        };
+        if (!res.ok) {
+          throw new Error(body.error ?? "Could not load travel orders.");
+        }
+        return Array.isArray(body.travelOrders) ? body.travelOrders : [];
       }
-      const list = Array.isArray(body.travelOrders) ? body.travelOrders : [];
+
+      let list: TravelOrderDto[];
+      try {
+        list = await fetchListOnce(45_000);
+      } catch (firstErr) {
+        // One automatic retry after a short pause (covers cold compile / transient abort).
+        if (!isTravelOrderNetworkFailure(firstErr)) throw firstErr;
+        await new Promise((r) => setTimeout(r, 1500));
+        list = await fetchListOnce(90_000);
+      }
+
       setCompanyTravelOrders([...localItems, ...list, ...savedDrafts]);
+      setCompanyTravelOrdersError(null);
       void cacheTravelOrders(list);
     } catch (err: unknown) {
-      const localItems = await loadLocalTravelOrderListItems().catch(() => []);
-      const savedDrafts = await loadSavedTravelOrderDraftItems().catch(() => []);
-      const cached = await listAllCachedTravelOrders().catch(() => []);
-      if (localItems.length > 0 || cached.length > 0 || savedDrafts.length > 0) {
-        setCompanyTravelOrders([...localItems, ...cached, ...savedDrafts]);
+      const hasCache =
+        localItems.length > 0 || cachedEarly.length > 0 || savedDrafts.length > 0;
+      if (!hasCache) {
+        setCompanyTravelOrders([]);
+      }
+      const offline = typeof navigator !== "undefined" && !navigator.onLine;
+      if (offline) {
         setCompanyTravelOrdersError(
-          typeof navigator !== "undefined" && !navigator.onLine
+          hasCache
             ? "Showing cached travel orders (offline)."
-            : "Showing cached travel orders (network error).",
+            : "You are offline and no cached travel orders are available yet.",
+        );
+      } else if (isTravelOrderNetworkFailure(err)) {
+        setCompanyTravelOrdersError(
+          hasCache
+            ? "Still refreshing from the server — showing cached travel orders."
+            : "Could not reach the server for travel orders. Try again in a moment.",
         );
       } else {
-        setCompanyTravelOrders([]);
         setCompanyTravelOrdersError(
-          isTravelOrderNetworkFailure(err)
-            ? "You are offline and no cached travel orders are available yet."
-            : err instanceof Error
-              ? err.message
-              : "Could not load travel orders.",
+          err instanceof Error
+            ? hasCache
+              ? `${err.message} Showing cached travel orders.`
+              : err.message
+            : "Could not load travel orders.",
         );
       }
     } finally {
@@ -2113,33 +2329,41 @@ export function AgentKpiKanbanFlow({
     }
   }, [loadLocalTravelOrderListItems]);
 
+  // Warm-compile travel-order APIs as soon as the tasks page mounts (cold compile can exceed 20s).
+  useEffect(() => {
+    if (!isBrowserOnline()) return;
+    const ctrl = new AbortController();
+    const warm = (url: string) =>
+      fetch(url, {
+        cache: "no-store",
+        credentials: "same-origin",
+        signal: ctrl.signal,
+      }).catch(() => undefined);
+    void warm("/api/travel-orders");
+    void warm("/api/kpi-maintenance/field-assignment");
+    return () => {
+      ctrl.abort();
+    };
+  }, []);
+
   useEffect(() => {
     if (!travelOrdersOpen) return;
     let cancelled = false;
-    void (async () => {
-      try {
-        await flushTravelOrderPendingQueue();
-      } catch {
-        /* keep going — list still loads from cache / server */
-      }
-      if (!cancelled) void reloadCompanyTravelOrders();
-    })();
-    // Warm SW page/shell caches while online so a later offline reload can recover.
+    // Do not wait for offline flush — load the list immediately.
+    void reloadCompanyTravelOrders();
+    void flushTravelOrderPendingQueue().catch(() => undefined);
+
     if (typeof navigator !== "undefined" && navigator.onLine) {
       const worker = navigator.serviceWorker?.controller;
       worker?.postMessage({
         type: "WARM_TRAVEL_ORDER_SHELL",
         urls: ["/offline-travel-orders.html", "/agent/tasks", window.location.pathname],
       });
-      void fetch("/offline-travel-orders.html", { credentials: "same-origin", cache: "no-cache" }).catch(
-        () => null,
-      );
     }
     const unsub = subscribeTravelOrderConnectivity(() => {
-      if (!isBrowserOnline()) return;
-      void flushTravelOrderPendingQueue().then(() => {
-        if (!cancelled) void reloadCompanyTravelOrders();
-      });
+      if (!isBrowserOnline() || cancelled) return;
+      void reloadCompanyTravelOrders();
+      void flushTravelOrderPendingQueue().catch(() => undefined);
     });
     return () => {
       cancelled = true;
@@ -2168,7 +2392,7 @@ export function AgentKpiKanbanFlow({
   /**
    * Assignee roster for reassignment:
    * - Elevated: company or department (org chart) scope — may cross company/department.
-   * - Admin/Personnel: locked to designated company ∩ org-chart department.
+   * - Admin/Personnel: locked to designated company âˆ© org-chart department.
    * - Fallback: lock to the current main assignee's company when present.
    */
   function companyLockedCandidatesFor(r: KpiRecord): {
@@ -2219,7 +2443,7 @@ export function AgentKpiKanbanFlow({
           );
         }
         if (scopeReady) {
-          lockNote = `Company: ${companyName ?? "selected"} · ${list.length} personnel · cross-company assign allowed`;
+          lockNote = `Company: ${companyName ?? "selected"} Â· ${list.length} personnel Â· cross-company assign allowed`;
         } else {
           lockNote = "Select a company to list assignees";
           emptyHint = "Select a company first.";
@@ -2229,7 +2453,7 @@ export function AgentKpiKanbanFlow({
         list = scopeReady && assignScopeAgents != null ? [...assignScopeAgents] : [];
         const deptLabel = assignRosterScope?.departments.find((d) => d.value === assignPickerDepartmentId)?.label;
         if (scopeReady) {
-          lockNote = `Department: ${deptLabel ?? "selected"} · ${list.length} personnel · cross-company`;
+          lockNote = `Department: ${deptLabel ?? "selected"} Â· ${list.length} personnel Â· cross-company`;
           if (list.length === 0) {
             emptyHint = "No personnel in this org-chart department.";
           }
@@ -2242,12 +2466,12 @@ export function AgentKpiKanbanFlow({
       const allowed = new Set(lockedIds);
       list = assigneeCandidates.filter((a) => allowed.has(a.id));
       lockNote = assignRosterScope.lockedCompanyName
-        ? `Locked to ${assignRosterScope.lockedCompanyName} · your org-chart department`
+        ? `Locked to ${assignRosterScope.lockedCompanyName} Â· your org-chart department`
         : "Locked to your company and org-chart department";
     } else if (assignRosterScope && !assignRosterScope.elevated) {
       list = [];
       lockNote = assignRosterScope.lockedCompanyName
-        ? `No assignable personnel in ${assignRosterScope.lockedCompanyName} · your org-chart department`
+        ? `No assignable personnel in ${assignRosterScope.lockedCompanyName} Â· your org-chart department`
         : "No assignable personnel in your company / department scope";
       emptyHint = lockNote;
     } else {
@@ -2880,8 +3104,8 @@ export function AgentKpiKanbanFlow({
             <ul className="mt-1 space-y-1 text-[11px] text-zinc-700 dark:text-zinc-300">
               {archivedEntries.slice(-3).map((entry) => (
                 <li key={entry.archivedAt} className="tabular-nums">
-                  {new Date(entry.archivedAt).toLocaleDateString(undefined, { timeZone: tz })} · target{" "}
-                  {entry.numericalTarget ?? "—"} · actual {entry.numericalValue ?? "—"}
+                  {new Date(entry.archivedAt).toLocaleDateString(undefined, { timeZone: tz })} Â· target{" "}
+                  {entry.numericalTarget ?? "—"} Â· actual {entry.numericalValue ?? "—"}
                 </li>
               ))}
             </ul>
@@ -3058,8 +3282,8 @@ export function AgentKpiKanbanFlow({
         </div>
         {accrued > 0 ? (
           <p className="text-[11px] font-semibold text-rose-700 dark:text-rose-300">
-            Accrued penalty: {accrued} · {subKpiPenaltyDays(s, ctx)} day
-            {subKpiPenaltyDays(s, ctx) === 1 ? "" : "s"} → {freq.toLowerCase()} units ×{" "}
+            Accrued penalty: {accrued} Â· {subKpiPenaltyDays(s, ctx)} day
+            {subKpiPenaltyDays(s, ctx) === 1 ? "" : "s"} â†’ {freq.toLowerCase()} units Ã—{" "}
             {resolveSubKpiDailyPenaltyAmount(s, ctx)}/{unitLabel}
           </p>
         ) : null}
@@ -3113,8 +3337,8 @@ export function AgentKpiKanbanFlow({
         </div>
         {accrued > 0 ? (
           <p className="text-[11px] font-semibold text-rose-700 dark:text-rose-300">
-            Accrued penalty: {accrued} · {subKpiPenaltyDays(virtual, ctx)} day
-            {subKpiPenaltyDays(virtual, ctx) === 1 ? "" : "s"} → {freq.toLowerCase()} units ×{" "}
+            Accrued penalty: {accrued} Â· {subKpiPenaltyDays(virtual, ctx)} day
+            {subKpiPenaltyDays(virtual, ctx) === 1 ? "" : "s"} â†’ {freq.toLowerCase()} units Ã—{" "}
             {resolveSubKpiDailyPenaltyAmount(virtual, ctx)}/{unitLabel}
           </p>
         ) : null}
@@ -3130,7 +3354,16 @@ export function AgentKpiKanbanFlow({
     const subEditable = canEditSubKpi(r, s);
     const subCompletable = canCompleteSubKpi(r, s);
     const completionRequirements = resolveSubKpiCompletionRequirements(s);
-    const finished = subKpiRequirementsMet(s);
+    const submitted = subKpiRequirementsMet(s);
+    const parentVerified = isCompletionEffectivelyVerified(r);
+    const pendingVerify = isSubKpiPendingVerification(s, {
+      parentCardEffectivelyVerified: parentVerified,
+    });
+    const verifiedFinished = isSubKpiEffectivelyVerified(s, {
+      parentCardEffectivelyVerified: parentVerified,
+    });
+    const rejectedVerify = isSubKpiVerificationRejected(s);
+    const finished = submitted;
     const showCheckbox =
       subEditable && busyId !== r.id && subKpiRequiresCheckbox(completionRequirements);
     const invertedRecording = taskUsesInvertedRecording({ title: r.title, subKpis: r.subKpis });
@@ -3149,12 +3382,22 @@ export function AgentKpiKanbanFlow({
             <span
               className={cn(
                 "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                finished
+                verifiedFinished
                   ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                  : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                  : pendingVerify
+                    ? "border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                    : rejectedVerify
+                      ? "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+                      : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
               )}
             >
-              {finished ? "Finished" : "Pending"}
+              {verifiedFinished
+                ? "Finished"
+                : pendingVerify
+                  ? "For verification"
+                  : rejectedVerify
+                    ? "Returned"
+                    : "Pending"}
             </span>
           )
         : null;
@@ -3200,7 +3443,16 @@ export function AgentKpiKanbanFlow({
     const canEditWorkDetails = subEditable || canAssignWork || canManageSubTasks;
     const recurring = r.isRecurring !== false;
     const showDueDateFields = !hideAddSubTaskScheduleDate(r);
-    const finished = subKpiRequirementsMet(s);
+    const submitted = subKpiRequirementsMet(s);
+    const parentVerified = isCompletionEffectivelyVerified(r);
+    const pendingVerify = isSubKpiPendingVerification(s, {
+      parentCardEffectivelyVerified: parentVerified,
+    });
+    const verifiedFinished = isSubKpiEffectivelyVerified(s, {
+      parentCardEffectivelyVerified: parentVerified,
+    });
+    const rejectedVerify = isSubKpiVerificationRejected(s);
+    const finished = submitted;
     const showCheckbox =
       subEditable && busyId !== r.id && subKpiRequiresCheckbox(completionRequirements);
     const progressMismatchWarning =
@@ -3327,12 +3579,22 @@ export function AgentKpiKanbanFlow({
                     <span
                       className={cn(
                         "rounded-full border px-2 py-0.5 text-[10px] font-semibold",
-                        finished
+                        verifiedFinished
                           ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                          : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                          : pendingVerify
+                            ? "border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                            : rejectedVerify
+                              ? "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+                              : "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
                       )}
                     >
-                      {finished ? "Finished" : "Pending"}
+                      {verifiedFinished
+                        ? "Finished"
+                        : pendingVerify
+                          ? "For verification"
+                          : rejectedVerify
+                            ? "Returned"
+                            : "Pending"}
                     </span>
                   )
                 : null}
@@ -3381,7 +3643,7 @@ export function AgentKpiKanbanFlow({
         ) : null}
         {needsNumericalForCheckbox && completionRequirements.checkbox ? (
           <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
-            Reach 100% progress (actual ÷ target) before marking this sub-task done.
+            Reach 100% progress (actual Ã· target) before marking this sub-task done.
           </p>
         ) : null}
         {!completionRequirements.checkbox && completionRequirements.screenshots && !finished ? (
@@ -3745,7 +4007,7 @@ export function AgentKpiKanbanFlow({
               <p>
                 Started {s.startedAt ? new Date(s.startedAt).toLocaleString() : s.startDate}
                 {typeof s.startedLatitude === "number" && typeof s.startedLongitude === "number"
-                  ? ` · ${s.startedLatitude.toFixed(5)}, ${s.startedLongitude.toFixed(5)}`
+                  ? ` Â· ${s.startedLatitude.toFixed(5)}, ${s.startedLongitude.toFixed(5)}`
                   : ""}
               </p>
             ) : null}
@@ -3753,7 +4015,7 @@ export function AgentKpiKanbanFlow({
               <p>
                 Ended {s.endedAt ? new Date(s.endedAt).toLocaleString() : s.actualDate}
                 {typeof s.endedLatitude === "number" && typeof s.endedLongitude === "number"
-                  ? ` · ${s.endedLatitude.toFixed(5)}, ${s.endedLongitude.toFixed(5)}`
+                  ? ` Â· ${s.endedLatitude.toFixed(5)}, ${s.endedLongitude.toFixed(5)}`
                   : ""}
               </p>
             ) : null}
@@ -3913,7 +4175,7 @@ export function AgentKpiKanbanFlow({
               ) : null}
               {penalty > 0 ? (
                 <p className="text-[11px] font-semibold text-rose-700 dark:text-rose-400">
-                  Delay penalty: −{penalty} pts
+                  Delay penalty: âˆ’{penalty} pts
                   {subKpiPenaltyDays(s, penaltyCtx) > 0
                     ? ` (${subKpiPenaltyDays(s, penaltyCtx)}d overdue)`
                     : ""}
@@ -4460,10 +4722,16 @@ export function AgentKpiKanbanFlow({
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                 {fieldAssignment ? (
                   <>
-                    Travelers:{" "}
-                    {activeTask.travelOrderSummary?.travelers?.length
-                      ? activeTask.travelOrderSummary.travelers.join(", ")
-                      : activeTask.assignedAgent?.name ?? "—"}
+                    {activeTask.travelOrderSummary?.isWorkPlan
+                      ? "Person-in-Charge: "
+                      : "Travelers: "}
+                    {activeTask.travelOrderSummary?.isWorkPlan
+                      ? activeTask.travelOrderSummary.personInCharge?.trim() ||
+                        activeTask.assignedAgent?.name ||
+                        "—"
+                      : activeTask.travelOrderSummary?.travelers?.length
+                        ? activeTask.travelOrderSummary.travelers.join(", ")
+                        : activeTask.assignedAgent?.name ?? "—"}
                   </>
                 ) : (
                   <span className="inline-flex items-center gap-1.5">
@@ -4532,9 +4800,9 @@ export function AgentKpiKanbanFlow({
                   </p>
                   <p className="mt-0.5 text-xs font-bold text-zinc-950 dark:text-zinc-50">
                     {itProjectProgress
-                      ? `${itProjectProgress.averagePercent}% avg · ${itProjectProgress.totalDone}/${itProjectProgress.totalItems}`
+                      ? `${itProjectProgress.averagePercent}% avg Â· ${itProjectProgress.totalDone}/${itProjectProgress.totalItems}`
                       : p.inverted
-                        ? `${p.positive}/${p.total} clear · ${p.negative} flagged`
+                        ? `${p.positive}/${p.total} clear Â· ${p.negative} flagged`
                         : `${p.done}/${p.total} finished`}
                   </p>
                 </div>
@@ -4543,8 +4811,31 @@ export function AgentKpiKanbanFlow({
               <dl className="space-y-2 text-xs">
                 <div>
                   <dt className="font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-500">Status</dt>
-                  <dd className="mt-0.5 text-zinc-800 dark:text-zinc-200">{statusOf(activeTask)}</dd>
+                  <dd className="mt-0.5 text-zinc-800 dark:text-zinc-200">
+                    {laneStatusLabel(statusOf(activeTask))}
+                    {activeTask.completionVerificationStatus === COMPLETION_VERIFICATION.PENDING ? (
+                      <span className="ml-2 inline-flex rounded-full border border-violet-400/60 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-800 dark:border-violet-500/40 dark:text-violet-200">
+                        Pending verification
+                      </span>
+                    ) : null}
+                    {activeTask.completionVerificationStatus === COMPLETION_VERIFICATION.REJECTED ? (
+                      <span className="ml-2 inline-flex rounded-full border border-amber-400/60 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:border-amber-500/40 dark:text-amber-200">
+                        Returned
+                      </span>
+                    ) : null}
+                  </dd>
                 </div>
+                {activeTask.completionVerificationStatus === COMPLETION_VERIFICATION.REJECTED &&
+                activeTask.verificationRejectionComment ? (
+                  <div>
+                    <dt className="font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-500">
+                      Rejection reason
+                    </dt>
+                    <dd className="mt-0.5 text-zinc-800 dark:text-zinc-200">
+                      {activeTask.verificationRejectionComment}
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt className="font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-500">Cycle</dt>
                   <dd className="mt-0.5 text-zinc-800 dark:text-zinc-200">
@@ -4587,6 +4878,90 @@ export function AgentKpiKanbanFlow({
                 ) : null}
               </dl>
               {renderTaskScheduleEditor(activeTask)}
+              {canVerifyCompletion(activeTask) ? (
+                <div className="space-y-2 rounded-lg border border-violet-400/45 bg-violet-500/10 p-3 dark:border-violet-500/35 dark:bg-violet-500/10">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-900 dark:text-violet-200">
+                    Completion verification
+                  </p>
+                  <p className="text-xs text-zinc-700 dark:text-zinc-300">
+                    Checklist is complete. As the department head, verify to mark Done, or reject with a comment to return the task to Current.
+                  </p>
+                  {!verificationRejectOpen ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={busyId === activeTask.id}
+                        onClick={() => void submitCompletionVerification(activeTask.id, "approve")}
+                        className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                      >
+                        Verify
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === activeTask.id}
+                        onClick={() => setVerificationRejectOpen(true)}
+                        className="rounded-lg border border-rose-400/60 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-500/15 dark:text-rose-200"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <textarea
+                        value={verificationRejectComment}
+                        onChange={(e) => setVerificationRejectComment(e.target.value)}
+                        rows={3}
+                        placeholder="Required: explain why this was returned…"
+                        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={busyId === activeTask.id || !verificationRejectComment.trim()}
+                          onClick={() =>
+                            void submitCompletionVerification(
+                              activeTask.id,
+                              "reject",
+                              verificationRejectComment,
+                            )
+                          }
+                          className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
+                        >
+                          Confirm reject
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVerificationRejectOpen(false);
+                            setVerificationRejectComment("");
+                          }}
+                          className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+              {canResubmitCompletion(activeTask) ? (
+                <div className="space-y-2 rounded-lg border border-amber-400/45 bg-amber-500/10 p-3 dark:border-amber-500/35">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-amber-900 dark:text-amber-200">
+                    Returned for rework
+                  </p>
+                  <p className="text-xs text-zinc-700 dark:text-zinc-300">
+                    Address the rejection feedback, then re-submit for verification.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={busyId === activeTask.id}
+                    onClick={() => void submitCompletionVerification(activeTask.id, "resubmit")}
+                    className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-50"
+                  >
+                    Re-submit for verification
+                  </button>
+                </div>
+              ) : null}
               {usesTaskPriority ? (
                 <label className="block rounded-lg border border-zinc-200 bg-white p-3 text-[10px] font-bold uppercase tracking-wide text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/70 dark:text-zinc-500">
                   Task priority
@@ -4630,7 +5005,7 @@ export function AgentKpiKanbanFlow({
                           </p>
                         ) : null}
                         <p className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-500">
-                          {entry.author} · {new Date(entry.createdAt).toLocaleString()}
+                          {entry.author} Â· {new Date(entry.createdAt).toLocaleString()}
                         </p>
                       </li>
                     ))}
@@ -4815,6 +5190,27 @@ export function AgentKpiKanbanFlow({
           ) : null}
           <button
             type="button"
+            onClick={() => openForMyApproval()}
+            className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-orange-500/40 dark:hover:bg-orange-500/10 dark:hover:text-orange-100 sm:px-4"
+            aria-label={
+              forMyApprovalUnreadCount > 0
+                ? `For My Approval, ${forMyApprovalUnreadCount} new`
+                : "For My Approval"
+            }
+          >
+            For My Approval
+            {forMyApprovalUnreadCount > 0 ? (
+              <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-[18px] text-white shadow-sm">
+                {forMyApprovalUnreadCount > 9 ? "9+" : forMyApprovalUnreadCount}
+              </span>
+            ) : forMyApprovalTasks.length > 0 ? (
+              <span className="rounded-full bg-orange-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                {forMyApprovalTasks.length}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
             onClick={() => setTravelOrdersOpen(true)}
             className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-orange-500/40 dark:hover:bg-orange-500/10 dark:hover:text-orange-100 sm:px-4"
           >
@@ -4846,7 +5242,7 @@ export function AgentKpiKanbanFlow({
           className="grid grid-cols-3 gap-1 rounded-xl border border-zinc-200 bg-zinc-100/80 p-1 dark:border-zinc-800 dark:bg-zinc-900/70 md:hidden"
         >
           {(["CURRENT", "DONE", "DELAYED"] as const).map((col) => {
-            const label = col === "CURRENT" ? "Current" : col === "DONE" ? "Done" : "Delayed";
+            const label = laneStatusLabel(col);
             const active = mobileLane === col;
             return (
               <button
@@ -4885,7 +5281,7 @@ export function AgentKpiKanbanFlow({
       {kpiStatusDrag.draggingItemId ? (
         <div className="fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))] z-[70] grid grid-cols-3 gap-2 md:hidden">
           {(["CURRENT", "DONE", "DELAYED"] as const).map((col) => {
-            const label = col === "CURRENT" ? "Current" : col === "DONE" ? "Done" : "Delayed";
+            const label = laneStatusLabel(col);
             const dropClass =
               col === "CURRENT"
                 ? "border-blue-400/50 bg-blue-950/90 text-blue-100"
@@ -4902,7 +5298,7 @@ export function AgentKpiKanbanFlow({
                   kpiStatusDrag.hoverColumn === col && "ring-2 ring-orange-400 ring-offset-2 ring-offset-zinc-950",
                 )}
               >
-                Drop → {label}
+                Drop â†’ {label}
               </div>
             );
           })}
@@ -4943,7 +5339,7 @@ export function AgentKpiKanbanFlow({
                 if (col !== "DELAYED") return 0;
                 return incompleteOverdueMs(b) - incompleteOverdueMs(a);
               });
-            const label = col === "CURRENT" ? "Current" : col === "DONE" ? "Done" : "Delayed";
+            const label = laneStatusLabel(col);
             const colClass =
               col === "CURRENT"
                 ? "border-blue-300/80 bg-blue-50/40 dark:border-blue-500/35 dark:bg-[#0c1220]"
@@ -5032,6 +5428,15 @@ export function AgentKpiKanbanFlow({
                           {pendingBadgeLabel}
                         </span>
                       ) : null;
+                      const verificationBadge = isAwaitingVerification(r) ? (
+                        <span className="shrink-0 rounded-full border border-violet-400/60 bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-800 dark:border-violet-500/40 dark:text-violet-200">
+                          For verification
+                        </span>
+                      ) : r.completionVerificationStatus === COMPLETION_VERIFICATION.REJECTED ? (
+                        <span className="shrink-0 rounded-full border border-amber-400/60 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:border-amber-500/40 dark:text-amber-200">
+                          Returned
+                        </span>
+                      ) : null;
                       const mainBarPct = itProjectProgress ? itProjectProgress.averagePercent : p.pct;
                       const mainRingStroke = laneProgressStrokeClass(col, itProject);
                       const drawerAllowed = canOpenSubtaskDrawer(r, checklistItems);
@@ -5079,10 +5484,16 @@ export function AgentKpiKanbanFlow({
                                     </span>
                                   </p>
                                   <p className="mt-1 line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400">
-                                    Travelers:{" "}
-                                    {r.travelOrderSummary?.travelers?.length
-                                      ? r.travelOrderSummary.travelers.join(", ")
-                                      : r.assignedAgent?.name ?? "—"}
+                                    {r.travelOrderSummary?.isWorkPlan
+                                      ? "Person-in-Charge: "
+                                      : "Travelers: "}
+                                    {r.travelOrderSummary?.isWorkPlan
+                                      ? r.travelOrderSummary.personInCharge?.trim() ||
+                                        r.assignedAgent?.name ||
+                                        "—"
+                                      : r.travelOrderSummary?.travelers?.length
+                                        ? r.travelOrderSummary.travelers.join(", ")
+                                        : r.assignedAgent?.name ?? "—"}
                                   </p>
                                   {canAssignWork ? (
                                     <div className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
@@ -5097,6 +5508,7 @@ export function AgentKpiKanbanFlow({
                                       {taskLabel(r)}
                                     </p>
                                     {pendingBadge}
+                                    {verificationBadge}
                                   </div>
                                   <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                                     {assigneeLine(r, { canEdit: canAssignWork, editing: editingAssigneeId === r.id })}
@@ -5109,6 +5521,7 @@ export function AgentKpiKanbanFlow({
                                       {taskLabel(r)}
                                     </p>
                                     {pendingBadge}
+                                    {verificationBadge}
                                   </div>
                                   <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                                     {assigneeLine(r, { canEdit: canAssignWork, editing: editingAssigneeId === r.id })}
@@ -5147,7 +5560,7 @@ export function AgentKpiKanbanFlow({
                                 const items = collectChecklistProgressItems(r.subKpis, taskLabel(r));
                                 const value = items[0]?.numericalValue;
                                 const kpiSuffix =
-                                  typeof value === "number" ? ` · KPI ${Math.round(value)}%` : "";
+                                  typeof value === "number" ? ` Â· KPI ${Math.round(value)}%` : "";
                                 return (
                                   <>
                                     <span className="md:hidden">Via Travel Order{kpiSuffix}</span>
@@ -5203,10 +5616,10 @@ export function AgentKpiKanbanFlow({
                                         ? (
                                             <>
                                               <span className="md:hidden">
-                                                {p.positive}/{p.total} clear · {p.negative} flagged
+                                                {p.positive}/{p.total} clear Â· {p.negative} flagged
                                               </span>
                                               <span className="hidden md:inline">
-                                                {p.positive}/{p.total} clear · {p.negative} flagged
+                                                {p.positive}/{p.total} clear Â· {p.negative} flagged
                                               </span>
                                             </>
                                           )
@@ -5228,7 +5641,7 @@ export function AgentKpiKanbanFlow({
                                     {itProjectProgress.phases
                                       .filter((ph) => ph.total > 0)
                                       .map((ph) => `${ph.phaseName} ${ph.percent}%`)
-                                      .join(" · ")}
+                                      .join(" Â· ")}
                                   </p>
                                 ) : null}
                                 <p className="mt-1 hidden text-[11px] leading-snug text-zinc-600 dark:text-zinc-400 md:block">
@@ -5255,7 +5668,7 @@ export function AgentKpiKanbanFlow({
                             {itProject && incLate > 0 ? (
                               <p className="mt-2 text-xs font-semibold text-rose-700 dark:text-rose-300">
                                 {p.done === p.total
-                                  ? `All sub-tasks complete · delayed by ${fmtDelay(incLate)}`
+                                  ? `All sub-tasks complete Â· delayed by ${fmtDelay(incLate)}`
                                   : `Delayed by ${fmtDelay(incLate)}`}
                               </p>
                             ) : statusOf(r) === "DELAYED" &&
@@ -5391,15 +5804,231 @@ export function AgentKpiKanbanFlow({
         />
       </TaskBoardPopup>
       <TaskBoardPopup
+        open={forMyApprovalOpen}
+        title="For My Approval"
+        description="Sub-tasks awaiting verification by the org-chart head of each assignee's department."
+        onClose={() => {
+          setForMyApprovalOpen(false);
+          setVerificationRejectOpen(false);
+          setVerificationRejectComment("");
+          setApprovalRejectTaskId(null);
+        }}
+        size="lg"
+      >
+        {forMyApprovalTasks.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-zinc-300 px-4 py-10 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-500">
+            No tasks are waiting for your approval right now.
+          </div>
+        ) : (
+          <ul className="space-y-2">
+            {forMyApprovalTasks.map((r) => {
+              const p = progress(r);
+              const pendingSubs = pendingApprovalSubtasks(r);
+              const rejectOpen = approvalRejectTaskId?.startsWith(`${r.id}::`) ?? false;
+              const rejectSubId = approvalRejectTaskId?.startsWith(`${r.id}::`)
+                ? approvalRejectTaskId.slice(`${r.id}::`.length)
+                : "";
+              return (
+                <li
+                  key={r.id}
+                  className="rounded-xl border border-orange-300/50 bg-orange-500/[0.06] px-3 py-3 dark:border-orange-500/30 dark:bg-orange-500/10"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                        {taskLabel(r)}
+                      </p>
+                      <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+                        {r.title}
+                        {r.assignedAgent?.name ? ` Â· ${r.assignedAgent.name}` : ""}
+                        {p.total > 0 ? ` Â· ${p.done}/${p.total} finished` : ""}
+                      </p>
+                      {r.pendingVerificationAt ? (
+                        <p className="mt-1 text-[11px] text-zinc-500">
+                          Submitted{" "}
+                          {new Date(r.pendingVerificationAt).toLocaleString(undefined, {
+                            timeZone: tz,
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForMyApprovalOpen(false);
+                        setApprovalRejectTaskId(null);
+                        openActiveTask(r.id);
+                      }}
+                      className="shrink-0 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
+                    >
+                      Full details
+                    </button>
+                  </div>
+                  {pendingSubs.length > 0 ? (
+                    <ul className="mt-3 space-y-2 border-t border-orange-300/40 pt-3 dark:border-orange-500/25">
+                      {pendingSubs.map((sub) => {
+                        const subRejectOpen = rejectOpen && rejectSubId === sub.id;
+                        return (
+                          <li
+                            key={sub.id}
+                            className="rounded-lg border border-zinc-200/80 bg-white/70 px-2.5 py-2 dark:border-zinc-700 dark:bg-zinc-950/40"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                                  {sub.title || "Sub-task"}
+                                </p>
+                                {sub.assignedAgentName ? (
+                                  <p className="text-[11px] text-zinc-500">{sub.assignedAgentName}</p>
+                                ) : null}
+                              </div>
+                              {!subRejectOpen ? (
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={busyId === r.id}
+                                    onClick={() =>
+                                      void submitCompletionVerification(r.id, "approve", undefined, sub.id)
+                                    }
+                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                                  >
+                                    Verify
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busyId === r.id}
+                                    onClick={() => {
+                                      setApprovalRejectTaskId(`${r.id}::${sub.id}`);
+                                      setVerificationRejectComment("");
+                                    }}
+                                    className="rounded-lg border border-rose-400/60 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-500/15 dark:text-rose-200"
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                            {subRejectOpen ? (
+                              <div className="mt-2 space-y-2">
+                                <textarea
+                                  value={verificationRejectComment}
+                                  onChange={(e) => setVerificationRejectComment(e.target.value)}
+                                  rows={3}
+                                  placeholder="Required: explain why this was returned…"
+                                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+                                />
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={busyId === r.id || !verificationRejectComment.trim()}
+                                    onClick={() =>
+                                      void submitCompletionVerification(
+                                        r.id,
+                                        "reject",
+                                        verificationRejectComment,
+                                        sub.id,
+                                      )
+                                    }
+                                    className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
+                                  >
+                                    Confirm reject
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setApprovalRejectTaskId(null);
+                                      setVerificationRejectComment("");
+                                    }}
+                                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : (
+                    <div className="mt-3 space-y-2 border-t border-orange-300/40 pt-3 dark:border-orange-500/25">
+                      {!rejectOpen ? (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={busyId === r.id}
+                            onClick={() => void submitCompletionVerification(r.id, "approve")}
+                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+                          >
+                            Verify
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyId === r.id}
+                            onClick={() => {
+                              setApprovalRejectTaskId(`${r.id}::`);
+                              setVerificationRejectComment("");
+                            }}
+                            className="rounded-lg border border-rose-400/60 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-500/15 dark:text-rose-200"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <textarea
+                            value={verificationRejectComment}
+                            onChange={(e) => setVerificationRejectComment(e.target.value)}
+                            rows={3}
+                            placeholder="Required: explain why this was returned…"
+                            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={busyId === r.id || !verificationRejectComment.trim()}
+                              onClick={() =>
+                                void submitCompletionVerification(
+                                  r.id,
+                                  "reject",
+                                  verificationRejectComment,
+                                )
+                              }
+                              className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
+                            >
+                              Confirm reject
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setApprovalRejectTaskId(null);
+                                setVerificationRejectComment("");
+                              }}
+                              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </TaskBoardPopup>
+      <TaskBoardPopup
         open={travelOrdersOpen}
         title="Travel Orders"
-        description="Travel orders for your company, plus any where you are a traveler, confirmer, or approver. Open a row to view details — including confirmed orders."
+        description="Travel orders for your company, plus any where you are an approver or the person-in-charge. Open a row to view details and approvals."
         onClose={() => setTravelOrdersOpen(false)}
         size="lg"
       >
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-zinc-600 dark:text-zinc-400">
-            Includes company orders and orders you travel on, confirm, or approve. Confirmed orders stay viewable here.
+            Includes company travel orders and ones you prepare or approve. Approved orders stay viewable here.
           </p>
           <button
             type="button"
@@ -5414,11 +6043,19 @@ export function AgentKpiKanbanFlow({
         </div>
         <TravelOrderOfflineBanner className="mb-3" />
         {companyTravelOrdersError ? (
-          <p className="mb-3 rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-200">
-            {companyTravelOrdersError}
-          </p>
+          <div className="mb-3 flex items-start justify-between gap-3 rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-200">
+            <p className="min-w-0 flex-1">{companyTravelOrdersError}</p>
+            <button
+              type="button"
+              onClick={() => void reloadCompanyTravelOrders()}
+              disabled={companyTravelOrdersLoading}
+              className="shrink-0 rounded-md border border-rose-400/50 bg-rose-500/15 px-2.5 py-1 font-semibold text-rose-800 hover:bg-rose-500/25 disabled:opacity-60 dark:text-rose-100"
+            >
+              {companyTravelOrdersLoading ? "Retrying…" : "Retry"}
+            </button>
+          </div>
         ) : null}
-        {companyTravelOrdersLoading ? (
+        {companyTravelOrdersLoading && companyTravelOrders.length === 0 ? (
           <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-10 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-500">
             Loading travel orders…
           </p>
@@ -5431,20 +6068,21 @@ export function AgentKpiKanbanFlow({
             {companyTravelOrders.map((order) => {
               const isDraft = order.status === "DRAFT";
               const pendingSync = order.status === "PENDING_SYNC";
-              const creatorId = order.createdByAgentId?.trim() || "";
-              const travelerList = order.travelers ?? [];
-              const creatorIsTraveler =
-                Boolean(creatorId) && travelerList.some((t) => t.id === creatorId);
-              const preparedBy =
-                order.createdByAgent?.name && creatorId && !creatorIsTraveler
-                  ? order.createdByAgent.name
-                  : null;
-              const travelers =
-                travelerList.length > 0
-                  ? travelerList.map((t) => t.name).join(", ")
-                  : preparedBy
-                    ? "—"
-                    : order.createdByAgent?.name ?? "—";
+              const workPlan = isWorkPlanOrder(order);
+              const meta = workPlan ? order.workPlanMeta : null;
+              const preparedBy = order.createdByAgent?.name?.trim() || null;
+              const personInCharge =
+                meta?.personInChargeName?.trim() ||
+                meta?.requestingParty?.trim() ||
+                null;
+              const subtitleParts: string[] = [];
+              if (preparedBy) subtitleParts.push(`Prepared by: ${preparedBy}`);
+              if (personInCharge && personInCharge !== preparedBy) {
+                subtitleParts.push(`Person-in-Charge: ${personInCharge}`);
+              } else if (meta?.departmentBusinessUnit?.trim()) {
+                subtitleParts.push(meta.departmentBusinessUnit.trim());
+              }
+              if (pendingSync) subtitleParts.push("Saved offline — will sync when online");
               return (
                 <li key={order.id} className="flex items-stretch gap-1.5">
                   <button
@@ -5466,8 +6104,6 @@ export function AgentKpiKanbanFlow({
                         openActiveTask(taskId);
                         return;
                       }
-                      // Company list includes peers' orders that are not on this board —
-                      // open a dedicated viewer so APPROVED/CONFIRMED rows are still viewable.
                       setViewTravelOrder({
                         taskId,
                         travelOrderId: order.id,
@@ -5475,26 +6111,26 @@ export function AgentKpiKanbanFlow({
                           order.orderRequest?.trim() ||
                           order.kpiMainTask ||
                           order.kpiTitle ||
-                          "Travel order",
+                          "Travel Order",
                       });
                     }}
                     className="flex w-full items-start justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-3 text-left transition hover:border-orange-400/60 hover:bg-orange-50/50 disabled:cursor-default disabled:opacity-90 dark:border-zinc-700 dark:bg-zinc-950/50 dark:hover:border-orange-500/40 dark:hover:bg-orange-950/20"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-[10px] font-bold uppercase tracking-[0.14em] text-orange-800 dark:text-orange-200">
-                        Travel Orders
+                        Travel Order
                       </p>
                       <p className="mt-1 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                        {order.orderRequest?.trim() || order.kpiMainTask || "Field Assignment"}
+                        {order.orderRequest?.trim() ||
+                          order.kpiMainTask ||
+                          "Travel Order for Management Approval"}
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
                         {isDraft
                           ? "Saved draft — open to continue editing"
-                          : `${preparedBy ? `Prepared By: ${preparedBy} · ` : ""}Travelers: ${travelers}${
-                              order.vehicle
-                                ? ` · Vehicle: ${travelOrderVehicleLabel(order.vehicle)}`
-                                : ""
-                            }${pendingSync ? " · Saved offline — will sync when online" : ""}`}
+                          : subtitleParts.length > 0
+                            ? subtitleParts.join(" Â· ")
+                            : "Open to view details and approvals"}
                       </p>
                     </div>
                     <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
@@ -5529,17 +6165,6 @@ export function AgentKpiKanbanFlow({
           </ul>
         )}
       </TaskBoardPopup>
-      <TravelOrderApprovalModal
-        open={Boolean(viewTravelOrder)}
-        taskId={viewTravelOrder?.taskId ?? null}
-        travelOrderId={viewTravelOrder?.travelOrderId ?? null}
-        title={viewTravelOrder?.title}
-        onClose={() => setViewTravelOrder(null)}
-        onUpdated={() => {
-          void load();
-          void reloadCompanyTravelOrders();
-        }}
-      />
       <TravelOrderRequestModal
         open={createTravelOrderOpen}
         mainTaskName=""
@@ -5555,18 +6180,22 @@ export function AgentKpiKanbanFlow({
           setResumeTravelOrderDraftId(null);
           void reloadCompanyTravelOrders();
         }}
-        onCreated={({ kpiId, offlineQueued }) => {
+        onCreated={({ kpiId, travelOrderId, offlineQueued }) => {
           setCreateTravelOrderOpen(false);
           setResumeTravelOrderDraftId(null);
-          void reloadCompanyTravelOrders();
           if (offlineQueued) {
+            void reloadCompanyTravelOrders();
             return;
           }
-          void load();
+          // Open the view modal first; defer list/board reloads so submit feels instant.
           setViewTravelOrder({
             taskId: kpiId,
-            travelOrderId: null,
-            title: "Travel order",
+            travelOrderId: travelOrderId ?? null,
+            title: "Travel Order",
+          });
+          queueMicrotask(() => {
+            void reloadCompanyTravelOrders();
+            void load();
           });
         }}
       />
@@ -5575,7 +6204,7 @@ export function AgentKpiKanbanFlow({
         taskId={viewTravelOrder?.taskId ?? null}
         travelOrderId={viewTravelOrder?.travelOrderId ?? null}
         title={viewTravelOrder?.title}
-        description="View details, approvals, and check-ins for this travel order."
+        description="View details and management approvals for this travel order."
         operatorAgentId={operatorAgentId}
         canAssignWork={canAssignWork}
         canCheckIn

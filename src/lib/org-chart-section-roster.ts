@@ -3,6 +3,7 @@
  */
 import { prisma } from "@/lib/prisma";
 import { loadHrisAssignableStaff } from "@/lib/hris-staff-roster";
+import { resolveExecutiveTitle } from "@/lib/org-chart-executive-titles";
 import {
   expandOrgChartSectionsWithAncestors,
   orderOrgChartSectionsTree,
@@ -424,5 +425,120 @@ export async function listOrgChartSectionHeads(): Promise<OrgChartSectionHeadOpt
     return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
   });
 
+  return out;
+}
+
+/** Department designation (executive title + deepest org-chart section) keyed by merged HRIS id. */
+export async function resolveDepartmentDesignationsByMergedIds(
+  mergedSourceUserIds: Iterable<string>,
+): Promise<Map<string, string>> {
+  const ids = [
+    ...new Set(
+      [...mergedSourceUserIds].map((id) => String(id ?? "").trim()).filter(Boolean),
+    ),
+  ];
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+
+  const [nodes, headed] = await Promise.all([
+    prisma.orgChartNode.findMany({
+      where: { mergedSourceUserId: { in: ids } },
+      select: {
+        mergedSourceUserId: true,
+        personName: true,
+        personRole: true,
+        sectionId: true,
+        sectionMemberships: { select: { sectionId: true } },
+      },
+    }),
+    prisma.orgChartSection.findMany({
+      where: { headNode: { mergedSourceUserId: { in: ids } } },
+      select: {
+        id: true,
+        headNode: { select: { mergedSourceUserId: true } },
+      },
+    }),
+  ]);
+
+  const sectionIdsByMerged = new Map<string, Set<string>>();
+  const metaByMerged = new Map<
+    string,
+    { personName: string | null; personRole: string | null }
+  >();
+
+  function addSection(merged: string, sectionId: string | null | undefined) {
+    const sid = sectionId?.trim();
+    if (!sid) return;
+    const set = sectionIdsByMerged.get(merged) ?? new Set<string>();
+    set.add(sid);
+    sectionIdsByMerged.set(merged, set);
+  }
+
+  for (const node of nodes) {
+    const merged = node.mergedSourceUserId?.trim();
+    if (!merged) continue;
+    metaByMerged.set(merged, {
+      personName: node.personName,
+      personRole: node.personRole,
+    });
+    addSection(merged, node.sectionId);
+    for (const membership of node.sectionMemberships) {
+      addSection(merged, membership.sectionId);
+    }
+  }
+  for (const section of headed) {
+    const merged = section.headNode?.mergedSourceUserId?.trim();
+    if (!merged) continue;
+    addSection(merged, section.id);
+  }
+
+  const allSectionIds = [
+    ...new Set([...sectionIdsByMerged.values()].flatMap((set) => [...set])),
+  ];
+  const sections =
+    allSectionIds.length > 0
+      ? await prisma.orgChartSection.findMany({
+          where: { id: { in: allSectionIds } },
+          select: { id: true, name: true, parentId: true },
+        })
+      : [];
+  const sectionById = new Map(sections.map((section) => [section.id, section]));
+
+  function deepestSectionName(sectionIds: Set<string>): string | null {
+    const present = [...sectionIds].filter((id) => sectionById.has(id));
+    if (present.length === 0) return null;
+    function depthOf(sectionId: string): number {
+      let depth = 0;
+      let current: string | null = sectionId;
+      const seen = new Set<string>();
+      while (current && !seen.has(current)) {
+        seen.add(current);
+        const row = sectionById.get(current);
+        if (!row?.parentId) break;
+        depth += 1;
+        current = row.parentId;
+      }
+      return depth;
+    }
+    present.sort((a, b) => depthOf(b) - depthOf(a) || a.localeCompare(b));
+    return sectionById.get(present[0]!)?.name.trim() || null;
+  }
+
+  for (const merged of ids) {
+    const meta = metaByMerged.get(merged);
+    const exec = resolveExecutiveTitle({
+      mergedSourceUserId: merged,
+      personName: meta?.personName,
+    });
+    const sectionName = deepestSectionName(sectionIdsByMerged.get(merged) ?? new Set());
+    const role = meta?.personRole?.trim() || null;
+    const roleLooksLikeTitle =
+      Boolean(role) &&
+      (Boolean(exec && exec.toLowerCase() === role!.toLowerCase()) ||
+        /^(ceo|coo|cfo|cto|president)$/i.test(role!));
+    // Work-plan / picker label is the department, not "COO · COO".
+    const department = sectionName || (roleLooksLikeTitle ? null : role);
+    if (department) out.set(merged, department);
+  }
   return out;
 }

@@ -37,6 +37,12 @@ export type KanbanTicket = {
   boardLaneEnteredAt?: string | null;
   /** Intake request type id (ISSUE_CONCERN_TICKET, REQUEST_FOR_PAYMENT, …). */
   requestType?: string | null;
+  /** Latest audit-trail timestamp (Job Order overdue clock). */
+  lastActivityAt?: string | null;
+  /** When the ticket entered FOR_CONFIRMATION (RFP / FTR / R.S. / A.C.A. overdue clock). */
+  forConfirmationAt?: string | null;
+  resolvedAt?: string | null;
+  createdAt?: string | null;
   /** e.g. APPROVED BY IS MISSING for Request for Payment. */
   proceduralStatusLabel?: string | null;
   updatedAt: string;
@@ -762,8 +768,13 @@ export function AgentKanban({
                   const statusBadge = boardCardStatusBadge(col, t.status);
                   const laneOverdue = isBoardLaneOverdue({
                     status: t.status,
+                    requestType: t.requestType,
                     boardLaneEnteredAt: t.boardLaneEnteredAt,
                     updatedAt: t.updatedAt,
+                    createdAt: t.createdAt,
+                    lastActivityAt: t.lastActivityAt,
+                    forConfirmationAt: t.forConfirmationAt,
+                    resolvedAt: t.resolvedAt,
                   });
                   const laneEnteredIso = t.boardLaneEnteredAt ?? t.updatedAt;
                   return (

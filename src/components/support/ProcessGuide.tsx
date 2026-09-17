@@ -65,13 +65,6 @@ const FLOW_STEPS: Array<{
   { id: "route", label: "Categorize / company route" },
   { id: "assign", label: "Assign on board or procedural seat" },
   { id: "review", label: "Assignee reviews" },
-  {
-    id: "info",
-    label: "Need more info?",
-    kind: "decision",
-    yes: "Request info → return to work",
-    no: "Continue",
-  },
   { id: "work", label: "Work on issue / advance approvals" },
   {
     id: "escalate",

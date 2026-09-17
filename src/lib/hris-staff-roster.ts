@@ -8,6 +8,7 @@ import { pickCanonicalAgentForPortal } from "@/lib/admin-roster";
 import { resolveHrisSourceTags } from "@/lib/merged-database-sources";
 import { matchPersonnelCompanyTeam } from "@/lib/personnel-accounts-data";
 import { prisma, prismaSecondary } from "@/lib/prisma";
+import { withTtlCache } from "@/lib/ttl-cache";
 import { ensureRosterTeamsInDb } from "@/lib/roster-teams";
 import { isStaffPortalRole, normalizePortalRole } from "@/lib/staff-role";
 import type { EffectiveAssignmentCompany } from "@/lib/staff-company-scope";
@@ -55,6 +56,19 @@ export async function loadHrisAssignableStaff(options?: {
 }): Promise<HrisAssignableStaff[]> {
   const excludeSuper = options?.excludeHrisSuperAdmin !== false;
   const companyTeamId = options?.companyTeamId?.trim() || null;
+  return withTtlCache(
+    `hris-assignable-staff:v1:${companyTeamId ?? "all"}:${excludeSuper ? "1" : "0"}`,
+    60_000,
+    () => loadHrisAssignableStaffUncached({ companyTeamId, excludeSuper }),
+  );
+}
+
+async function loadHrisAssignableStaffUncached(options: {
+  companyTeamId: string | null;
+  excludeSuper: boolean;
+}): Promise<HrisAssignableStaff[]> {
+  const excludeSuper = options.excludeSuper;
+  const companyTeamId = options.companyTeamId;
   const sourceTags = resolveHrisSourceTags();
 
   await ensureRosterTeamsInDb();

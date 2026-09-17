@@ -84,89 +84,102 @@ export function TravelOrderApprovalRecommendationGuide({
       ) : error ? (
         <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">{error}</p>
       ) : hasAnySeat ? (
-        <div className="-mx-1 mt-3 overflow-x-auto px-1 pb-1">
-          <div className="flex w-max min-w-full items-stretch gap-3">
-          {seats.map((seat, index) => {
-            const name =
-              seat.agentName?.trim() ||
-              (seat.agentId ? "Assigned personnel" : null);
-            const alternates = seat.alternateAgents
-              .map((a) => a.agentName?.trim())
-              .filter(Boolean) as string[];
-            const title =
-              seat.label?.trim() || `Approved by · Level ${seat.orgChartLayer}`;
-            return (
-              <div
-                key={`to-rec-${seat.sequenceLevel}`}
-                className="flex w-[13.5rem] shrink-0 flex-col sm:w-[14.5rem]"
-              >
-                {index > 0 ? (
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
-                    then →
-                  </p>
-                ) : (
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-transparent select-none">
-                    start
-                  </p>
-                )}
-                <div
-                  className={cn(
-                    "isolate flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border px-3 py-2",
-                    seat.agentId
-                      ? "border-emerald-200/80 bg-white dark:border-emerald-500/25 dark:bg-zinc-950/50"
-                      : "border-zinc-200/80 bg-white/70 dark:border-zinc-700 dark:bg-zinc-950/30",
-                  )}
-                >
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-500">
-                      {title}
-                    </p>
-                    <span
-                      className={cn(
-                        "rounded-full px-1.5 py-px text-[10px] font-semibold",
-                        seat.recommendedOptional
-                          ? "bg-sky-500/15 text-sky-800 dark:text-sky-200"
-                          : "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
-                      )}
+        <div className="mt-3 space-y-3">
+          {seats.length > 0 ? (
+            <div className="-mx-1 overflow-x-auto px-1 pb-1">
+              <div className="flex w-max min-w-full items-stretch gap-3">
+                {seats.map((seat, index) => {
+                  const name =
+                    seat.agentName?.trim() ||
+                    (seat.agentId ? "Assigned personnel" : null);
+                  const alternates = seat.alternateAgents
+                    .map((a) => a.agentName?.trim())
+                    .filter(Boolean) as string[];
+                  const title =
+                    seat.label?.trim() || `Approved by · Level ${seat.orgChartLayer}`;
+                  return (
+                    <div
+                      key={`to-rec-${seat.sequenceLevel}`}
+                      className="flex w-[13.5rem] shrink-0 flex-col sm:w-[14.5rem]"
                     >
-                      {seat.recommendedOptional ? "Optional" : "Required"}
-                    </span>
-                    {alternates.length > 0 ? (
-                      <span className="rounded-full bg-orange-500/15 px-1.5 py-px text-[10px] font-semibold text-orange-800 dark:text-orange-200">
-                        Either / or
-                      </span>
-                    ) : null}
-                  </div>
-                  <p
-                    className={cn(
-                      "mt-0.5 break-words text-sm font-medium",
-                      name
-                        ? "text-emerald-800 dark:text-emerald-300"
-                        : "text-zinc-400 dark:text-zinc-600",
-                    )}
-                  >
-                    {name ?? "No recommendation yet"}
-                    {alternates.length > 0 ? ` or ${alternates.join(" or ")}` : ""}
-                  </p>
-                  {seat.hint ? (
-                    <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">{seat.hint}</p>
-                  ) : !name ? (
-                    <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                      Assign any department head from the org chart below.
-                    </p>
-                  ) : null}
-                </div>
+                      {index > 0 ? (
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                          then →
+                        </p>
+                      ) : (
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-transparent select-none">
+                          start
+                        </p>
+                      )}
+                      <div
+                        className={cn(
+                          "isolate flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border px-3 py-2",
+                          seat.agentId
+                            ? "border-emerald-200/80 bg-white dark:border-emerald-500/25 dark:bg-zinc-950/50"
+                            : "border-zinc-200/80 bg-white/70 dark:border-zinc-700 dark:bg-zinc-950/30",
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-500">
+                            {title}
+                          </p>
+                          <span
+                            className={cn(
+                              "rounded-full px-1.5 py-px text-[10px] font-semibold",
+                              seat.recommendedOptional
+                                ? "bg-sky-500/15 text-sky-800 dark:text-sky-200"
+                                : "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
+                            )}
+                          >
+                            {seat.recommendedOptional ? "Optional" : "Required"}
+                          </span>
+                          {alternates.length > 0 ? (
+                            <span className="rounded-full bg-orange-500/15 px-1.5 py-px text-[10px] font-semibold text-orange-800 dark:text-orange-200">
+                              Either / or
+                            </span>
+                          ) : null}
+                        </div>
+                        <p
+                          className={cn(
+                            "mt-0.5 break-words text-sm font-medium",
+                            name
+                              ? "text-emerald-800 dark:text-emerald-300"
+                              : "text-zinc-400 dark:text-zinc-600",
+                          )}
+                        >
+                          {name ?? "No recommendation yet"}
+                          {alternates.length > 0 ? ` or ${alternates.join(" or ")}` : ""}
+                        </p>
+                        {seat.hint ? (
+                          <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                            {seat.hint}
+                          </p>
+                        ) : !name ? (
+                          <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                            Assign any department head from the org chart below.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ) : null}
 
-          <div className="flex w-[13.5rem] shrink-0 flex-col sm:w-[14.5rem]">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-transparent select-none">
-              start
-            </p>
+          <div className="flex w-full max-w-md flex-col">
+            {seats.length > 0 ? (
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
+                then →
+              </p>
+            ) : (
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-transparent select-none">
+                start
+              </p>
+            )}
             <div
               className={cn(
-                "isolate flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border px-3 py-2",
+                "isolate flex min-h-0 flex-col overflow-hidden rounded-lg border px-3 py-2",
                 confirmationFilled
                   ? "border-emerald-200/80 bg-white dark:border-emerald-500/25 dark:bg-zinc-950/50"
                   : "border-zinc-200/80 bg-white/70 dark:border-zinc-700 dark:bg-zinc-950/30",
@@ -200,7 +213,6 @@ export function TravelOrderApprovalRecommendationGuide({
                 </p>
               ) : null}
             </div>
-          </div>
           </div>
         </div>
       ) : (

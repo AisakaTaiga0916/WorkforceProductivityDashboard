@@ -109,6 +109,7 @@ import { JobOrderPostApprovalNav } from "@/components/tickets/JobOrderPostApprov
 import { JobOrderProjectLinkPanel } from "@/components/tickets/JobOrderProjectLinkPanel";
 import { JobOrderWorkersPanel } from "@/components/tickets/JobOrderWorkersPanel";
 import { JobOrderAssistanceTeamPanel } from "@/components/tickets/JobOrderAssistanceTeamPanel";
+import { RequestChatPanel } from "@/components/tickets/RequestChatPanel";
 import type { JobOrderScrollSection } from "@/lib/job-order-section-ids";
 
 type TransferRecipient = { id: string; name: string; email: string };
@@ -2711,7 +2712,7 @@ export function AgentWorkspace({
           <div className="text-sm text-zinc-600 dark:text-zinc-400">
             {isAgentViewer
               ? "Use the right-side controls to update priority or transfer this request to a colleague."
-              : "Use the right-side panel to add information, cancel an unassigned request, or verify the resolution when asked."}
+              : "Use request chat on the right, or cancel an unassigned request / verify the resolution when asked."}
           </div>
         </div>
         </div>
@@ -2720,6 +2721,11 @@ export function AgentWorkspace({
       </div>
 
       <aside className="min-w-0 space-y-4">
+        <RequestChatPanel
+          requestId={ticket.id}
+          entityLabel="Request chat"
+          closed={ticket.status === "CLOSED"}
+        />
         {!isAgentViewer ? (
           requestorAside
         ) : (
@@ -2739,21 +2745,6 @@ export function AgentWorkspace({
             </div>
           ) : null}
           <div className="mt-3 flex flex-col gap-2">
-            {ticket.status === "PENDING_INFO" ? (
-              <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-700/60 dark:bg-amber-950/20">
-                <p className="text-sm text-zinc-600 dark:text-zinc-300">
-                  Waiting for the requestor to reply.
-                </p>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => patch({ action: "status", status: "IN_PROGRESS", note: "Customer replied" })}
-                  className="min-h-10 w-full rounded-lg border border-zinc-300 bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-                >
-                  Resume after customer reply
-                </button>
-              </div>
-            ) : null}
             {canUpdatePriority ? (
               <div className="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
                 <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">Priority level</label>

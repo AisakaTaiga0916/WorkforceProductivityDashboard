@@ -13,7 +13,7 @@ type TravelOrdersQuickAccessProps = {
   personnelGuard?: boolean;
 };
 
-/** Staff quick-access Travel Orders: view details/approvals; Gate Pass Start/End only. */
+/** Staff quick-access Work Plans, including Gate Pass for trips that include travel. */
 export function TravelOrdersQuickAccess({
   operatorAgentId,
   canAssignWork = false,
@@ -31,8 +31,8 @@ export function TravelOrdersQuickAccess({
           </h1>
           <p className="mt-1.5 max-w-xl text-sm text-zinc-600 dark:text-zinc-400">
             {personnelGuard
-              ? "Gate Pass kiosk for approved active travel orders. View details and approvals, then record Guard on Duty and Gate Pass Start / End."
-              : "Quick access for travelers. View order details and approvals only. Gate Pass is handled by Personnel-Guard while the trip is running."}
+              ? "Gate Pass kiosk for approved active trips linked to Travel Orders. View details and approvals, then record Guard on Duty and Gate Pass Start / End."
+              : "Quick access for Travel Orders. View details and approvals. Gate Pass is handled by Personnel-Guard while a trip is running."}
           </p>
         </div>
         {personnelGuard ? (

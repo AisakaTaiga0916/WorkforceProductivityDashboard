@@ -101,6 +101,8 @@ export async function countTaskBoardLanes(input: {
       periodCycleStartAt: true,
       nonRecurringEndAt: true,
       assignedAgentId: true,
+      completionVerificationStatus: true,
+      lastFullCompletionAt: true,
     },
   });
 
@@ -148,7 +150,7 @@ export async function countTaskBoardLanes(input: {
           });
     if (status === "DONE") done += 1;
     else if (status === "DELAYED") delayed += 1;
-    else current += 1;
+    else current += 1; // CURRENT + PENDING_VERIFICATION
   }
 
   return { current, done, delayed };

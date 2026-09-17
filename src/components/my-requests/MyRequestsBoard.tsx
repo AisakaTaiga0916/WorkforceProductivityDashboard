@@ -78,7 +78,6 @@ const STATUS_OPTIONS: Array<{ label: string; value: string }> = [
   { label: "All", value: "ALL" },
   { label: "Open", value: "OPEN" },
   { label: "In Progress", value: "IN_PROGRESS" },
-  { label: "Pending Info", value: "PENDING_INFO" },
   { label: "Transfer pending", value: "ESCALATED" },
   { label: "For confirmation", value: "FOR_CONFIRMATION" },
   { label: "Resolved (legacy)", value: "RESOLVED" },
@@ -97,10 +96,8 @@ const PRIORITY_OPTIONS: Array<{ label: string; value: string }> = [
 function statusPillClass(status: TicketStatus) {
   if (status === "ESCALATED")
     return "bg-rose-500/15 text-rose-800 dark:bg-rose-500/20 dark:text-rose-200";
-  if (status === "IN_PROGRESS")
+  if (status === "IN_PROGRESS" || status === "PENDING_INFO")
     return "bg-amber-500/15 text-amber-900 dark:bg-amber-500/20 dark:text-amber-200";
-  if (status === "PENDING_INFO")
-    return "bg-zinc-300 text-zinc-800 dark:bg-zinc-700/70 dark:text-zinc-200";
   if (status === "OPEN")
     return "bg-orange-500/15 text-orange-900 dark:bg-orange-500/20 dark:text-orange-200";
   if (status === "FOR_CONFIRMATION" || status === "RESOLVED")
@@ -130,7 +127,7 @@ function statusLabel(status: TicketStatus) {
     case "FOR_CONFIRMATION":
       return "Awaiting sign-off";
     case "PENDING_INFO":
-      return "Pending info";
+      return "In progress";
     case "IN_PROGRESS":
       return "In progress";
     case "ESCALATED":
@@ -206,7 +203,11 @@ export async function MyRequestsBoard({
     clauses.push({ priority: selectedPriority as TicketPriority });
   }
   if (selectedStatus !== "ALL") {
-    clauses.push({ status: selectedStatus as TicketStatus });
+    if (selectedStatus === "IN_PROGRESS") {
+      clauses.push({ status: { in: ["IN_PROGRESS", "PENDING_INFO"] } });
+    } else {
+      clauses.push({ status: selectedStatus as TicketStatus });
+    }
   }
   if (requestTypeFilter !== "ALL") {
     clauses.push({ requestType: requestTypeFilter });

@@ -34,9 +34,9 @@ function priorityBadgeClass(priority: TicketRow["priority"]) {
 function statusBadgeClass(status: TicketRow["status"]) {
   switch (status) {
     case "OPEN":
-    case "PENDING_INFO":
       return "border-blue-500/30 bg-blue-500/10 text-blue-300";
     case "IN_PROGRESS":
+    case "PENDING_INFO":
     case "ESCALATED":
       return "border-cyan-500/30 bg-cyan-500/10 text-cyan-300";
     case "FOR_CONFIRMATION":
@@ -66,6 +66,7 @@ function ticketDetail(ticket: TicketRow) {
 }
 
 function formatStatus(status: TicketRow["status"]) {
+  if (status === "PENDING_INFO") return "IN PROGRESS";
   return status.replaceAll("_", " ");
 }
 

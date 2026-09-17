@@ -211,7 +211,8 @@ export async function loadPendingApprovalsQueueForAgent(
     const pending = hasHierarchicalApprovals(levels)
       ? getOperatorActionableApprovalLevel(levels, agentId)
       : null;
-    const label = order.kpiMainTask || order.kpiTitle || "Travel Order";
+    const label =
+      order.kpiMainTask || order.kpiTitle || "Travel Order";
     return {
       id: `travel-${order.id}`,
       kind: "travel_order",
@@ -220,7 +221,12 @@ export async function loadPendingApprovalsQueueForAgent(
       subtitle: order.orderRequest?.trim() || undefined,
       requestTypeLabel: "Travel Order",
       awaitingStep: pending
-        ? travelOrderApprovedByLabel(pending.optional === true, pending.level, levels.length)
+        ? travelOrderApprovedByLabel(
+            pending.optional === true,
+            pending.level,
+            levels.length,
+            pending,
+          )
         : "Awaiting approval",
       status: "Pending approval",
       companyName: null,

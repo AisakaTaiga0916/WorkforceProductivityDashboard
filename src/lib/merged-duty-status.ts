@@ -16,6 +16,7 @@ import { DateTime } from "luxon";
 import { Prisma } from "@prisma/client/secondary";
 import { DEFAULT_TIME_ZONE } from "@/lib/kpi-recurrence";
 import { prismaSecondary } from "@/lib/prisma";
+import { withTtlCache } from "@/lib/ttl-cache";
 
 export type DutyStatus = "ON_DUTY" | "OFFLINE";
 
@@ -128,16 +129,43 @@ export async function loadCompanyNamesBySourceUserId(
   ];
   if (ids.length === 0) return new Map();
 
-  const rows = await prismaSecondary.mergedUser.findMany({
-    where: { sourceUserId: { in: ids } },
-    select: { sourceUserId: true, companyName: true },
-  });
+  const cached = await withTtlCache(
+    "merged-user-company-names:v1",
+    60_000,
+    async () => {
+      const users = await prismaSecondary.mergedUser.findMany({
+        select: { sourceUserId: true, companyName: true },
+      });
+      return users.map((row) => ({
+        id: row.sourceUserId.toString(),
+        companyName: row.companyName ?? null,
+      }));
+    },
+  );
 
-  const byId = new Map<string, string | null>();
-  for (const row of rows) {
-    byId.set(row.sourceUserId.toString(), row.companyName ?? null);
+  const byId = new Map<string, string | null>(
+    cached.map((row) => [row.id, row.companyName] as const),
+  );
+  const missing = ids.map((id) => id.toString()).filter((id) => !byId.has(id));
+  if (missing.length > 0) {
+    try {
+      const extra = await prismaSecondary.mergedUser.findMany({
+        where: { sourceUserId: { in: missing.map((id) => BigInt(id)) } },
+        select: { sourceUserId: true, companyName: true },
+      });
+      for (const row of extra) {
+        byId.set(row.sourceUserId.toString(), row.companyName ?? null);
+      }
+    } catch {
+      /* keep cached names; missing ids stay absent */
+    }
   }
-  return byId;
+  const out = new Map<string, string | null>();
+  for (const id of ids) {
+    const key = id.toString();
+    out.set(key, byId.get(key) ?? null);
+  }
+  return out;
 }
 
 /**
