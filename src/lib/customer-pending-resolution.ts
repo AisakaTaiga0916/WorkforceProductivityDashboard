@@ -199,6 +199,7 @@ export async function listTicketsAwaitingCustomerConfirmation(
       title: true,
       status: true,
       updatedAt: true,
+      remarks: true,
     },
   });
 }

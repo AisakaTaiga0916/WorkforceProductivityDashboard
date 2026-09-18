@@ -4,6 +4,7 @@ import {
   customerPendingTicketHref,
   listTicketsAwaitingCustomerConfirmation,
 } from "@/lib/customer-pending-resolution";
+import { ensureTicketRemarksColumn } from "@/lib/ensure-ticket-remarks-column";
 import { isTicketRequestorRole } from "@/lib/ticket-requestor";
 
 /**
@@ -26,15 +27,21 @@ export async function GET() {
     return NextResponse.json({ tickets: [] });
   }
 
+  await ensureTicketRemarksColumn();
   const rows = await listTicketsAwaitingCustomerConfirmation(email, session.user.authProvider);
   return NextResponse.json({
-    tickets: rows.map((ticket) => ({
-      id: ticket.id,
-      ticketNumber: ticket.ticketNumber,
-      title: ticket.title,
-      status: ticket.status,
-      updatedAt: ticket.updatedAt.toISOString(),
-      verificationHref: customerPendingTicketHref(ticket),
-    })),
+    tickets: rows.map((ticket) => {
+      const remarks = typeof ticket.remarks === "string" ? ticket.remarks.trim() : "";
+      return {
+        id: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        title: ticket.title,
+        status: ticket.status,
+        updatedAt: ticket.updatedAt.toISOString(),
+        verificationHref: customerPendingTicketHref(ticket),
+        remarks: remarks || null,
+        hasRemarks: remarks.length > 0,
+      };
+    }),
   });
 }

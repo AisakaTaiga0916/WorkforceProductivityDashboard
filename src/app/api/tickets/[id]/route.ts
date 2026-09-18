@@ -22,6 +22,7 @@ import {
 import { loadHrisAssignableStaff } from "@/lib/hris-staff-roster";
 import { didRequestBoardLaneChange, getTicketSlaState } from "@/lib/sla";
 import { isAwaitingCustomerConfirmation } from "@/lib/customer-pending-resolution";
+import { ensureTicketRemarksColumn } from "@/lib/ensure-ticket-remarks-column";
 import { loadStaffAssignmentColorsForAgents } from "@/lib/assignee-assignment-color";
 import { normalizeFeedbackComment, validateFeedbackForRating } from "@/lib/ticket-feedback-policy";
 import { isAdminPortalRole } from "@/lib/staff-role";
@@ -899,6 +900,30 @@ export async function PATCH(
         "AGENT",
         `Priority → ${nextPriority}`,
         typeof body.note === "string" ? body.note : undefined,
+      );
+      return NextResponse.json(await ticketJsonWithAssigneeColor(updated));
+    }
+
+    if (action === "remarks") {
+      if (!canStaffMutateTicket) {
+        return NextResponse.json(
+          { error: "Only the assigned personnel (or company admin) can update remarks." },
+          { status: 403 },
+        );
+      }
+      await ensureTicketRemarksColumn();
+      const raw = typeof body.remarks === "string" ? body.remarks : "";
+      const nextRemarks = raw.trim().slice(0, 8000) || null;
+      const updated = await prisma.ticket.update({
+        where: { id },
+        data: { remarks: nextRemarks },
+        include: { team: true, assignedAgent: true },
+      });
+      await logActivity(
+        id,
+        "AGENT",
+        nextRemarks ? "Remarks updated" : "Remarks cleared",
+        nextRemarks ? nextRemarks.slice(0, 500) : undefined,
       );
       return NextResponse.json(await ticketJsonWithAssigneeColor(updated));
     }
