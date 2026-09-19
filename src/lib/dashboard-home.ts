@@ -40,6 +40,7 @@ import {
   usesProjectTimelineTracker,
 } from "@/lib/it-project-subkpis";
 import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
+import { isCompletionEffectivelyVerified } from "@/lib/task-completion-verification";
 
 export type DashboardActionItem = {
   id: string;
@@ -193,15 +194,23 @@ function isTimelineBoardRecord(record: { title?: string | null; subKpis?: unknow
   );
 }
 
-function taskProgressForDashboard(row: {
-  title: string;
-  mainTask: string | null;
-  subKpis: unknown;
-}): { total: number; done: number } {
+function taskProgressForDashboard(
+  row: {
+    title: string;
+    mainTask: string | null;
+    subKpis: unknown;
+    completionVerificationStatus?: string | null;
+    lastFullCompletionAt?: Date | string | null;
+  },
+  verificationEnabled: boolean,
+): { total: number; done: number } {
   if (isTimelineBoardRecord(row)) {
     return itProjectChecklistProgressFromRaw(row.subKpis);
   }
-  return kpiChecklistProgress(row.subKpis, kpiMainTaskLabel(row));
+  return kpiChecklistProgress(row.subKpis, kpiMainTaskLabel(row), {
+    parentCardEffectivelyVerified: isCompletionEffectivelyVerified(row),
+    verificationEnabled,
+  });
 }
 
 /** Task Board cards assigned to (or visible as work for) this agent — Pending and Done. */
@@ -211,7 +220,10 @@ async function listTasksAssignedToAgent(
 ): Promise<DashboardActionItem[]> {
   const { kpiIdsWhereAgentIsTravelOrderTraveler } = await import("@/lib/travel-order-db");
   const { kpiIdsWhereAgentIsJobOrderWorker } = await import("@/lib/job-order-workers-server");
-  const [travelerKpiIds, jobOrderWorkerKpiIds, rows] = await Promise.all([
+  const { isTaskCompletionVerificationEnabled } = await import(
+    "@/lib/task-verification-settings-db"
+  );
+  const [travelerKpiIds, jobOrderWorkerKpiIds, rows, verificationEnabled] = await Promise.all([
     kpiIdsWhereAgentIsTravelOrderTraveler(agentId),
     kpiIdsWhereAgentIsJobOrderWorker(agentId),
     prisma.kpiMaintenance.findMany({
@@ -234,6 +246,7 @@ async function listTasksAssignedToAgent(
       orderBy: { updatedAt: "desc" },
       take: 120,
     }),
+    isTaskCompletionVerificationEnabled(),
   ]);
 
   const nowMs = Date.now();
@@ -249,7 +262,7 @@ async function listTasksAssignedToAgent(
       jobOrderWorkerKpiIds.has(row.id);
     if (!assigned) continue;
 
-    const p = taskProgressForDashboard(row);
+    const p = taskProgressForDashboard(row, verificationEnabled);
     const inverted = taskUsesInvertedRecording({ title: row.title, subKpis: row.subKpis });
     const lane =
       inverted && !isTimelineBoardRecord(row)
@@ -258,6 +271,7 @@ async function listTasksAssignedToAgent(
             done: 0,
             nowMs,
             timeZone,
+            verificationEnabled,
           }) === "DELAYED"
           ? "DELAYED"
           : "CURRENT"
@@ -266,6 +280,7 @@ async function listTasksAssignedToAgent(
             done: p.done,
             nowMs,
             timeZone,
+            verificationEnabled,
           });
 
     const badge = isFieldAssignmentTask(row.subKpis)

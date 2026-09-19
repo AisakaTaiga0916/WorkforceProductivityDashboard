@@ -164,7 +164,9 @@ export function resubmitCompletionDbPatch(): {
  */
 export function boardStatusAfterChecklistComplete(
   row: Pick<CompletionVerificationFields, "completionVerificationStatus" | "lastFullCompletionAt">,
+  opts?: { verificationEnabled?: boolean },
 ): Exclude<KpiBoardLaneStatus, "DELAYED"> {
+  if (opts?.verificationEnabled === false) return "DONE";
   const status = row.completionVerificationStatus?.trim() || null;
   if (status === COMPLETION_VERIFICATION.PENDING) return "PENDING_VERIFICATION";
   if (status === COMPLETION_VERIFICATION.REJECTED) return "CURRENT";
@@ -200,11 +202,13 @@ export type SubKpiVerificationFields = {
 /**
  * Sub-task is waiting on department-head approval.
  * Legacy `done` with no status counts as pending unless the parent card is already verified.
+ * When platform verification is disabled, never treat items as pending.
  */
 export function isSubKpiPendingVerification(
   item: SubKpiVerificationFields,
-  opts?: { parentCardEffectivelyVerified?: boolean },
+  opts?: { parentCardEffectivelyVerified?: boolean; verificationEnabled?: boolean },
 ): boolean {
+  if (opts?.verificationEnabled === false) return false;
   if (!item.done) return false;
   const status = item.completionVerificationStatus?.trim() || null;
   if (status === COMPLETION_VERIFICATION.PENDING) return true;
@@ -214,12 +218,16 @@ export function isSubKpiPendingVerification(
   return !opts?.parentCardEffectivelyVerified;
 }
 
-/** Sub-task counts as finished for progress / Done only after head verification (or legacy closed card). */
+/**
+ * Sub-task counts as finished for progress / Done only after head verification (or legacy closed card).
+ * When platform verification is disabled, any done item counts as finished.
+ */
 export function isSubKpiEffectivelyVerified(
   item: SubKpiVerificationFields,
-  opts?: { parentCardEffectivelyVerified?: boolean },
+  opts?: { parentCardEffectivelyVerified?: boolean; verificationEnabled?: boolean },
 ): boolean {
   if (!item.done) return false;
+  if (opts?.verificationEnabled === false) return true;
   const status = item.completionVerificationStatus?.trim() || null;
   if (status === COMPLETION_VERIFICATION.VERIFIED) return true;
   if (status === COMPLETION_VERIFICATION.PENDING || status === COMPLETION_VERIFICATION.REJECTED) {

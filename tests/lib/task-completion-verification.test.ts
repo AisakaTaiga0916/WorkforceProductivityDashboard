@@ -31,6 +31,28 @@ describe("task completion verification", () => {
     expect(patch.pendingVerificationAt).toBeNull();
   });
 
+  it("treats done sub-tasks as finished when verification is disabled", () => {
+    const submitted = applySubKpiSubmitForVerification(
+      { id: "a", title: "T", done: false },
+      { verificationEnabled: false },
+    );
+    expect(submitted.completionVerificationStatus).toBe(COMPLETION_VERIFICATION.VERIFIED);
+    expect(isSubKpiPendingVerification(submitted, { verificationEnabled: false })).toBe(false);
+    expect(isSubKpiEffectivelyVerified(submitted, { verificationEnabled: false })).toBe(true);
+    expect(
+      boardStatusAfterChecklistComplete(
+        { completionVerificationStatus: COMPLETION_VERIFICATION.PENDING, lastFullCompletionAt: null },
+        { verificationEnabled: false },
+      ),
+    ).toBe("DONE");
+    expect(
+      isSubKpiEffectivelyVerified(
+        { done: true, completionVerificationStatus: COMPLETION_VERIFICATION.PENDING },
+        { verificationEnabled: false },
+      ),
+    ).toBe(true);
+  });
+
   it("clears the verification gate when a checklist becomes incomplete", () => {
     const patch = checklistCompletionDbPatch({ prevComplete: true, nextComplete: false });
     expect(patch.completionVerificationStatus).toBeNull();

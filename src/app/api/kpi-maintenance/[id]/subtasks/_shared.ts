@@ -28,7 +28,11 @@ export type KpiRow = NonNullable<
   >
 >;
 
-export function checklistFullyComplete(subKpis: unknown, taskTitle?: string): boolean {
+export function checklistFullyComplete(
+  subKpis: unknown,
+  taskTitle?: string,
+  opts?: { verificationEnabled?: boolean },
+): boolean {
   // Segmented tasks cannot finalize while cards remain on Unassigned.
   if (hasItemsInUnassignedSegment(subKpis)) return false;
   const items = isItProjectEnvelope(subKpis)
@@ -38,7 +42,10 @@ export function checklistFullyComplete(subKpis: unknown, taskTitle?: string): bo
   return items.every(
     (x) =>
       subKpiRequirementsMet(x) &&
-      isSubKpiEffectivelyVerified(x, { parentCardEffectivelyVerified: false }),
+      isSubKpiEffectivelyVerified(x, {
+        parentCardEffectivelyVerified: false,
+        verificationEnabled: opts?.verificationEnabled,
+      }),
   );
 }
 
