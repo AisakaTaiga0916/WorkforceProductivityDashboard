@@ -20,6 +20,8 @@ import {
   resolveViewerOrgChartSectionScope,
   roleUsesOrgChartSectionBoardScope,
 } from "@/lib/org-chart-section-scope";
+import { isTaskCompletionVerificationEnabled } from "@/lib/task-verification-settings-db";
+import { isCompletionEffectivelyVerified } from "@/lib/task-completion-verification";
 import type { Prisma } from "@prisma/client/primary";
 
 export type TaskBoardLaneCounts = {
@@ -35,15 +37,23 @@ function isTimelineBoardRecord(record: { title?: string | null; subKpis?: unknow
   );
 }
 
-function progressForRow(row: {
-  title: string;
-  mainTask: string | null;
-  subKpis: unknown;
-}): { total: number; done: number } {
+function progressForRow(
+  row: {
+    title: string;
+    mainTask: string | null;
+    subKpis: unknown;
+    completionVerificationStatus?: string | null;
+    lastFullCompletionAt?: Date | string | null;
+  },
+  verificationEnabled: boolean,
+): { total: number; done: number } {
   if (isTimelineBoardRecord(row)) {
     return itProjectChecklistProgressFromRaw(row.subKpis);
   }
-  return kpiChecklistProgress(row.subKpis, kpiMainTaskLabel(row));
+  return kpiChecklistProgress(row.subKpis, kpiMainTaskLabel(row), {
+    parentCardEffectivelyVerified: isCompletionEffectivelyVerified(row),
+    verificationEnabled,
+  });
 }
 
 /**
@@ -128,8 +138,9 @@ export async function countTaskBoardLanes(input: {
   let current = 0;
   let done = 0;
   let delayed = 0;
+  const verificationEnabled = await isTaskCompletionVerificationEnabled();
   for (const row of rows) {
-    const p = progressForRow(row);
+    const p = progressForRow(row, verificationEnabled);
     const inverted = taskUsesInvertedRecording({ title: row.title, subKpis: row.subKpis });
     // Inverted recording stays in Current (monitoring); only non-recurring delay can move it.
     const status =
@@ -139,6 +150,7 @@ export async function countTaskBoardLanes(input: {
             done: 0,
             nowMs,
             timeZone,
+            verificationEnabled,
           }) === "DELAYED"
           ? "DELAYED"
           : "CURRENT"
@@ -147,6 +159,7 @@ export async function countTaskBoardLanes(input: {
             done: p.done,
             nowMs,
             timeZone,
+            verificationEnabled,
           });
     if (status === "DONE") done += 1;
     else if (status === "DELAYED") delayed += 1;

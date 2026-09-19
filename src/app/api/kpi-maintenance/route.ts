@@ -179,11 +179,11 @@ function checklistFullySubmitted(subKpis: unknown, taskTitle?: string): boolean 
   return items.every((x) => subKpiRequirementsMet(x));
 }
 
-/** Head-verified complete — only then does the card become Done. */
+/** Head-verified complete — only then does the card become Done (unless verification is off). */
 function checklistFullyComplete(
   subKpis: unknown,
   taskTitle?: string,
-  opts?: { parentCardEffectivelyVerified?: boolean },
+  opts?: { parentCardEffectivelyVerified?: boolean; verificationEnabled?: boolean },
 ): boolean {
   if (hasItemsInUnassignedSegment(subKpis)) return false;
   const items = checklistItems(subKpis, taskTitle);
@@ -192,7 +192,10 @@ function checklistFullyComplete(
   return items.every(
     (x) =>
       subKpiRequirementsMet(x) &&
-      isSubKpiEffectivelyVerified(x, { parentCardEffectivelyVerified: parentVerified }),
+      isSubKpiEffectivelyVerified(x, {
+        parentCardEffectivelyVerified: parentVerified,
+        verificationEnabled: opts?.verificationEnabled,
+      }),
   );
 }
 
@@ -229,8 +232,9 @@ async function completionPatchAfterSubKpiJsonChange(
   const label = kpiMainTaskLabel(kpiRow);
   const prevComplete = checklistFullyComplete(kpiRow.subKpis, label, {
     parentCardEffectivelyVerified: isCompletionEffectivelyVerified(kpiRow),
+    verificationEnabled,
   });
-  const nextComplete = checklistFullyComplete(nextSubKpis, label);
+  const nextComplete = checklistFullyComplete(nextSubKpis, label, { verificationEnabled });
   const hasPendingSubKpis = verificationEnabled
     ? pendingSubKpiItemsForVerification({
         ...kpiRow,
@@ -2161,7 +2165,9 @@ export async function PATCH(req: Request) {
       numericalTarget: meta.numericalTarget,
       remarks: meta.remarks,
     });
-    updatedJson = syncSubKpiDoneFromRequirements(updatedJson, subKpiIdMeta);
+    updatedJson = syncSubKpiDoneFromRequirements(updatedJson, subKpiIdMeta, {
+      verificationEnabled: await isTaskCompletionVerificationEnabled(),
+    });
     const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, updatedJson);
     if (nextComplete) await afterProgressAffectingUpdate(updatedJson);
     else dumpOverallKpiToMerged();
@@ -2679,7 +2685,9 @@ export async function PATCH(req: Request) {
       ...existingScreenshots,
       ...uploaded,
     ]);
-    updatedJson = syncScreenshotOnlySubKpiDone(updatedJson, subKpiIdShot);
+    updatedJson = syncScreenshotOnlySubKpiDone(updatedJson, subKpiIdShot, {
+      verificationEnabled: await isTaskCompletionVerificationEnabled(),
+    });
     const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, updatedJson);
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
@@ -2730,7 +2738,9 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Screenshot not found." }, { status: 404 });
     }
     let updatedJson = removeSubKpiItemScreenshot(kpiRow.subKpis, subKpiIdShot, slot, storedFileName);
-    updatedJson = syncScreenshotOnlySubKpiDone(updatedJson, subKpiIdShot);
+    updatedJson = syncScreenshotOnlySubKpiDone(updatedJson, subKpiIdShot, {
+      verificationEnabled: await isTaskCompletionVerificationEnabled(),
+    });
     const { prevComplete, nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(kpiRow, updatedJson);
     const updated = await prisma.kpiMaintenance.update({
       where: { id },
@@ -3279,6 +3289,7 @@ export async function PATCH(req: Request) {
   const { nextComplete, completionPatch } = await completionPatchAfterSubKpiJsonChange(
     kpiRow,
     updatedJson,
+    verifyOpts,
   );
 
   const userResetProgress = typeof markAllDone === "boolean" && markAllDone === false;

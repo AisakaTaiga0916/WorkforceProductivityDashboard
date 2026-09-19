@@ -473,15 +473,19 @@ export type KpiChecklistProgress = {
 export function kpiChecklistProgress(
   raw: unknown,
   taskTitle?: string,
-  opts?: { parentCardEffectivelyVerified?: boolean },
+  opts?: { parentCardEffectivelyVerified?: boolean; verificationEnabled?: boolean },
 ): KpiChecklistProgress {
   const all = collectChecklistProgressItems(raw, taskTitle);
   const total = all.length;
   const parentVerified = Boolean(opts?.parentCardEffectivelyVerified);
+  const verifyOpts = {
+    parentCardEffectivelyVerified: parentVerified,
+    verificationEnabled: opts?.verificationEnabled,
+  };
   const done = all.filter(
     (s) =>
       subKpiRequirementsMet(s) &&
-      isSubKpiEffectivelyVerified(s, { parentCardEffectivelyVerified: parentVerified }),
+      isSubKpiEffectivelyVerified(s, verifyOpts),
   ).length;
   const missing = total - done;
   const progressSum = all.reduce((sum, item) => {
@@ -490,7 +494,7 @@ export function kpiChecklistProgress(
     // Submitted-but-unverified items should not fill the donut as finished.
     if (
       subKpiRequirementsMet(item) &&
-      !isSubKpiEffectivelyVerified(item, { parentCardEffectivelyVerified: parentVerified })
+      !isSubKpiEffectivelyVerified(item, verifyOpts)
     ) {
       return sum;
     }
@@ -1469,6 +1473,9 @@ export function setSubKpiItemDone(
   opts?: { verificationEnabled?: boolean },
 ): Prisma.InputJsonValue {
   if (subKpiId === PILLAR_ONLY_VIRTUAL_SUBKPI_ID && isPillarOnlyTask(raw)) {
+    // Pillar completion has no per-item verification fields; card-level patch
+    // decides Done vs pending. When verification is off, mark done and rely on
+    // checklistFullyComplete(verificationEnabled: false) + approveCompletionDbPatch.
     return setPillarDone(raw, done);
   }
   const n = normalizeSubKpis(raw);
@@ -2727,7 +2734,11 @@ export function stripSubKpiStartDates(raw: unknown): Prisma.InputJsonValue {
 }
 
 /** Sub-tasks without a checkbox requirement auto-complete when other requirements are met. */
-export function syncSubKpiDoneFromRequirements(raw: unknown, subKpiId: string): Prisma.InputJsonValue {
+export function syncSubKpiDoneFromRequirements(
+  raw: unknown,
+  subKpiId: string,
+  opts?: { verificationEnabled?: boolean },
+): Prisma.InputJsonValue {
   if (subKpiId === PILLAR_ONLY_VIRTUAL_SUBKPI_ID && isPillarOnlyTask(raw)) {
     return syncPillarDoneFromRequirements(raw);
   }
@@ -2741,10 +2752,14 @@ export function syncSubKpiDoneFromRequirements(raw: unknown, subKpiId: string): 
   }
   const shouldBeDone = subKpiRequirementsMet(item);
   if (Boolean(item.done) === shouldBeDone) return raw as Prisma.InputJsonValue;
-  return setSubKpiItemDone(raw, subKpiId, shouldBeDone);
+  return setSubKpiItemDone(raw, subKpiId, shouldBeDone, opts);
 }
 
 /** @deprecated use syncSubKpiDoneFromRequirements */
-export function syncScreenshotOnlySubKpiDone(raw: unknown, subKpiId: string): Prisma.InputJsonValue {
-  return syncSubKpiDoneFromRequirements(raw, subKpiId);
+export function syncScreenshotOnlySubKpiDone(
+  raw: unknown,
+  subKpiId: string,
+  opts?: { verificationEnabled?: boolean },
+): Prisma.InputJsonValue {
+  return syncSubKpiDoneFromRequirements(raw, subKpiId, opts);
 }

@@ -111,6 +111,7 @@ import {
   TASK_SCREENSHOT_ACCEPT,
 } from "@/lib/task-screenshot-constants";
 import type { TaskScreenshotSlot } from "@/lib/task-screenshot-meta";
+import { parseTaskScreenshotMetaList } from "@/lib/task-screenshot-meta";
 import { KpiDefinitionConsole } from "@/components/KpiDefinitionConsole";
 import { SeekAssistanceModal } from "@/components/task-board/SeekAssistanceModal";
 import { SubTasksManagerPopup } from "@/components/task-board/SubTasksManagerPopup";
@@ -559,6 +560,9 @@ export function AgentKpiKanbanFlow({
   const [busyId, setBusyId] = useState<string | null>(null);
   /** Screenshot up/down only — must not freeze board drag or unrelated controls. */
   const [mediaBusyId, setMediaBusyId] = useState<string | null>(null);
+  /** Ignore modal-backdrop closes briefly after opening the OS file picker (ghost click). */
+  const filePickerGuardUntilRef = useRef(0);
+  const activeTaskSnapshotRef = useRef<KpiRecord | null>(null);
   /** Card id whose inline assignee search is open (toggled by clicking the assignee field). */
   const [editingAssigneeId, setEditingAssigneeId] = useState<string | null>(null);
   /** Sub-task key ("<recordId>:<subKpiId>") whose inline assignee search is open. */
@@ -973,11 +977,28 @@ export function AgentKpiKanbanFlow({
 
   function closeActiveTask() {
     setActiveTaskId(null);
+    activeTaskSnapshotRef.current = null;
     setVerificationRejectOpen(false);
     setVerificationRejectComment("");
     setDetailSegmentFilter("ALL");
     setScheduleDraft(null);
     setTaskAuditLog([]);
+  }
+
+  /** OS file dialogs often fire a synthetic click on the modal backdrop when they close. */
+  function armFilePickerGuard(ms = 2000) {
+    filePickerGuardUntilRef.current = Math.max(filePickerGuardUntilRef.current, Date.now() + ms);
+  }
+
+  function openTaskScreenshotPicker(inputId: string) {
+    armFilePickerGuard(2500);
+    const input = document.getElementById(inputId) as HTMLInputElement | null;
+    input?.click();
+    const onFocus = () => {
+      armFilePickerGuard(1200);
+      window.removeEventListener("focus", onFocus);
+    };
+    window.addEventListener("focus", onFocus);
   }
 
   useEffect(() => {
@@ -1018,6 +1039,18 @@ export function AgentKpiKanbanFlow({
   }, [activeTaskId]);
 
   function applyUpdatedKpiRow(updated: KpiRecord) {
+    if (activeTaskSnapshotRef.current?.id === updated.id) {
+      activeTaskSnapshotRef.current = {
+        ...activeTaskSnapshotRef.current,
+        ...updated,
+        assignedAgent: updated.assignedAgent ?? activeTaskSnapshotRef.current.assignedAgent,
+        isFieldAssignment:
+          updated.isFieldAssignment ?? activeTaskSnapshotRef.current.isFieldAssignment,
+        travelOrderSummary:
+          updated.travelOrderSummary ?? activeTaskSnapshotRef.current.travelOrderSummary,
+        linkedJobOrders: updated.linkedJobOrders ?? activeTaskSnapshotRef.current.linkedJobOrders,
+      };
+    }
     startTransition(() => {
       setRows((prev) =>
         prev.map((row) => {
@@ -1077,6 +1110,7 @@ export function AgentKpiKanbanFlow({
     }
     const p = kpiChecklistProgress(r.subKpis, taskLabel(r), {
       parentCardEffectivelyVerified: isCompletionEffectivelyVerified(r),
+      verificationEnabled: taskVerificationEnabled,
     });
     const view = kpiChecklistMetricView(
       p,
@@ -1157,6 +1191,7 @@ export function AgentKpiKanbanFlow({
           done: 0,
           nowMs,
           timeZone: tz,
+          verificationEnabled: taskVerificationEnabled,
         });
         if (delayed === "DELAYED") return "DELAYED";
       }
@@ -1167,6 +1202,7 @@ export function AgentKpiKanbanFlow({
       done: p.done,
       nowMs,
       timeZone: tz,
+      verificationEnabled: taskVerificationEnabled,
     });
     // Pending verification stays on Current; approvals are handled via "For My Approval".
     if (derived === "PENDING_VERIFICATION") return "CURRENT";
@@ -1499,6 +1535,8 @@ export function AgentKpiKanbanFlow({
       const updated = (await res.json()) as KpiRecord;
       applyUpdatedKpiRow(updated);
       refreshActiveTaskAudit(recordId);
+    } catch {
+      setError("Could not upload task screenshot. Check your connection and try again.");
     } finally {
       setMediaBusyId(null);
     }
@@ -1544,6 +1582,8 @@ export function AgentKpiKanbanFlow({
       const updated = (await res.json()) as KpiRecord;
       applyUpdatedKpiRow(updated);
       refreshActiveTaskAudit(recordId);
+    } catch {
+      setError("Could not upload pillar screenshot. Check your connection and try again.");
     } finally {
       setMediaBusyId(null);
     }
@@ -2820,13 +2860,14 @@ export function AgentKpiKanbanFlow({
   }
 
   function renderPillarScreenshotField(r: KpiRecord, slot: TaskScreenshotSlot, editable: boolean) {
-    const screenshots = getPillarScreenshots(r.subKpis, slot);
+    const screenshots = parseTaskScreenshotMetaList(getPillarScreenshots(r.subKpis, slot));
     const label =
       slot === "before" ? "Before screenshot" : slot === "after" ? "After screenshot" : "Screenshot";
     const canUpload = editable || canAssignWork;
     const canRemove = canUpload && !taskCardDone(r);
     const remainingSlots = Math.max(0, MAX_TASK_SCREENSHOTS_PER_SLOT - screenshots.length);
     const mediaBusy = mediaBusyId === r.id || busyId === r.id;
+    const inputId = `pillar-shot-${r.id}-${slot}`;
     return (
       <div className="rounded-lg border border-orange-200 bg-orange-50/60 p-2 dark:border-orange-800/50 dark:bg-orange-950/20">
         <p className="text-[10px] font-bold uppercase tracking-wide text-orange-800 dark:text-orange-200">{label}</p>
@@ -2839,6 +2880,8 @@ export function AgentKpiKanbanFlow({
                   target="_blank"
                   rel="noreferrer"
                   className="font-semibold text-orange-700 hover:underline dark:text-orange-300"
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
                 >
                   View {index + 1}
                 </a>
@@ -2861,30 +2904,38 @@ export function AgentKpiKanbanFlow({
             ))}
           </div>
         ) : null}
-        <label
-          onClick={(e) => e.stopPropagation()}
+        <button
+          type="button"
+          disabled={!canUpload || mediaBusy || remainingSlots === 0}
+          onClick={(e) => {
+            e.stopPropagation();
+            openTaskScreenshotPicker(inputId);
+          }}
           onPointerDown={(e) => e.stopPropagation()}
           className={cn(
-            "mt-2 inline-flex cursor-pointer rounded-full bg-orange-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-orange-500",
-            (!canUpload || mediaBusy || remainingSlots === 0) && "cursor-not-allowed opacity-60 hover:bg-orange-600",
+            "mt-2 inline-flex rounded-full bg-orange-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-orange-500",
+            (!canUpload || mediaBusy || remainingSlots === 0) &&
+              "cursor-not-allowed opacity-60 hover:bg-orange-600",
           )}
         >
           {mediaBusyId === r.id ? "Uploading…" : "Choose File"}
-          <input
-            type="file"
-            multiple
-            accept={TASK_SCREENSHOT_ACCEPT}
-            disabled={!canUpload || mediaBusy || remainingSlots === 0}
-            onChange={(e) => {
-              e.stopPropagation();
-              const files = Array.from(e.target.files ?? []);
-              e.target.value = "";
-              void uploadPillarScreenshots(r.id, slot, files, screenshots.length);
-            }}
-            className="sr-only"
-            aria-label={`Upload 1 to ${remainingSlots} ${label.toLowerCase()} images for ${taskLabel(r)}`}
-          />
-        </label>
+        </button>
+        <input
+          id={inputId}
+          type="file"
+          multiple
+          accept={TASK_SCREENSHOT_ACCEPT}
+          disabled={!canUpload || mediaBusy || remainingSlots === 0}
+          onChange={(e) => {
+            e.stopPropagation();
+            armFilePickerGuard(1500);
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            void uploadPillarScreenshots(r.id, slot, files, screenshots.length);
+          }}
+          className="sr-only"
+          aria-label={`Upload 1 to ${remainingSlots} ${label.toLowerCase()} images for ${taskLabel(r)}`}
+        />
       </div>
     );
   }
@@ -2948,12 +2999,13 @@ export function AgentKpiKanbanFlow({
   }
 
   function renderScreenshotField(r: KpiRecord, s: SubKpiItem, slot: TaskScreenshotSlot, editable: boolean) {
-    const screenshots =
+    const screenshots = parseTaskScreenshotMetaList(
       slot === "before"
-        ? s.beforeScreenshot ?? []
+        ? s.beforeScreenshot
         : slot === "after"
-          ? s.afterScreenshot ?? []
-          : s.uploadScreenshot ?? [];
+          ? s.afterScreenshot
+          : s.uploadScreenshot,
+    );
     const label =
       slot === "before"
         ? "Before screenshot"
@@ -2964,6 +3016,7 @@ export function AgentKpiKanbanFlow({
     const canRemove = canUpload && !s.done && !taskCardDone(r);
     const remainingSlots = Math.max(0, MAX_TASK_SCREENSHOTS_PER_SLOT - screenshots.length);
     const mediaBusy = mediaBusyId === r.id || busyId === r.id;
+    const inputId = `sub-shot-${r.id}-${s.id}-${slot}`;
     return (
       <div className="rounded-lg border border-zinc-200 bg-white/60 p-2 dark:border-zinc-700 dark:bg-zinc-950/40">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2978,6 +3031,8 @@ export function AgentKpiKanbanFlow({
                   target="_blank"
                   rel="noreferrer"
                   className="shrink-0 font-semibold text-orange-700 hover:underline dark:text-orange-300"
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
                 >
                   View {index + 1}
                 </a>
@@ -3000,30 +3055,38 @@ export function AgentKpiKanbanFlow({
             ))}
           </div>
         ) : null}
-        <label
-          onClick={(e) => e.stopPropagation()}
+        <button
+          type="button"
+          disabled={!canUpload || mediaBusy || remainingSlots === 0}
+          onClick={(e) => {
+            e.stopPropagation();
+            openTaskScreenshotPicker(inputId);
+          }}
           onPointerDown={(e) => e.stopPropagation()}
           className={cn(
-            "mt-2 inline-flex cursor-pointer rounded-full bg-orange-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-orange-500",
-            (!canUpload || mediaBusy || remainingSlots === 0) && "cursor-not-allowed opacity-60 hover:bg-orange-600",
+            "mt-2 inline-flex rounded-full bg-orange-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-orange-500",
+            (!canUpload || mediaBusy || remainingSlots === 0) &&
+              "cursor-not-allowed opacity-60 hover:bg-orange-600",
           )}
         >
           {mediaBusyId === r.id ? "Uploading…" : "Choose File"}
-          <input
-            type="file"
-            multiple
-            accept={TASK_SCREENSHOT_ACCEPT}
-            disabled={!canUpload || mediaBusy || remainingSlots === 0}
-            onChange={(e) => {
-              e.stopPropagation();
-              const files = Array.from(e.target.files ?? []);
-              e.target.value = "";
-              void uploadSubKpiScreenshots(r.id, s.id, slot, files, screenshots.length);
-            }}
-            className="sr-only"
-            aria-label={`Upload 1 to ${remainingSlots} ${label.toLowerCase()} images for ${s.title}`}
-          />
-        </label>
+        </button>
+        <input
+          id={inputId}
+          type="file"
+          multiple
+          accept={TASK_SCREENSHOT_ACCEPT}
+          disabled={!canUpload || mediaBusy || remainingSlots === 0}
+          onChange={(e) => {
+            e.stopPropagation();
+            armFilePickerGuard(1500);
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            void uploadSubKpiScreenshots(r.id, s.id, slot, files, screenshots.length);
+          }}
+          className="sr-only"
+          aria-label={`Upload 1 to ${remainingSlots} ${label.toLowerCase()} images for ${s.title}`}
+        />
       </div>
     );
   }
@@ -3358,9 +3421,11 @@ export function AgentKpiKanbanFlow({
     const parentVerified = isCompletionEffectivelyVerified(r);
     const pendingVerify = isSubKpiPendingVerification(s, {
       parentCardEffectivelyVerified: parentVerified,
+      verificationEnabled: taskVerificationEnabled,
     });
     const verifiedFinished = isSubKpiEffectivelyVerified(s, {
       parentCardEffectivelyVerified: parentVerified,
+      verificationEnabled: taskVerificationEnabled,
     });
     const rejectedVerify = isSubKpiVerificationRejected(s);
     const finished = submitted;
@@ -3447,9 +3512,11 @@ export function AgentKpiKanbanFlow({
     const parentVerified = isCompletionEffectivelyVerified(r);
     const pendingVerify = isSubKpiPendingVerification(s, {
       parentCardEffectivelyVerified: parentVerified,
+      verificationEnabled: taskVerificationEnabled,
     });
     const verifiedFinished = isSubKpiEffectivelyVerified(s, {
       parentCardEffectivelyVerified: parentVerified,
+      verificationEnabled: taskVerificationEnabled,
     });
     const rejectedVerify = isSubKpiVerificationRejected(s);
     const finished = submitted;
@@ -3643,7 +3710,7 @@ export function AgentKpiKanbanFlow({
         ) : null}
         {needsNumericalForCheckbox && completionRequirements.checkbox ? (
           <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
-            Reach 100% progress (actual Ã· target) before marking this sub-task done.
+            Reach 100% progress (actual ÷ target) before marking this sub-task done.
           </p>
         ) : null}
         {!completionRequirements.checkbox && completionRequirements.screenshots && !finished ? (
@@ -4536,7 +4603,21 @@ export function AgentKpiKanbanFlow({
     );
   }
 
-  const activeTask = activeTaskId ? rows.find((row) => row.id === activeTaskId) ?? null : null;
+  const activeTaskFromRows = activeTaskId
+    ? rows.find((row) => row.id === activeTaskId) ?? null
+    : null;
+  if (activeTaskFromRows) {
+    activeTaskSnapshotRef.current = activeTaskFromRows;
+  } else if (!activeTaskId) {
+    activeTaskSnapshotRef.current = null;
+  }
+  // Keep the modal mounted across row refreshes (e.g. screenshot upload) so the
+  // dimmed backdrop never shows alone without the panel.
+  const activeTask =
+    activeTaskFromRows ??
+    (activeTaskId && activeTaskSnapshotRef.current?.id === activeTaskId
+      ? activeTaskSnapshotRef.current
+      : null);
 
   function renderTaskScheduleEditor(r: KpiRecord) {
     if (!showAdminTaskManagement || isItProjectImplementationPillar(r.title) || !scheduleDraft) return null;
@@ -4688,14 +4769,22 @@ export function AgentKpiKanbanFlow({
     return createPortal(
       <div
         className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50 px-3 py-6 backdrop-blur-sm"
-        onClick={() => closeActiveTask()}
+        onClick={(e) => {
+          // Only the dimmed backdrop closes the modal — not bubbled clicks from the panel.
+          if (e.target !== e.currentTarget) return;
+          // OS file pickers often synthesize a click on whatever is behind them when they
+          // close; ignore that so screenshot upload doesn't leave a blank black overlay.
+          if (Date.now() < filePickerGuardUntilRef.current) return;
+          closeActiveTask();
+        }}
         role="dialog"
         aria-modal="true"
         aria-label={`${taskLabel(activeTask)} full task details`}
       >
         <div
-          className="max-h-[calc(100dvh-3rem)] w-full max-w-4xl overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl dark:border-zinc-800 dark:bg-surface sm:p-5"
+          className="max-h-[calc(100dvh-3rem)] w-full max-w-4xl overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 sm:p-5"
           onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
         >
           <div className="flex flex-col gap-3 border-b border-zinc-200 pb-4 dark:border-zinc-800 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">

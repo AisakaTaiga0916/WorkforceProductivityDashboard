@@ -209,9 +209,16 @@ export function recurringDoneDelayedMs(
 /** Board column: timeline / IT project and non-recurring tasks land in Delayed from phase/sub-task targets. */
 export function taskKanbanDerivedStatus(
   record: KpiMaintenanceLike & { subKpis?: unknown } & CompletionVerificationFields,
-  args: { total: number; done: number; nowMs: number; timeZone: string },
+  args: {
+    total: number;
+    done: number;
+    nowMs: number;
+    timeZone: string;
+    verificationEnabled?: boolean;
+  },
 ): KpiBoardLaneStatus {
   const { total, done, nowMs, timeZone } = args;
+  const verificationEnabled = args.verificationEnabled;
   if (total === 0) return "CURRENT";
   if (isTimelineBoardRecord(record)) {
     if (
@@ -225,7 +232,9 @@ export function taskKanbanDerivedStatus(
     ) {
       return "DELAYED";
     }
-    if (done === total) return boardStatusAfterChecklistComplete(record);
+    if (done === total) {
+      return boardStatusAfterChecklistComplete(record, { verificationEnabled });
+    }
     return "CURRENT";
   }
   if (record.isRecurring === false && nonRecurringTaskHasDelay(record.subKpis, nowMs, timeZone)) {
@@ -234,7 +243,9 @@ export function taskKanbanDerivedStatus(
   if (record.isRecurring !== false && recurringTaskHasDelay(record, nowMs, timeZone)) {
     return "DELAYED";
   }
-  if (done === total) return boardStatusAfterChecklistComplete(record);
+  if (done === total) {
+    return boardStatusAfterChecklistComplete(record, { verificationEnabled });
+  }
   return "CURRENT";
 }
 

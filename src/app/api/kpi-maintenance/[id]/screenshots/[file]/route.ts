@@ -18,7 +18,12 @@ export async function GET(
   _req: Request,
   ctx: { params: Promise<{ id: string; file: string }> },
 ) {
-  const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
+  const { session, unauthorized } = await requireRole([
+    "SuperAdmin",
+    "HighAdmin",
+    "Admin",
+    "Personnel",
+  ]);
   if (unauthorized || !session) return unauthorized;
   const perms = await resolveOpsPermissions(session);
   const { id, file: fileParam } = await ctx.params;
