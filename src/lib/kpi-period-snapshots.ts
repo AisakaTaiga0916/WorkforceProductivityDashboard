@@ -25,6 +25,8 @@ import {
   isUnsegmentedSegmentId,
   normalizeSubKpis,
   pillarVirtualSubKpiItem,
+  invertedContributorItemCredited,
+  kpiSnapshotProgress,
   progressWithInvertedRecording,
   subKpiProgressOwner,
   taskUsesInvertedRecording,
@@ -194,12 +196,12 @@ export async function upsertKpiPeriodSnapshot(
       at,
       zone,
     );
-    const progress = kpiChecklistProgress(row.subKpis, kpiMainTaskLabel(row));
+    const progress = kpiSnapshotProgress(row);
     const fullyComplete = progress.total > 0 && progress.missing === 0;
     const contributorProgress = assigneeProgressToStored(
       assigneeProgressForRows(
         [{ title: row.title, mainTask: row.mainTask, subKpis: row.subKpis, assignedAgent: row.assignedAgent ?? null }],
-        rawCheckboxIsDone,
+        contributorIsDoneForRow(row),
       ),
     );
     await prisma.kpiMaintenancePeriodSnapshot.upsert({
@@ -238,12 +240,12 @@ export async function upsertKpiPeriodSnapshot(
   }
   const periodKey =
     periodKeyOverride?.trim() || resolvePeriodKeyForKpi(row, at, zone);
-  const progress = kpiChecklistProgress(row.subKpis, kpiMainTaskLabel(row));
+  const progress = kpiSnapshotProgress(row);
   const fullyComplete = progress.total > 0 && progress.missing === 0;
   const contributorProgress = assigneeProgressToStored(
     assigneeProgressForRows(
       [{ title: row.title, mainTask: row.mainTask, subKpis: row.subKpis, assignedAgent: row.assignedAgent ?? null }],
-      rawCheckboxIsDone,
+      contributorIsDoneForRow(row),
     ),
   );
 
@@ -738,18 +740,25 @@ function buildIncludedTasksFromKpis(
       (item) => item.title.trim().length > 0,
     );
     const isDone = opts?.isDone ?? subKpiRequirementsMet;
-    const total = items.length;
-    const done = items.reduce((sum, item) => sum + (isDone(item) ? 1 : 0), 0);
-    const missing = Math.max(0, total - done);
+    const rawDone = items.reduce((sum, item) => sum + (isDone(item) ? 1 : 0), 0);
+    const progress = progressWithInvertedRecording(
+      {
+        total: items.length,
+        done: rawDone,
+        missing: Math.max(0, items.length - rawDone),
+        percent: items.length > 0 ? Math.round((rawDone / items.length) * 100) : 0,
+      },
+      taskInverted,
+    );
     out.push({
       id: row.id,
       title,
       frequency: String(row.frequency ?? "").toUpperCase() || "—",
       assigneeName: row.assignedAgent?.name?.trim() || null,
-      total,
-      done,
-      missing,
-      percent: total > 0 ? Math.round((done / total) * 100) : 0,
+      total: progress.total,
+      done: progress.done,
+      missing: progress.missing,
+      percent: progress.percent,
       items: items.map((item) => ({
         id: item.id,
         title: item.title.trim(),
@@ -1039,6 +1048,14 @@ function storedToAssigneeProgress(rows: StoredContributorProgress[]): TaskAssign
 /** Single completion predicate for metrics / snapshots (matches Task Board). */
 function rawCheckboxIsDone(item: SubKpiItem): boolean {
   return subKpiRequirementsMet(item);
+}
+
+function contributorIsDoneForRow(row: {
+  title: string;
+  subKpis: unknown;
+}): (item: SubKpiItem) => boolean {
+  if (!taskUsesInvertedRecording(row)) return rawCheckboxIsDone;
+  return invertedContributorItemCredited;
 }
 
 /** Live Task Board rows that currently roll into a Task Metrics donut (Admin extended view). */
@@ -1445,20 +1462,27 @@ function contributorProgressForKpiPeriod(
     assignedAgent: kpi.assignedAgent ?? null,
   };
 
+  const taskInvert = taskUsesInvertedRecording({ title: kpi.title, subKpis: kpi.subKpis });
+  const contributorIsDone = taskInvert ? invertedContributorItemCredited : isDone;
+
   if (periodKey === nowPeriodKey) {
-    return assigneeProgressForRows([checkboxRow], isDone);
+    return assigneeProgressForRows([checkboxRow], contributorIsDone);
   }
   if (!snap) return [];
 
+  const progress = taskInvert
+    ? progressWithInvertedRecording(snapshotToProgress(snap), true)
+    : snapshotToProgress(snap);
+
   const stored = parseContributorProgress(snap.contributorProgress);
-  if (stored.length > 0) {
+  if (stored.length > 0 && !taskInvert) {
     return storedToAssigneeProgress(stored);
   }
-  if (snap.total > 0) {
+  if (progress.total > 0) {
     return scaleAssigneeProgressToTotals(
-      assigneeProgressForRows([checkboxRow], isDone),
-      snap.done,
-      snap.total,
+      assigneeProgressForRows([checkboxRow], contributorIsDone),
+      progress.done,
+      progress.total,
     );
   }
   return [];
