@@ -856,6 +856,63 @@ export function progressWithInvertedRecording(
   };
 }
 
+/** Inverted monitoring: unchecked checkbox items count as credited (safe / uptime). */
+export function invertedContributorItemCredited(
+  item: Pick<
+    SubKpiItem,
+    | "done"
+    | "completionRequirements"
+    | "completionMode"
+    | "screenshotsEnabled"
+    | "beforeScreenshot"
+    | "afterScreenshot"
+    | "uploadScreenshot"
+    | "numericalValue"
+    | "numericalTarget"
+  >,
+): boolean {
+  const req = resolveSubKpiCompletionRequirements(item);
+  if (req.checkbox) return !item.done;
+  return !subKpiRequirementsMet(item);
+}
+
+/** Raw flagged/clear counts for inverted monitoring before display flip. */
+export function kpiInvertedRawProgress(raw: unknown, taskTitle?: string): KpiChecklistProgress {
+  const items = collectChecklistProgressItems(raw, taskTitle);
+  const total = items.length;
+  const flagged = items.filter((item) => Boolean(item.done)).length;
+  const clear = total - flagged;
+  return {
+    total,
+    done: flagged,
+    missing: clear,
+    percent: total > 0 ? Math.round((flagged / total) * 100) : 0,
+  };
+}
+
+/** Checklist progress stored on period snapshots (inverted-aware). */
+export function kpiSnapshotProgress(
+  row: { title: string; mainTask?: string | null; subKpis: unknown },
+  taskTitle?: string,
+): KpiChecklistProgress {
+  const label = taskTitle ?? kpiMainTaskLabel(row);
+  const invert = taskUsesInvertedRecording({ title: row.title, subKpis: row.subKpis });
+  if (invert) {
+    return progressWithInvertedRecording(kpiInvertedRawProgress(row.subKpis, label), true);
+  }
+  return kpiChecklistProgress(row.subKpis, label);
+}
+
+/** True when an inverted-recording period has no flagged incidents (all clear). */
+export function invertedRecordingPeriodClear(
+  row: { title: string; mainTask?: string | null; subKpis: unknown },
+  taskTitle?: string,
+): boolean {
+  if (!taskUsesInvertedRecording(row)) return false;
+  const progress = kpiSnapshotProgress(row, taskTitle);
+  return progress.total > 0 && progress.missing === 0;
+}
+
 export function getLinkedJobOrderFromSubKpis(
   raw: unknown,
 ): { ticketId: string; ticketNumber: string | null } | null {

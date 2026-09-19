@@ -63,6 +63,8 @@ import {
   canAdjustNumericalTarget,
   canMutateSubKpiAssignee,
   hasItemsInUnassignedSegment,
+  invertedRecordingPeriodClear,
+  taskUsesInvertedRecording,
 } from "@/lib/kpi-subkpis";
 import {
   applyPhaseDelayNotifications,
@@ -458,8 +460,15 @@ export async function GET(req: Request) {
       patch.rolledOverIncomplete = false;
     }
 
-    const checklistDone = checklistFullyComplete(row.subKpis, kpiMainTaskLabel(row));
-    const complete = checklistDone && isCompletionEffectivelyVerified(row);
+    const taskLabel = kpiMainTaskLabel(row);
+    const invert = taskUsesInvertedRecording({ title: row.title, subKpis: row.subKpis });
+    const checklistDone = invert
+      ? invertedRecordingPeriodClear(
+          { title: row.title, mainTask: row.mainTask, subKpis: row.subKpis },
+          taskLabel,
+        )
+      : checklistFullyComplete(row.subKpis, taskLabel);
+    const complete = invert ? checklistDone : checklistDone && isCompletionEffectivelyVerified(row);
     const staleCycle = currentCycleStart.getTime() > anchor.getTime();
     if (staleCycle) {
       // Incomplete work stays Delayed after the cycle deadline before resetting — the 10-day
