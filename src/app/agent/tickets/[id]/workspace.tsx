@@ -124,6 +124,8 @@ type TicketDetail = Ticket & {
     comment: string | null;
   } | null;
   orgChartSectionId?: string | null;
+  /** Present after `tickets.remarks` migration / ensure. */
+  remarks?: string | null;
 };
 
 export function AgentWorkspace({
@@ -229,6 +231,12 @@ export function AgentWorkspace({
   const [priority, setPriority] = useState(ticket.priority);
   const [transferReason, setTransferReason] = useState("");
   const [logModalOpen, setLogModalOpen] = useState(false);
+  const [remarksDraft, setRemarksDraft] = useState(() => ticket.remarks ?? "");
+  const [remarksSaving, setRemarksSaving] = useState(false);
+
+  useEffect(() => {
+    setRemarksDraft(ticket.remarks ?? "");
+  }, [ticket.id, ticket.remarks]);
   const [transferRecipients, setTransferRecipients] = useState<TransferRecipient[]>([]);
   const [transferRecipientId, setTransferRecipientId] = useState("");
   const [acaDoneComment, setAcaDoneComment] = useState("");
@@ -963,6 +971,24 @@ export function AgentWorkspace({
     }
     if (body.action === "complete_aca_approval_step") {
       setAcaDoneComment("");
+    }
+    router.refresh();
+  }
+
+  async function saveRemarks() {
+    if (!isAgentViewer) return;
+    setRemarksSaving(true);
+    setError(null);
+    const res = await fetch(`/api/tickets/${ticket.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "remarks", remarks: remarksDraft }),
+    });
+    setRemarksSaving(false);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error ?? "Could not save remarks.");
+      return;
     }
     router.refresh();
   }
@@ -3678,7 +3704,47 @@ export function AgentWorkspace({
         )}
       </aside>
 
-      <article className="rounded-2xl border border-zinc-200 bg-white p-4 text-xs text-zinc-600 shadow-[0_12px_32px_rgba(15,23,42,0.08)] sm:p-5 xl:col-span-2 dark:border-zinc-800 dark:bg-surface dark:text-zinc-300 dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
+      <div className="space-y-4 xl:col-span-2">
+        <article className="rounded-2xl border border-zinc-200 bg-white p-4 text-xs text-zinc-600 shadow-[0_12px_32px_rgba(15,23,42,0.08)] sm:p-5 dark:border-zinc-800 dark:bg-surface dark:text-zinc-300 dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-500">
+              Remarks
+            </h2>
+            {isAgentViewer ? (
+              <button
+                type="button"
+                disabled={remarksSaving || busy || remarksDraft.trim() === (ticket.remarks ?? "").trim()}
+                onClick={() => void saveRemarks()}
+                className="rounded-full border border-zinc-300 bg-zinc-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white hover:bg-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                {remarksSaving ? "Saving…" : "Save remarks"}
+              </button>
+            ) : null}
+          </div>
+          {isAgentViewer ? (
+            <>
+              <textarea
+                value={remarksDraft}
+                onChange={(e) => setRemarksDraft(e.target.value)}
+                rows={4}
+                maxLength={8000}
+                placeholder="Add remarks for this request (visible to the requestor when confirmation is needed)…"
+                className="mt-3 w-full resize-y rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none ring-orange-500/40 placeholder:text-zinc-400 focus:ring-2 dark:border-zinc-700 dark:bg-zinc-950/50 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+              />
+              <p className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-500">
+                When this request is For Confirmation, the requestor sees a pin to open these remarks.
+              </p>
+            </>
+          ) : (ticket.remarks ?? "").trim() ? (
+            <p className="mt-3 whitespace-pre-wrap rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950/50 dark:text-zinc-200">
+              {(ticket.remarks ?? "").trim()}
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-500">No remarks yet.</p>
+          )}
+        </article>
+
+        <article className="rounded-2xl border border-zinc-200 bg-white p-4 text-xs text-zinc-600 shadow-[0_12px_32px_rgba(15,23,42,0.08)] sm:p-5 dark:border-zinc-800 dark:bg-surface dark:text-zinc-300 dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500 dark:text-zinc-500">Audit log</h2>
           <button
@@ -3698,6 +3764,7 @@ export function AgentWorkspace({
           ))}
         </ul>
       </article>
+      </div>
 
       {logModalOpen ? (
         <div className="fixed inset-0 z-[70]">

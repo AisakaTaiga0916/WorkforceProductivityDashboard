@@ -437,6 +437,8 @@ model Ticket {
   escalatedAt         DateTime?        @map("escalated_at")
   reopenCount         Int              @default(0) @map("reopen_count")
   resolutionNotes     String?          @map("resolution_notes")
+  /// Free-text remarks for the request (shown above audit trail; pinned for requestors at confirmation).
+  remarks             String?          @map("remarks") @db.Text
   intakeScreenshotMeta Json?           @map("intake_screenshot_meta")
   /// Request-for-payment approval assignees + procedural step (JSON).
   paymentApprovalMeta Json?            @map("payment_approval_meta")

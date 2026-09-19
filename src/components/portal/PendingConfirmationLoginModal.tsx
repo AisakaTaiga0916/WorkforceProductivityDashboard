@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, ArrowRight, ClipboardCheck, X } from "lucide-react";
+import { AlertCircle, ArrowRight, ClipboardCheck, Pin, X } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
 import { formatTicketStatusLabel } from "@/lib/ticket-status-label";
@@ -16,6 +16,8 @@ type PendingTicket = {
   status: string;
   updatedAt: string;
   verificationHref: string;
+  remarks?: string | null;
+  hasRemarks?: boolean;
 };
 
 const AUTH_PATHS = new Set(["/signin", "/signup", "/customer/signin", "/customer/signup"]);
@@ -51,6 +53,7 @@ export function PendingConfirmationLoginModal() {
   const [fetchState, setFetchState] = useState<"idle" | "loading" | "ready">("idle");
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
   const [open, setOpen] = useState(false);
+  const [expandedRemarksId, setExpandedRemarksId] = useState<string | null>(null);
 
   const role = session?.user?.role;
   const userKey = (session?.user?.email ?? "user").trim().toLowerCase();
@@ -102,6 +105,7 @@ export function PendingConfirmationLoginModal() {
     for (const ticket of visibleTickets) next.add(ticket.id);
     writeDismissedTicketIds(userKey, [...next]);
     setDismissedIds(next);
+    setExpandedRemarksId(null);
     setOpen(false);
   }
 
@@ -159,32 +163,79 @@ export function PendingConfirmationLoginModal() {
           </div>
 
           <div className="mt-5 space-y-2">
-            {visibleTickets.map((ticket) => (
-              <div
-                key={ticket.id}
-                className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/70"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-mono text-sm font-bold text-zinc-950 dark:text-zinc-100">
-                    {ticket.ticketNumber}
-                  </p>
-                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-800 dark:text-amber-200">
-                    {formatTicketStatusLabel(ticket.status)}
-                  </span>
+            {visibleTickets.map((ticket) => {
+              const remarksText = (ticket.remarks ?? "").trim();
+              const showPin =
+                ticket.hasRemarks === true ||
+                (remarksText.length > 0 &&
+                  (ticket.status === "FOR_CONFIRMATION" || ticket.status === "RESOLVED"));
+              const remarksOpen = expandedRemarksId === ticket.id;
+
+              return (
+                <div
+                  key={ticket.id}
+                  className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/70"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-mono text-sm font-bold text-zinc-950 dark:text-zinc-100">
+                          {ticket.ticketNumber}
+                        </p>
+                        <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-800 dark:text-amber-200">
+                          {formatTicketStatusLabel(ticket.status)}
+                        </span>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300">
+                        {ticket.title}
+                      </p>
+                    </div>
+                    {showPin ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedRemarksId((id) => (id === ticket.id ? null : ticket.id))
+                        }
+                        className={cn(
+                          "relative shrink-0 rounded-full border p-2 transition",
+                          remarksOpen
+                            ? "border-orange-500/50 bg-orange-500/15 text-orange-700 dark:text-orange-200"
+                            : "border-zinc-300 bg-white text-orange-600 hover:bg-orange-50 dark:border-zinc-600 dark:bg-zinc-950 dark:text-orange-300 dark:hover:bg-zinc-800",
+                        )}
+                        aria-expanded={remarksOpen}
+                        aria-label={remarksOpen ? "Hide remarks" : "Show remarks"}
+                        title={remarksOpen ? "Hide remarks" : "Show remarks"}
+                      >
+                        <Pin className="size-4" aria-hidden />
+                        <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-orange-500" />
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {remarksOpen && remarksText ? (
+                    <div className="mt-3 rounded-lg border border-orange-500/25 bg-orange-500/5 px-3 py-2 dark:border-orange-400/20 dark:bg-orange-500/10">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-orange-700 dark:text-orange-300">
+                        Remarks
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-800 dark:text-zinc-100">
+                        {remarksText}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {multiple ? (
+                    <Link
+                      href={ticket.verificationHref}
+                      onClick={dismissForSession}
+                      className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-500 dark:text-orange-300 dark:hover:text-orange-200"
+                    >
+                      Review this ticket
+                      <ArrowRight className="size-3.5" />
+                    </Link>
+                  ) : null}
                 </div>
-                <p className="mt-1 line-clamp-2 text-sm text-zinc-700 dark:text-zinc-300">{ticket.title}</p>
-                {multiple ? (
-                  <Link
-                    href={ticket.verificationHref}
-                    onClick={dismissForSession}
-                    className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-orange-600 hover:text-orange-500 dark:text-orange-300 dark:hover:text-orange-200"
-                  >
-                    Review this ticket
-                    <ArrowRight className="size-3.5" />
-                  </Link>
-                ) : null}
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
