@@ -69,6 +69,8 @@ async function adminGroupBoardTicketWhere(input: {
   if (sendToSectionIds.length > 0) {
     clauses.push({ orgChartSectionId: { in: sendToSectionIds } });
   }
+  // Company-only send-to (no department) for the Admin's designated company.
+  clauses.push({ teamId: staffCompanyId, orgChartSectionId: null });
   if (personal) clauses.push(personal);
   if (clauses.length === 0) return { id: "__none__" };
   return { OR: clauses };
@@ -101,16 +103,7 @@ async function buildTicketWhere(session: Session, query: string): Promise<Prisma
     return whereBase;
   }
 
-  if (role === "Admin") {
-    const groupScope = await adminGroupBoardTicketWhere({
-      email: session.user.email,
-      agentId: operator?.id,
-    });
-    whereBase.AND = [groupScope, { OR: searchOr }];
-    return whereBase;
-  }
-
-  if (role === "Personnel") {
+  if (role === "Admin" || role === "HighAdmin" || role === "Personnel") {
     const sectionScope = await sectionScopedTicketWhere({
       email: session.user.email,
       agentId: operator?.id,
@@ -119,7 +112,7 @@ async function buildTicketWhere(session: Session, query: string): Promise<Prisma
     return whereBase;
   }
 
-  if (isElevatedUserRole(role)) {
+  if (role === "SuperAdmin") {
     const rosterTeams = sortByRosterOrder(
       await prisma.team.findMany({
         where: rosterTeamNameFilter(),

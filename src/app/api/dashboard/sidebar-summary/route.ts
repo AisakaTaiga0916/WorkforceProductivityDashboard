@@ -5,7 +5,6 @@ import { requireRole } from "@/lib/access";
 import { findSessionAgentId } from "@/lib/session-agent";
 import { isAgentOnDutyFromMergedDb, loadOnDutySnapshot } from "@/lib/load-on-duty-snapshot";
 import { prisma } from "@/lib/prisma";
-import { personnelRequestBoardWhere } from "@/lib/rfp-request-board";
 import {
   resolveAdminOnDutyCompanyFilter,
   resolveStaffCompanyTeamId,
@@ -124,12 +123,13 @@ async function buildSidebarSummary(input: {
   name: string | null | undefined;
   showActivity: boolean;
 }): Promise<Omit<SidebarSummary, "showActivity">> {
-  const isSuperAdmin = isElevatedUserRole(input.role);
+  const isSuperAdmin = input.role === "SuperAdmin";
   const isPersonnel = input.role === "Personnel";
-  const sessionAgent =
-    isPersonnel || input.role === "Admin"
-      ? await findSessionAgentId({ email: input.email, name: input.name })
-      : null;
+  const usesSectionBoardScope =
+    input.role === "Admin" || input.role === "HighAdmin" || input.role === "Personnel";
+  const sessionAgent = usesSectionBoardScope
+    ? await findSessionAgentId({ email: input.email, name: input.name })
+    : null;
 
   const designationsPromise = resolveDesignations({
     role: input.role,
@@ -139,9 +139,7 @@ async function buildSidebarSummary(input: {
   let ticketScope: Prisma.TicketWhereInput;
   if (isSuperAdmin) {
     ticketScope = {};
-  } else if (input.role === "Admin") {
-    ticketScope = await personnelRequestBoardWhere(sessionAgent?.id);
-  } else if (input.role === "Personnel") {
+  } else if (usesSectionBoardScope) {
     ticketScope = await sectionScopedTicketWhere({
       email: input.email,
       agentId: sessionAgent?.id,
@@ -233,7 +231,7 @@ async function buildSidebarSummary(input: {
 }
 
 export async function GET() {
-  const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
+  const { session, unauthorized } = await requireRole(["SuperAdmin", "HighAdmin", "Admin", "Personnel"]);
   if (unauthorized || !session?.user) return unauthorized!;
 
   const role = session.user.role ?? "Personnel";

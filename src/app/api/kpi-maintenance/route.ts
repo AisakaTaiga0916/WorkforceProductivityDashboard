@@ -3273,6 +3273,9 @@ export async function PATCH(req: Request) {
     }
   }
 
+  const verificationEnabled = await isTaskCompletionVerificationEnabled();
+  const verifyOpts = { verificationEnabled };
+
   let updatedJson: Prisma.InputJsonValue;
   if (isItProjectImplementationPillar(kpiRow.title)) {
     if (typeof markAllDone === "boolean") {
@@ -3287,8 +3290,6 @@ export async function PATCH(req: Request) {
     }
     updatedJson = toggled.json;
   } else {
-    const verificationEnabled = await isTaskCompletionVerificationEnabled();
-    const verifyOpts = { verificationEnabled };
     updatedJson =
       typeof markAllDone === "boolean"
         ? markEverySubKpiDone(kpiRow.subKpis, markAllDone, verifyOpts)

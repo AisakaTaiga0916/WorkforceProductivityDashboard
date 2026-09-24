@@ -39,10 +39,20 @@ export function AssigneeAvatar({
   agent,
   className,
 }: {
-  agent: Pick<AssigneeSearchAgent, "name" | "profileImage" | "profileImageZoom" | "profileImagePosX" | "profileImagePosY">;
+  agent: Pick<
+    AssigneeSearchAgent,
+    "name" | "profileImage" | "profileImageZoom" | "profileImagePosX" | "profileImagePosY"
+  >;
   className?: string;
 }) {
-  if (agent.profileImage) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const src = agent.profileImage?.trim() || null;
+
+  useEffect(() => {
+    setImgFailed(false);
+  }, [src]);
+
+  if (src && !imgFailed) {
     return (
       <div
         className={cn(
@@ -53,9 +63,10 @@ export function AssigneeAvatar({
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={agent.profileImage}
+          src={src}
           alt={agent.name}
           className="h-full w-full object-cover"
+          onError={() => setImgFailed(true)}
           style={{
             objectPosition: `${agent.profileImagePosX ?? 50}% ${agent.profileImagePosY ?? 50}%`,
             transform: `scale(${agent.profileImageZoom ?? 1})`,

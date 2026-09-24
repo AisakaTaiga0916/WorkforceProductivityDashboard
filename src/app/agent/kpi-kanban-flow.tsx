@@ -786,6 +786,27 @@ export function AgentKpiKanbanFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tz, companyFilterTeamId, assignedAgentFilterId]);
 
+  // Refresh assignee photos after profile upload / when returning to the tab.
+  useEffect(() => {
+    const refreshRoster = () => {
+      void loadContext();
+    };
+    const onVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        refreshRoster();
+      }
+    };
+    window.addEventListener("profile-image-updated", refreshRoster);
+    window.addEventListener("focus", refreshRoster);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("profile-image-updated", refreshRoster);
+      window.removeEventListener("focus", refreshRoster);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyFilterTeamId, isElevatedAssign]);
+
   useEffect(() => {
     const elevated = Boolean(assignRosterScope?.elevated || isElevatedAssign);
     if (!elevated) {
@@ -4535,9 +4556,20 @@ export function AgentKpiKanbanFlow({
   function assigneeAvatarFor(r: KpiRecord) {
     const id = r.assignedAgent?.id;
     if (!id) return null;
-    const agent = assigneeCandidates.find((a) => a.id === id) ?? null;
-    if (!agent) return null;
-    return <AssigneeAvatar agent={agent} className="size-5" />;
+    const agent = assigneeCandidates.find((a) => a.id === id);
+    if (agent) {
+      return <AssigneeAvatar agent={agent} className="size-5" />;
+    }
+    // Assignee not in the current company/section roster — still try their photo URL.
+    return (
+      <AssigneeAvatar
+        agent={{
+          name: r.assignedAgent?.name?.trim() || "Assignee",
+          profileImage: `/api/agents/${encodeURIComponent(id)}/profile-image`,
+        }}
+        className="size-5"
+      />
+    );
   }
 
   /**

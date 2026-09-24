@@ -266,18 +266,14 @@ export async function adminOutsideCompanyScope(args: {
     await ticketInViewerSectionScope({
       email: args.email,
       orgChartSectionId: sendToSectionId,
+      teamId: args.ticketTeamId,
     })
   ) {
     return false;
   }
-  // Legacy / missing section: fall back to designated company.
-  if (sendToSectionId) {
-    // Has a department but viewer is not in that tree → blocked.
-    return true;
-  }
-  const scoped = await resolveStaffCompanyTeamId(args.email);
-  if (!scoped) return true;
-  return args.ticketTeamId !== scoped;
+  // Has a department but viewer is not in that tree → blocked.
+  // Company-only tickets (no section) already checked via teamId above.
+  return true;
 }
 
 /** True when `operatorId` is the named recipient of a still-pending peer transfer. */
@@ -339,6 +335,7 @@ export async function personnelForbiddenForTicket(args: {
     (await ticketInViewerSectionScope({
       email,
       orgChartSectionId: sendToSectionId,
+      teamId: ticket.teamId,
     }))
   ) {
     return false;

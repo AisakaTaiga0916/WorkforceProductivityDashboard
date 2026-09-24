@@ -113,8 +113,11 @@ export async function POST(req: Request) {
       // Ticket.teamId can differ from the Admin's designated company when the same
       // org-chart department receives work for another company (e.g. NEO on ALI while
       // the Admin's designated company is AGC).
+      // Company-only send-to (no department) is allowed when teamId matches designated company.
+      const companyOnlyInScope =
+        !ticketSectionId && ticket.teamId === adminCompanyId;
       if (sectionScope.sectionIds.length > 0) {
-        if (!inDepartment) {
+        if (!inDepartment && !companyOnlyInScope) {
           return NextResponse.json(
             {
               error:

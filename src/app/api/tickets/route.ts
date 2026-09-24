@@ -172,7 +172,11 @@ export async function GET(req: Request) {
     session.user.role === "Personnel" ? await personnelRequestBoardWhere(operator?.id) : null;
 
   let sectionBoardWhere: Prisma.TicketWhereInput | null = null;
-  if (session.user.role === "Personnel" || session.user.role === "Admin") {
+  if (
+    session.user.role === "Personnel" ||
+    session.user.role === "Admin" ||
+    session.user.role === "HighAdmin"
+  ) {
     const { sectionScopedTicketWhere } = await import("@/lib/org-chart-section-scope");
     sectionBoardWhere = await sectionScopedTicketWhere({
       email: session.user.email,

@@ -13,9 +13,11 @@ import {
   resolveOrgChartSectionIdsForMergedUser,
   resolveAgentIdsForOrgChartSection,
 } from "@/lib/org-chart-section-roster";
+import { orgChartSectionCompanyTeamId } from "@/lib/org-chart-section-display";
 import { loadHrisAssignableStaff } from "@/lib/hris-staff-roster";
 import { isElevatedUserRole } from "@/lib/auth";
 import { hasSubKpiAssignedTo } from "@/lib/kpi-subkpis";
+import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
 import { normalizePortalRole } from "@/lib/staff-role";
 
 /** Pure helper: membership / filter roots → self + nested sub-departments. */
@@ -503,10 +505,38 @@ export async function isViewerOrgChartHeadForSection(
 }
 
 /**
- * Ticket visibility for Personnel: send-to section in the viewer's section tree,
- * OR personal assignee / procedural / transfer scope.
- * Admin Request Board uses {@link personnelRequestBoardWhere} (assigned only).
- * SuperAdmin / HighAdmin use unrestricted board scope (all departments).
+ * Companies linked to the viewer's department tree (section companyTeamId walking
+ * parents) plus the viewer's designated company. Used for company-only intake
+ * tickets (teamId set, orgChartSectionId null).
+ */
+async function resolveCompanyTeamIdsForViewerSectionScope(
+  email: string | null | undefined,
+  sectionIds: string[],
+): Promise<string[]> {
+  const companyIds = new Set<string>();
+  const designated = await resolveStaffCompanyTeamId(email);
+  if (designated) companyIds.add(designated);
+
+  const ids = [...new Set(sectionIds.map((s) => s.trim()).filter(Boolean))];
+  if (ids.length > 0) {
+    const sections = await prisma.orgChartSection.findMany({
+      select: { id: true, parentId: true, companyTeamId: true },
+    });
+    for (const sid of ids) {
+      const teamId = orgChartSectionCompanyTeamId(sections, sid);
+      if (teamId) companyIds.add(teamId);
+    }
+  }
+
+  return [...companyIds];
+}
+
+/**
+ * Ticket visibility for Admin / HighAdmin / Personnel Request Board:
+ * send-to section in the viewer's section tree, OR company-only send-to
+ * (teamId in viewer companies, no department), OR personal assignee /
+ * procedural / transfer scope.
+ * SuperAdmin keeps unrestricted board scope (all departments).
  */
 export async function sectionScopedTicketWhere(input: {
   email: string | null | undefined;
@@ -515,29 +545,48 @@ export async function sectionScopedTicketWhere(input: {
   const scope = await resolveViewerOrgChartSectionScope(input.email);
   const personal =
     input.agentId != null ? await personnelRequestBoardWhere(input.agentId) : null;
+  const companyIds = await resolveCompanyTeamIdsForViewerSectionScope(
+    input.email,
+    scope.sectionIds,
+  );
 
-  if (scope.sectionIds.length === 0) {
-    return personal ?? { id: "__none__" };
+  const clauses: Prisma.TicketWhereInput[] = [];
+  if (scope.sectionIds.length > 0) {
+    clauses.push({ orgChartSectionId: { in: scope.sectionIds } });
   }
-
-  const sectionScope: Prisma.TicketWhereInput = {
-    orgChartSectionId: { in: scope.sectionIds },
-  };
+  // Intake "Send to company" stores teamId with orgChartSectionId null — same
+  // rule as Group Board (e.g. AGC REQ-2026-00386 / 00387).
+  if (companyIds.length > 0) {
+    clauses.push({ teamId: { in: companyIds }, orgChartSectionId: null });
+  }
   if (personal) {
-    return { OR: [sectionScope, personal] };
+    clauses.push(personal);
   }
-  return sectionScope;
+
+  if (clauses.length === 0) return { id: "__none__" };
+  if (clauses.length === 1) return clauses[0]!;
+  return { OR: clauses };
 }
 
-/** True when the ticket's send-to department is in the viewer's org-chart section tree. */
+/** True when the ticket's send-to department is in the viewer's org-chart section tree,
+ *  or company-only send-to matches a company in the viewer's scope. */
 export async function ticketInViewerSectionScope(input: {
   email: string | null | undefined;
   orgChartSectionId: string | null | undefined;
+  teamId?: string | null | undefined;
 }): Promise<boolean> {
   const sectionId = (input.orgChartSectionId ?? "").trim();
-  if (!sectionId) return false;
   const scope = await resolveViewerOrgChartSectionScope(input.email);
-  return scope.sectionIds.includes(sectionId);
+  if (sectionId) {
+    return scope.sectionIds.includes(sectionId);
+  }
+  const teamId = (input.teamId ?? "").trim();
+  if (!teamId) return false;
+  const companyIds = await resolveCompanyTeamIdsForViewerSectionScope(
+    input.email,
+    scope.sectionIds,
+  );
+  return companyIds.includes(teamId);
 }
 
 /** Human-readable department scope label for dashboards (falls back to company). */

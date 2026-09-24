@@ -279,7 +279,9 @@ export default async function AgentHome({
     : [];
 
   const viewerSectionScopeForFilter =
-    session.user.role === "Personnel" || session.user.role === "Admin"
+    session.user.role === "Personnel" ||
+    session.user.role === "Admin" ||
+    session.user.role === "HighAdmin"
       ? await resolveViewerOrgChartSectionScope(session.user.email)
       : null;
   const orgChartSectionsForTicketFilter =
@@ -409,8 +411,12 @@ export default async function AgentHome({
         : "ALL";
 
   const whereBase: Prisma.TicketWhereInput = {};
-  if (session.user.role === "Admin") {
-    /** Admin Request Board: assigned to me OR send-to in my org-chart / downline tree. */
+  if (
+    session.user.role === "Admin" ||
+    session.user.role === "Personnel" ||
+    session.user.role === "HighAdmin"
+  ) {
+    /** Admin / HighAdmin / Personnel: section tree + company-only send-to + personal. */
     Object.assign(
       whereBase,
       await sectionScopedTicketWhere({
@@ -418,13 +424,8 @@ export default async function AgentHome({
         agentId: operator?.id,
       }),
     );
-  } else if (session.user.role === "Personnel") {
-    Object.assign(whereBase, await sectionScopedTicketWhere({
-      email: session.user.email,
-      agentId: operator?.id,
-    }));
   } else if (isElevatedUserRole(session.user.role)) {
-    /** SuperAdmin / HighAdmin: all departments (no company roster scope). */
+    /** SuperAdmin: all departments (no company roster scope). */
   } else {
     let companyScope: Prisma.TicketWhereInput | null = null;
     if (adminTicketQueueCompanyId) {

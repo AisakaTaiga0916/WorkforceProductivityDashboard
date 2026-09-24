@@ -3,7 +3,6 @@ import type { Prisma, TicketPriority, TicketStatus } from "@prisma/client/primar
 import { isElevatedUserRole } from "@/lib/auth";
 import { ACTIVE_REQUEST_STATUSES, OPEN_PIPELINE_STATUSES } from "@/lib/active-request-statuses";
 import { prisma } from "@/lib/prisma";
-import { personnelRequestBoardWhere } from "@/lib/rfp-request-board";
 import { findSessionAgentId } from "@/lib/session-agent";
 import { getTicketSlaState } from "@/lib/sla";
 import {
@@ -14,7 +13,6 @@ import {
 import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
 import {
   resolveViewerDepartmentScopeLabel,
-  roleUsesOrgChartSectionBoardScope,
   sectionScopedTicketWhere,
 } from "@/lib/org-chart-section-scope";
 import { countTaskBoardLanes } from "@/lib/task-board-lane-counts";
@@ -106,25 +104,22 @@ async function resolveTicketScope(session: Session): Promise<{
   isAdminView: boolean;
 }> {
   const user = session.user;
-  const isSuperAdmin = isElevatedUserRole(user.role);
+  const isElevated = isElevatedUserRole(user.role);
   const isPersonnel = user.role === "Personnel";
-  const isAdminView = isSuperAdmin || user.role === "Admin";
-  const personnelAgent =
-    isPersonnel || user.role === "Admin"
-      ? await findSessionAgentId({ email: user.email, name: user.name })
-      : null;
+  const isAdminView = isElevated || user.role === "Admin";
+  const usesSectionBoardScope =
+    user.role === "Admin" || user.role === "HighAdmin" || user.role === "Personnel";
+  const personnelAgent = usesSectionBoardScope
+    ? await findSessionAgentId({ email: user.email, name: user.name })
+    : null;
 
   let ticketScope: Prisma.TicketWhereInput;
   let scopedCompanyTeamId: string | null = null;
   let departmentScopeLabel: string | null = null;
 
-  if (isSuperAdmin) {
+  if (user.role === "SuperAdmin") {
     ticketScope = {};
-  } else if (user.role === "Admin") {
-    ticketScope = await personnelRequestBoardWhere(personnelAgent?.id);
-    scopedCompanyTeamId = await resolveStaffCompanyTeamId(user.email);
-    departmentScopeLabel = await resolveViewerDepartmentScopeLabel(user.email);
-  } else if (user.role === "Personnel") {
+  } else if (usesSectionBoardScope) {
     ticketScope = await sectionScopedTicketWhere({
       email: user.email,
       agentId: personnelAgent?.id,
@@ -137,7 +132,7 @@ async function resolveTicketScope(session: Session): Promise<{
   }
 
   const scopedCompanyName =
-    !isSuperAdmin && scopedCompanyTeamId
+    user.role !== "SuperAdmin" && scopedCompanyTeamId
       ? (
           await prisma.team.findUnique({
             where: { id: scopedCompanyTeamId },
@@ -152,7 +147,7 @@ async function resolveTicketScope(session: Session): Promise<{
     scopedCompanyName,
     departmentScopeLabel,
     personnelAgentId: personnelAgent?.id ?? null,
-    isSuperAdmin,
+    isSuperAdmin: isElevated,
     isPersonnel,
     isAdminView,
   };
@@ -164,7 +159,7 @@ function ticketToActionItem(row: {
   title: string;
   status: TicketStatus;
   priority: TicketPriority;
-  requestType: string;
+  requestType: string | null;
   updatedAt: Date;
   contactName: string;
   boardLaneEnteredAt?: Date | null;

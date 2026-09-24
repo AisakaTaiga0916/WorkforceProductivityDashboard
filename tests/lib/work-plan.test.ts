@@ -74,6 +74,37 @@ describe("work plan validation", () => {
     assert.equal(validateWorkPlanDraft(draft), null);
   });
 
+  it("allows empty expected outcome and empty expected results", () => {
+    const draft = emptyWorkPlanDraft({
+      workPlan: emptyWorkPlanMeta({
+        ...completeMeta(),
+        expectedOutcome: "",
+        expectedResults: [{ deliverable: "", targetDate: "" }],
+      }),
+      approvalLevels: [
+        { level: 1, agentId: "mgr1", optional: false },
+        { level: 2, agentId: "mgr2", optional: false },
+      ],
+      confirmationByAgentId: "confirm1",
+    });
+    assert.equal(validateWorkPlanDraft(draft), null);
+  });
+
+  it("still requires both fields when an expected-result row is started", () => {
+    const draft = emptyWorkPlanDraft({
+      workPlan: emptyWorkPlanMeta({
+        ...completeMeta(),
+        expectedResults: [{ deliverable: "Report", targetDate: "" }],
+      }),
+      approvalLevels: [
+        { level: 1, agentId: "mgr1", optional: false },
+        { level: 2, agentId: "mgr2", optional: false },
+      ],
+      confirmationByAgentId: "confirm1",
+    });
+    assert.match(validateWorkPlanDraft(draft) ?? "", /Target Date/i);
+  });
+
   it("requires a confirmer", () => {
     const draft = emptyWorkPlanDraft({
       workPlan: completeMeta(),

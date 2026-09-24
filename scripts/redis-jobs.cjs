@@ -53,7 +53,7 @@ const JOBS = [
   {
     queueName: "sync-hris-portal",
     jobName: "sync-hris-portal",
-    repeatEveryMs: 30 * 60 * 1000,
+    repeatEveryMs: 15 * 60 * 1000,
     path: "/api/jobs/sync-hris-portal",
   },
   {

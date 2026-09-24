@@ -1,6 +1,8 @@
 /**
  * Work Plan approval recommendations: walk the requestor's org-chart parents
- * from the layer above them up to Layer 2 (Layer 1 is excluded).
+ * from the layer above them up to Layer 2 (Layer 1 is excluded), and insert
+ * parent-section heads (sub-department → major) so intermediate managers are
+ * not skipped when the people chart jumps directly to a major head.
  */
 
 import { orgChartLayerById, orgChartReportingParentByNodeId } from "@/app/admin/superadmin-settings/org-chart-layers";
@@ -16,6 +18,8 @@ import { prisma } from "@/lib/prisma";
 import { resolveAgentDesignatedCompanyId } from "@/lib/staff-company-scope";
 import {
   buildTravelOrderRecommendedPath,
+  buildTravelOrderRecommendedPathFromChain,
+  mergeTravelOrderApprovalAncestors,
   type TravelOrderOrgChartAncestor,
   type TravelOrderOrgChartPathSeat,
 } from "@/lib/travel-order";
@@ -24,6 +28,100 @@ import {
   type WorkPlanRequestorDefaults,
 } from "@/lib/work-plan";
 import type { TravelOrderRecommendedConfirmer } from "@/lib/travel-order-org-chart-path";
+
+const AUDIT_COMMITTEE_SECTION_RE = /^audit\s*committee$/i;
+const INTERNAL_AUDIT_SECTION_RE = /^internal\s*audit$/i;
+
+/**
+ * When Audit Committee head is in the chain, ensure Internal Audit head
+ * (Ailyn Silana) sits immediately before them: Ailyn → Juan Miguel.
+ */
+export function ensureInternalAuditBeforeAuditCommittee(opts: {
+  ancestors: readonly TravelOrderOrgChartAncestor[];
+  requestorAgentId: string;
+  sections: Array<{
+    id: string;
+    name: string;
+    parentId: string | null;
+    headNodeId: string | null;
+  }>;
+  nodeById: Map<
+    string,
+    { id: string; mergedSourceUserId: string; personName: string | null }
+  >;
+  agentByMergedId: Map<string, { agentId: string; name: string }>;
+  layerByNodeId: Map<string, number>;
+}): TravelOrderOrgChartAncestor[] {
+  const auditCommittee = opts.sections.find((s) =>
+    AUDIT_COMMITTEE_SECTION_RE.test(s.name.trim()),
+  );
+  const internalAudit = opts.sections.find(
+    (s) =>
+      INTERNAL_AUDIT_SECTION_RE.test(s.name.trim()) &&
+      (!auditCommittee || s.parentId === auditCommittee.id),
+  );
+  if (!auditCommittee?.headNodeId || !internalAudit?.headNodeId) {
+    return [...opts.ancestors];
+  }
+
+  const auditHeadNode = opts.nodeById.get(auditCommittee.headNodeId);
+  const internalHeadNode = opts.nodeById.get(internalAudit.headNodeId);
+  const auditMerged = auditHeadNode?.mergedSourceUserId?.trim() || "";
+  const internalMerged = internalHeadNode?.mergedSourceUserId?.trim() || "";
+  if (!auditMerged || !internalMerged) return [...opts.ancestors];
+
+  const auditStaff = opts.agentByMergedId.get(auditMerged);
+  const internalStaff = opts.agentByMergedId.get(internalMerged);
+  const auditAgentId = auditStaff?.agentId ?? null;
+  const internalAgentId = internalStaff?.agentId ?? null;
+
+  const matches = (
+    ancestor: TravelOrderOrgChartAncestor,
+    agentId: string | null,
+    mergedId: string,
+  ) =>
+    Boolean(
+      (agentId && ancestor.agentId === agentId) ||
+        ancestor.mergedSourceUserId === mergedId,
+    );
+
+  const auditIdx = opts.ancestors.findIndex((a) =>
+    matches(a, auditAgentId, auditMerged),
+  );
+  // Audit Committee not in this recommendation path — leave chain alone.
+  if (auditIdx < 0) return [...opts.ancestors];
+
+  // Requestor is Internal Audit head — do not recommend themselves.
+  if (internalAgentId && internalAgentId === opts.requestorAgentId) {
+    return [...opts.ancestors];
+  }
+
+  const withoutInternal = opts.ancestors.filter(
+    (a) => !matches(a, internalAgentId, internalMerged),
+  );
+  const insertAt = withoutInternal.findIndex((a) =>
+    matches(a, auditAgentId, auditMerged),
+  );
+  if (insertAt < 0) return withoutInternal;
+
+  const internalAncestor: TravelOrderOrgChartAncestor = {
+    orgChartLayer:
+      (internalHeadNode?.id
+        ? opts.layerByNodeId.get(internalHeadNode.id)
+        : undefined) ?? WORK_PLAN_APPROVAL_TOP_ORG_LAYER,
+    agentId: internalAgentId,
+    agentName:
+      internalStaff?.name?.trim() ||
+      internalHeadNode?.personName?.trim() ||
+      null,
+    mergedSourceUserId: internalMerged,
+    alternateAgents: [],
+  };
+
+  const out = [...withoutInternal];
+  out.splice(insertAt, 0, internalAncestor);
+  return out;
+}
 
 export type WorkPlanOrgChartApprovalPath = {
   requestorAgentId: string;
@@ -49,9 +147,14 @@ function emptyConfirmer(): TravelOrderRecommendedConfirmer {
 
 function confirmerFromDefaults(
   defaults: WorkPlanRequestorDefaults,
+  confirmerSectionName?: string | null,
 ): TravelOrderRecommendedConfirmer {
   const agentId = defaults.departmentHeadAgentId?.trim() || null;
-  const sectionName = defaults.sectionName?.trim() || defaults.majorSectionName?.trim() || null;
+  const sectionName =
+    confirmerSectionName?.trim() ||
+    defaults.sectionName?.trim() ||
+    defaults.majorSectionName?.trim() ||
+    null;
   if (!agentId && !defaults.departmentHeadName?.trim()) return emptyConfirmer();
   return {
     agentId,
@@ -91,16 +194,114 @@ function emptyFallbackSeat(): TravelOrderOrgChartPathSeat {
   };
 }
 
+type StaffRow = { agentId: string; name: string; mergedSourceUserId: string };
+
+/**
+ * Walk section parents from the requestor's deepest membership and collect each
+ * section head who is not the requestor (e.g. sub-dept staff → Engelbert → …).
+ */
+async function resolveSectionHeadAncestors(opts: {
+  requestorAgentId: string;
+  mergedSourceUserId: string | null;
+  agentByMergedId: Map<string, { agentId: string; name: string }>;
+  layerByNodeId: Map<string, number>;
+  nodeById: Map<string, { id: string; mergedSourceUserId: string; personName: string | null }>;
+}): Promise<{
+  sectionHeads: TravelOrderOrgChartAncestor[];
+  departmentHeadAgentId: string | null;
+  departmentHeadName: string | null;
+  confirmerSectionName: string | null;
+  sectionName: string | null;
+  majorSectionName: string | null;
+}> {
+  const empty = {
+    sectionHeads: [] as TravelOrderOrgChartAncestor[],
+    departmentHeadAgentId: null as string | null,
+    departmentHeadName: null as string | null,
+    confirmerSectionName: null as string | null,
+    sectionName: null as string | null,
+    majorSectionName: null as string | null,
+  };
+  if (!opts.mergedSourceUserId) return empty;
+
+  const sectionIds = await resolveOrgChartSectionIdsForMergedUser(opts.mergedSourceUserId);
+  const deepestId = await pickDeepestOrgChartSectionId(sectionIds);
+  const context = deepestId ? await resolveOrgChartSectionContext(deepestId) : null;
+  const section = context?.selected ?? null;
+  const major = context?.main ?? section;
+
+  const sectionHeads: TravelOrderOrgChartAncestor[] = [];
+  let departmentHeadAgentId: string | null = null;
+  let departmentHeadName: string | null = null;
+  let confirmerSectionName: string | null = null;
+  let current = section;
+  const visiting = new Set<string>();
+
+  while (current && !visiting.has(current.id)) {
+    visiting.add(current.id);
+    if (current.headNodeId) {
+      const headNode =
+        opts.nodeById.get(current.headNodeId) ??
+        (await prisma.orgChartNode.findUnique({
+          where: { id: current.headNodeId },
+          select: { id: true, mergedSourceUserId: true, personName: true },
+        }));
+      const merged = headNode?.mergedSourceUserId?.trim() || "";
+      if (merged) {
+        const headStaff = opts.agentByMergedId.get(merged);
+        const headAgentId = headStaff?.agentId ?? null;
+        // Skip the requestor when they head their own sub-department — keep walking
+        // to the parent section (e.g. Rogeric → Engelbert).
+        if (headAgentId && headAgentId !== opts.requestorAgentId) {
+          const layer =
+            (headNode?.id ? opts.layerByNodeId.get(headNode.id) : undefined) ??
+            WORK_PLAN_APPROVAL_TOP_ORG_LAYER;
+          sectionHeads.push({
+            orgChartLayer: layer,
+            agentId: headAgentId,
+            agentName: headStaff?.name?.trim() || headNode?.personName?.trim() || null,
+            mergedSourceUserId: merged,
+            alternateAgents: [],
+          });
+          if (!departmentHeadAgentId) {
+            departmentHeadAgentId = headAgentId;
+            departmentHeadName =
+              headStaff?.name?.trim() || headNode?.personName?.trim() || null;
+            confirmerSectionName = current.name?.trim() || null;
+          }
+        }
+      }
+    }
+    if (!current.parentId) break;
+    current = await prisma.orgChartSection.findUnique({
+      where: { id: current.parentId },
+      select: { id: true, name: true, parentId: true, headNodeId: true },
+    });
+  }
+
+  return {
+    sectionHeads,
+    departmentHeadAgentId,
+    departmentHeadName,
+    confirmerSectionName,
+    sectionName: section?.name?.trim() || null,
+    majorSectionName: major?.name?.trim() || null,
+  };
+}
+
 async function resolveWorkPlanRequestorDefaults(
   requestorAgentId: string,
   mergedSourceUserId: string | null,
-  staff: Array<{ agentId: string; name: string; mergedSourceUserId: string }>,
-  designatedCompanyTeamId?: string | null,
+  staff: StaffRow[],
+  designatedCompanyTeamId: string | null | undefined,
+  sectionContext: {
+    sectionName: string | null;
+    majorSectionName: string | null;
+    departmentHeadAgentId: string | null;
+    departmentHeadName: string | null;
+  },
 ): Promise<WorkPlanRequestorDefaults> {
   const staffRow = staff.find((s) => s.agentId === requestorAgentId) ?? null;
-  const agentByMergedId = new Map(
-    staff.filter((s) => s.mergedSourceUserId).map((s) => [s.mergedSourceUserId, s] as const),
-  );
 
   let requestorRole: string | null = null;
   let requestorName = staffRow?.name?.trim() || null;
@@ -111,42 +312,6 @@ async function resolveWorkPlanRequestorDefaults(
     });
     if (node?.personRole?.trim()) requestorRole = node.personRole.trim();
     if (!requestorName && node?.personName?.trim()) requestorName = node.personName.trim();
-  }
-
-  const sectionIds = mergedSourceUserId
-    ? await resolveOrgChartSectionIdsForMergedUser(mergedSourceUserId)
-    : [];
-  const deepestId = await pickDeepestOrgChartSectionId(sectionIds);
-  const context = deepestId ? await resolveOrgChartSectionContext(deepestId) : null;
-  const section = context?.selected ?? null;
-  const major = context?.main ?? section;
-
-  let departmentHeadAgentId: string | null = null;
-  let departmentHeadName: string | null = null;
-  let current = section;
-  const visiting = new Set<string>();
-  while (current && !visiting.has(current.id)) {
-    visiting.add(current.id);
-    if (current.headNodeId) {
-      const headNode = await prisma.orgChartNode.findUnique({
-        where: { id: current.headNodeId },
-        select: { mergedSourceUserId: true, personName: true },
-      });
-      const merged = headNode?.mergedSourceUserId?.trim() || "";
-      if (merged) {
-        const headStaff = agentByMergedId.get(merged);
-        if (headStaff?.agentId) {
-          departmentHeadAgentId = headStaff.agentId;
-          departmentHeadName = headStaff.name?.trim() || headNode?.personName?.trim() || null;
-          break;
-        }
-      }
-    }
-    if (!current.parentId) break;
-    current = await prisma.orgChartSection.findUnique({
-      where: { id: current.parentId },
-      select: { id: true, name: true, parentId: true, headNodeId: true },
-    });
   }
 
   let designatedCompanyName: string | null = null;
@@ -165,11 +330,11 @@ async function resolveWorkPlanRequestorDefaults(
     requestorAgentId,
     requestorName,
     requestorRole,
-    sectionName: section?.name?.trim() || null,
-    majorSectionName: major?.name?.trim() || null,
+    sectionName: sectionContext.sectionName,
+    majorSectionName: sectionContext.majorSectionName,
     designatedCompanyName,
-    departmentHeadAgentId,
-    departmentHeadName,
+    departmentHeadAgentId: sectionContext.departmentHeadAgentId,
+    departmentHeadName: sectionContext.departmentHeadName,
   });
 }
 
@@ -205,16 +370,15 @@ export async function resolveWorkPlanOrgChartApprovalPath(
       },
     }),
     prisma.orgChartSection.findMany({
-      select: { headNodeId: true, reportsToNodeId: true },
+      select: {
+        id: true,
+        name: true,
+        parentId: true,
+        headNodeId: true,
+        reportsToNodeId: true,
+      },
     }),
   ]);
-
-  const defaults = await resolveWorkPlanRequestorDefaults(
-    agentId,
-    mergedSourceUserId,
-    staff,
-    opts?.companyTeamId,
-  );
 
   const agentByMergedId = new Map(
     staff
@@ -227,8 +391,29 @@ export async function resolveWorkPlanOrgChartApprovalPath(
   const nodeByMergedId = new Map(orgNodes.map((n) => [n.mergedSourceUserId, n]));
   const nodeById = new Map(orgNodes.map((n) => [n.id, n]));
 
+  const sectionHeadResult = await resolveSectionHeadAncestors({
+    requestorAgentId: agentId,
+    mergedSourceUserId,
+    agentByMergedId,
+    layerByNodeId,
+    nodeById,
+  });
+
+  const defaults = await resolveWorkPlanRequestorDefaults(
+    agentId,
+    mergedSourceUserId,
+    staff,
+    opts?.companyTeamId,
+    {
+      sectionName: sectionHeadResult.sectionName,
+      majorSectionName: sectionHeadResult.majorSectionName,
+      departmentHeadAgentId: sectionHeadResult.departmentHeadAgentId,
+      departmentHeadName: sectionHeadResult.departmentHeadName,
+    },
+  );
+
   let requestorOrgLayer: number | null = null;
-  const ancestors: TravelOrderOrgChartAncestor[] = [];
+  const peopleAncestors: TravelOrderOrgChartAncestor[] = [];
 
   if (mergedSourceUserId) {
     const start = nodeByMergedId.get(mergedSourceUserId);
@@ -245,7 +430,7 @@ export async function resolveWorkPlanOrgChartApprovalPath(
         const ancestorAgentId = staffRow?.agentId ?? null;
         // Include every ancestor up to Layer 2 (skip Layer 1).
         if (ancestorAgentId !== agentId && layer >= WORK_PLAN_APPROVAL_TOP_ORG_LAYER) {
-          ancestors.push({
+          peopleAncestors.push({
             orgChartLayer: layer,
             agentId: ancestorAgentId,
             agentName: staffRow?.name ?? current.personName,
@@ -258,11 +443,34 @@ export async function resolveWorkPlanOrgChartApprovalPath(
     }
   }
 
-  const seats = buildTravelOrderRecommendedPath({
-    requestorOrgLayer,
-    ancestors,
-    topOrgLayer: WORK_PLAN_APPROVAL_TOP_ORG_LAYER,
+  // Prefer section-head superiors (may share a people-chart layer with the requestor)
+  // ahead of people-chart parents so sub-dept heads like Engelbert are not skipped.
+  const mergedAncestors = mergeTravelOrderApprovalAncestors({
+    sectionHeads: sectionHeadResult.sectionHeads.filter(
+      (a) => a.orgChartLayer >= WORK_PLAN_APPROVAL_TOP_ORG_LAYER,
+    ),
+    peopleAncestors,
   });
+
+  // Audit Committee: Internal Audit head (Ailyn) then Audit Committee head (Juan Miguel).
+  const orderedAncestors = ensureInternalAuditBeforeAuditCommittee({
+    ancestors: mergedAncestors,
+    requestorAgentId: agentId,
+    sections,
+    nodeById,
+    agentByMergedId,
+    layerByNodeId,
+  });
+
+  const seats =
+    sectionHeadResult.sectionHeads.length > 0
+      ? buildTravelOrderRecommendedPathFromChain(orderedAncestors)
+      : buildTravelOrderRecommendedPath({
+          requestorOrgLayer,
+          ancestors: orderedAncestors,
+          topOrgLayer: WORK_PLAN_APPROVAL_TOP_ORG_LAYER,
+        });
+
   let designations = new Map<string, string>();
   try {
     designations = await resolveDepartmentDesignationsByMergedIds(
@@ -283,7 +491,10 @@ export async function resolveWorkPlanOrgChartApprovalPath(
         : null) ?? "",
   }));
 
-  const recommendedConfirmation = confirmerFromDefaults(defaults);
+  const recommendedConfirmation = confirmerFromDefaults(
+    defaults,
+    sectionHeadResult.confirmerSectionName,
+  );
 
   if (labeledSeats.length === 0) {
     return {

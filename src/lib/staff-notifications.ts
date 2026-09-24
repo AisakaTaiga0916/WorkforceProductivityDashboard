@@ -233,15 +233,12 @@ export async function loadStaffNotificationFeed(args: {
   const personnelWhere = role === "Personnel" ? await personnelRequestBoardWhere(operator?.id) : null;
 
   let sectionBoardWhere: Prisma.TicketWhereInput | null = null;
-  if (role === "Personnel") {
+  if (role === "Personnel" || role === "Admin" || role === "HighAdmin") {
     const { sectionScopedTicketWhere } = await import("@/lib/org-chart-section-scope");
     sectionBoardWhere = await sectionScopedTicketWhere({
       email,
       agentId: operator?.id,
     });
-  }
-  if (role === "Admin") {
-    sectionBoardWhere = await personnelRequestBoardWhere(operator?.id);
   }
 
   const [tickets, travelApprovals, travelConfirmations, phaseDelayItems, accountRows, taskVerificationItems] =
