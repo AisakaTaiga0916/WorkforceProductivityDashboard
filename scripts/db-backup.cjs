@@ -1,7 +1,8 @@
 /**
  * PostgreSQL backup for local production (PM2 / server-ctl).
  *
- * Uses pg_dump in custom format (-Fc). Does not stop the app.
+ * Dumps every configured Postgres URL (primary + auth). Uses pg_dump custom
+ * format (-Fc). Does not stop the app. Secondary (MySQL) is not included.
  *
  * Usage:
  *   node scripts/db-backup.cjs
@@ -46,17 +47,46 @@ function loadEnvFiles() {
   }
 }
 
-function parseDatabaseUrl(raw) {
+function parseDatabaseUrl(raw, label) {
   const url = new URL(raw.replace(/^postgresql:/i, "postgres:"));
   const database = decodeURIComponent(url.pathname.replace(/^\//, "")).split("?")[0];
-  if (!database) throw new Error("DATABASE_URL is missing database name.");
+  if (!database) throw new Error(`${label} is missing database name.`);
   return {
+    label,
     user: decodeURIComponent(url.username || "postgres"),
     password: decodeURIComponent(url.password || ""),
     host: url.hostname || "localhost",
     port: url.port || "5432",
     database,
   };
+}
+
+function collectPostgresTargets() {
+  const candidates = [
+    ["DATABASE_URL_PRIMARY", (process.env.DATABASE_URL_PRIMARY || "").trim()],
+    ["DATABASE_URL", (process.env.DATABASE_URL || "").trim()],
+    ["DATABASE_URL_AUTH", (process.env.DATABASE_URL_AUTH || "").trim()],
+  ];
+
+  const targets = [];
+  const seen = new Set();
+
+  for (const [label, raw] of candidates) {
+    if (!raw) continue;
+    if (!/^postgres(ql)?:/i.test(raw)) continue;
+    const db = parseDatabaseUrl(raw, label);
+    const key = `${db.host}:${db.port}/${db.database}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    targets.push(db);
+  }
+
+  if (!targets.length) {
+    throw new Error(
+      "No PostgreSQL URLs found. Set DATABASE_URL_PRIMARY (or DATABASE_URL) and optionally DATABASE_URL_AUTH.",
+    );
+  }
+  return targets;
 }
 
 function siteLabel() {
@@ -138,7 +168,7 @@ function pruneOldBackups(dir, retentionDays) {
   return removed;
 }
 
-async function maybeNotify({ ok, message, backupPath, mirrorPath, mirrorError, errorText }) {
+async function maybeNotify({ ok, message, backupPaths, mirrorPaths, mirrorErrors, errorText }) {
   const to = (process.env.DB_BACKUP_NOTIFY_EMAIL || "").trim();
   if (!to) return;
 
@@ -161,9 +191,9 @@ async function maybeNotify({ ok, message, backupPath, mirrorPath, mirrorError, e
   const body = ok
     ? [
         `Site: ${site}`,
-        `Backup file: ${backupPath}`,
-        mirrorPath ? `NAS mirror: ${mirrorPath}` : null,
-        mirrorError ? `NAS mirror warning: ${mirrorError}` : null,
+        ...(backupPaths || []).map((p) => `Backup file: ${p}`),
+        ...(mirrorPaths || []).map((p) => `NAS mirror: ${p}`),
+        ...(mirrorErrors || []).map((e) => `NAS mirror warning: ${e}`),
         message,
         "",
         "Restore with pg_restore (see scripts/db-backup.cjs header).",
@@ -187,37 +217,25 @@ async function maybeNotify({ ok, message, backupPath, mirrorPath, mirrorError, e
   });
 }
 
-async function runBackup({ dryRun = false } = {}) {
-  loadEnvFiles();
+function backupFileName(db, date = new Date()) {
+  const host = (db.host || "localhost").replace(/[^a-zA-Z0-9.-]+/g, "-") || "localhost";
+  const name = String(db.database).replace(/[^a-zA-Z0-9._-]+/g, "-");
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  // Format: localhost-db-name-YYYY-MM-DD.dump
+  return `${host}-${name}-${yyyy}-${mm}-${dd}.dump`;
+}
 
-  const databaseUrl = (process.env.DATABASE_URL || "").trim();
-  if (!databaseUrl) throw new Error("DATABASE_URL is not set in .env");
-
-  const backupDir = path.resolve(root, (process.env.DB_BACKUP_DIR || "backups").trim());
-  const mirrorMode = getMirrorMode();
-  const mirrorDirRaw = (process.env.DB_BACKUP_MIRROR_DIR || "").trim();
-  const mirrorDir = mirrorMode === "smb" ? resolveMirrorDir(mirrorDirRaw) : "";
-  const webdavUrl = (process.env.DB_BACKUP_WEBDAV_URL || "").trim();
-  const retentionDays = Number(process.env.DB_BACKUP_RETENTION_DAYS || "14");
-  const db = parseDatabaseUrl(databaseUrl);
-  const pgDump = resolvePgDump();
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const fileName = `${siteLabel()}-${db.database}-${stamp}.dump`;
+async function dumpOneDatabase({ db, backupDir, stamp, pgDump, dryRun }) {
+  const fileName = backupFileName(db, stamp instanceof Date ? stamp : new Date());
   const outputPath = path.join(backupDir, fileName);
 
   if (dryRun) {
-    console.log("Dry run only.");
-    console.log("  pg_dump :", pgDump);
-    console.log("  database:", db.database);
-    console.log("  host    :", `${db.host}:${db.port}`);
-    console.log("  output  :", outputPath);
-    console.log("  mirror  :", mirrorMode === "webdav" ? webdavUrl || "(webdav not configured)" : mirrorDir || "(none)");
-    console.log("  mode    :", mirrorMode || "(local only)");
-    console.log("  retain  :", `${retentionDays} day(s)`);
-    return { outputPath, dryRun: true };
+    console.log(`  [${db.label}] ${db.database} @ ${db.host}:${db.port}`);
+    console.log(`    -> ${outputPath}`);
+    return { outputPath, size: 0, dryRun: true };
   }
-
-  fs.mkdirSync(backupDir, { recursive: true });
 
   const args = [
     "-h",
@@ -243,29 +261,71 @@ async function runBackup({ dryRun = false } = {}) {
 
   if (result.status !== 0) {
     const detail = [result.stderr, result.stdout].filter(Boolean).join("\n").trim();
-    throw new Error(detail || `pg_dump exited with code ${result.status ?? "unknown"}`);
+    throw new Error(
+      `[${db.label}] ${db.database}: ${detail || `pg_dump exited with code ${result.status ?? "unknown"}`}`,
+    );
   }
 
   if (!fs.existsSync(outputPath)) {
-    throw new Error(`Backup file was not created: ${outputPath}`);
+    throw new Error(`[${db.label}] Backup file was not created: ${outputPath}`);
   }
 
-  const size = fs.statSync(outputPath).size;
-  let mirrored = null;
-  let mirrorError = null;
-  if (mirrorMode) {
-    const mirrorResult = await mirrorBackup(outputPath);
-    mirrored = mirrorResult.mirrored;
-    mirrorError = mirrorResult.mirrorError;
-    if (mirrorError && (process.env.DB_BACKUP_MIRROR_REQUIRED || "").trim() === "1") {
-      throw new Error(`Local backup created but NAS mirror failed: ${mirrorError}`);
+  return { outputPath, size: fs.statSync(outputPath).size, dryRun: false };
+}
+
+async function runBackup({ dryRun = false } = {}) {
+  loadEnvFiles();
+
+  const backupDir = path.resolve(root, (process.env.DB_BACKUP_DIR || "backups").trim());
+  const mirrorMode = getMirrorMode();
+  const mirrorDirRaw = (process.env.DB_BACKUP_MIRROR_DIR || "").trim();
+  const mirrorDir = mirrorMode === "smb" ? resolveMirrorDir(mirrorDirRaw) : "";
+  const webdavUrl = (process.env.DB_BACKUP_WEBDAV_URL || "").trim();
+  const retentionDays = Number(process.env.DB_BACKUP_RETENTION_DAYS || "14");
+  const targets = collectPostgresTargets();
+  const pgDump = resolvePgDump();
+  const stamp = new Date();
+
+  if (dryRun) {
+    console.log("Dry run only.");
+    console.log("  pg_dump :", pgDump);
+    console.log("  targets :", targets.length);
+    for (const db of targets) {
+      await dumpOneDatabase({ db, backupDir, stamp, pgDump, dryRun: true });
+    }
+    console.log("  mirror  :", mirrorMode === "webdav" ? webdavUrl || "(webdav not configured)" : mirrorDir || "(none)");
+    console.log("  mode    :", mirrorMode || "(local only)");
+    console.log("  retain  :", `${retentionDays} day(s)`);
+    return { dryRun: true, targets };
+  }
+
+  fs.mkdirSync(backupDir, { recursive: true });
+
+  const created = [];
+  const mirrored = [];
+  const mirrorErrors = [];
+
+  for (const db of targets) {
+    const dump = await dumpOneDatabase({ db, backupDir, stamp, pgDump, dryRun: false });
+    created.push(dump);
+
+    if (mirrorMode) {
+      const mirrorResult = await mirrorBackup(dump.outputPath);
+      if (mirrorResult.mirrored) mirrored.push(mirrorResult.mirrored);
+      if (mirrorResult.mirrorError) {
+        mirrorErrors.push(`[${db.database}] ${mirrorResult.mirrorError}`);
+        if ((process.env.DB_BACKUP_MIRROR_REQUIRED || "").trim() === "1") {
+          throw new Error(`Local backup created but NAS mirror failed: ${mirrorResult.mirrorError}`);
+        }
+      }
     }
   }
+
   const removed = pruneOldBackups(backupDir, retentionDays);
-  if (mirrorMode === "smb" && mirrorDir && !mirrorError) {
+  if (mirrorMode === "smb" && mirrorDir && !mirrorErrors.length) {
     pruneOldBackups(mirrorDir, retentionDays);
   }
-  if (mirrorMode === "webdav" && !mirrorError) {
+  if (mirrorMode === "webdav" && !mirrorErrors.length) {
     try {
       const webdavRemoved = await pruneMirrorBackups(retentionDays);
       if (webdavRemoved?.length) removed.push(...webdavRemoved);
@@ -275,12 +335,12 @@ async function runBackup({ dryRun = false } = {}) {
   }
 
   return {
-    outputPath,
+    created,
     mirrored,
-    mirrorError,
-    size,
+    mirrorErrors,
     removed,
     retentionDays,
+    targets,
   };
 }
 
@@ -308,20 +368,23 @@ async function main() {
     const result = await runBackup({ dryRun });
     if (result.dryRun) return;
 
-    const summary = `Created ${result.outputPath} (${formatBytes(result.size)})`;
-    console.log(summary);
-    if (result.mirrored) console.log(`Mirrored to ${result.mirrored}`);
-    if (result.mirrorError) console.warn(`NAS mirror skipped: ${result.mirrorError}`);
+    const lines = result.created.map(
+      (c) => `Created ${c.outputPath} (${formatBytes(c.size)})`,
+    );
+    for (const line of lines) console.log(line);
+    for (const m of result.mirrored) console.log(`Mirrored to ${m}`);
+    for (const err of result.mirrorErrors) console.warn(`NAS mirror skipped: ${err}`);
     if (result.removed.length) {
       console.log(`Removed ${result.removed.length} backup(s) older than ${result.retentionDays} day(s).`);
     }
 
+    const summary = `Backed up ${result.created.length} PostgreSQL database(s).\n${lines.join("\n")}`;
     await maybeNotify({
       ok: true,
       message: summary,
-      backupPath: result.outputPath,
-      mirrorPath: result.mirrored,
-      mirrorError: result.mirrorError,
+      backupPaths: result.created.map((c) => c.outputPath),
+      mirrorPaths: result.mirrored,
+      mirrorErrors: result.mirrorErrors,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

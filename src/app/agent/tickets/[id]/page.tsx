@@ -34,6 +34,9 @@ import { resolveAgentIdsForOrgChartSection } from "@/lib/org-chart-section-roste
 import { isViewerOrgChartHeadForSection } from "@/lib/org-chart-section-scope";
 import { acaProceduralStatusLabel } from "@/lib/aca-approval";
 import { loadAcaApprovalMeta } from "@/lib/aca-approval-db";
+import { ensureTicketLinkedTravelOrderColumn } from "@/lib/ensure-ticket-linked-travel-order-column";
+import { findTravelOrderById } from "@/lib/travel-order-db";
+import { ensureLinkedRfpAccountingDefaults } from "@/lib/travel-order-rfp";
 
 export const dynamic = "force-dynamic";
 
@@ -72,10 +75,10 @@ export default async function AgentTicketPage({
     WHERE id = ${id}
     LIMIT 1
   `;
-  const rfpOrgChartSectionId = rfpSectionRows[0]?.org_chart_section_id ?? null;
+  let rfpOrgChartSectionId = rfpSectionRows[0]?.org_chart_section_id ?? null;
   const rfpRequestorOrgChartSectionId =
     rfpSectionRows[0]?.requestor_org_chart_section_id ?? null;
-  const rfpSectionName = rfpOrgChartSectionId
+  let rfpSectionName = rfpOrgChartSectionId
     ? (
         await prisma.orgChartSection.findUnique({
           where: { id: rfpOrgChartSectionId },
@@ -120,7 +123,7 @@ export default async function AgentTicketPage({
   const requestingCompanyActivity = ticketForWorkspace.activities.find(
     (a) => a.summary === "Requesting company",
   );
-  const requestingCompany = requestingCompanyActivity?.detail?.trim() ?? null;
+  let requestingCompany = requestingCompanyActivity?.detail?.trim() ?? null;
   const departmentActivity = ticketForWorkspace.activities.find(
     (a) =>
       a.summary === "Department" ||
@@ -128,7 +131,7 @@ export default async function AgentTicketPage({
       a.summary === "Requesting department" ||
       a.summary === "Requesting department/business unit",
   );
-  const sendRequestToDisplay = resolveTicketSendRequestToDisplay({
+  let sendRequestToDisplay = resolveTicketSendRequestToDisplay({
     activities: ticketForWorkspace.activities,
     orgChartSectionId: rfpOrgChartSectionId,
     orgChartSectionName: rfpSectionName,
@@ -151,7 +154,7 @@ export default async function AgentTicketPage({
   const isPaymentRequest =
     requestTypeId === "REQUEST_FOR_PAYMENT" ||
     (requestTypeActivity?.detail?.trim().toUpperCase() ?? "").includes("REQUEST FOR PAYMENT");
-  const department =
+  let department =
     departmentActivity?.detail?.trim() ?? rfpRequestorSectionName ?? null;
   const isRequisitionRequest =
     requestTypeId === "ITEM_REQUISITION_SLIP" ||
@@ -167,10 +170,73 @@ export default async function AgentTicketPage({
     (requestTypeActivity?.detail?.trim().toUpperCase() ?? "").includes(
       "AUTHORITY TO CONDUCT ACTIVITY",
     );
-  const paymentApprovalMeta = isPaymentRequest
+  let paymentApprovalMeta = isPaymentRequest
     ? ((await loadPaymentApprovalMeta(ticketForWorkspace.id)) ??
       (await initPaymentApprovalMetaIfNeeded(ticketForWorkspace.id)))
     : null;
+
+  let linkedTravelOrderRef: {
+    travelOrderId: string;
+    kpiMaintenanceId: string;
+  } | null = null;
+  if (isPaymentRequest) {
+    await ensureTicketLinkedTravelOrderColumn();
+    try {
+      const linkRows = await prisma.$queryRaw<
+        Array<{ linked_travel_order_id: string | null }>
+      >`
+        SELECT linked_travel_order_id FROM tickets WHERE id = ${ticketForWorkspace.id} LIMIT 1
+      `;
+      const toId = linkRows[0]?.linked_travel_order_id?.trim() || "";
+      if (toId) {
+        const order = await findTravelOrderById(toId);
+        if (order) {
+          linkedTravelOrderRef = {
+            travelOrderId: order.id,
+            kpiMaintenanceId: order.kpiMaintenanceId,
+          };
+        }
+        const ensured = await ensureLinkedRfpAccountingDefaults({
+          ticketId: ticketForWorkspace.id,
+          companyTeamId: ticketForWorkspace.teamId || order?.companyTeamId,
+          requestorName: ticketForWorkspace.contactName,
+          requestorEmail:
+            ticketForWorkspace.requestorEmail ?? ticketForWorkspace.contactEmail,
+          requestorAgentId: order?.createdByAgentId ?? order?.createdByAgent?.id ?? null,
+        });
+        if (ensured?.orgChartSectionId) {
+          rfpOrgChartSectionId = ensured.orgChartSectionId;
+          rfpSectionName = ensured.orgChartSectionName;
+          ticketForWorkspace.orgChartSectionId = ensured.orgChartSectionId;
+          sendRequestToDisplay = {
+            label: "Send request to (department)",
+            value: (ensured.orgChartSectionName ?? "").trim() || "Accounting",
+          };
+        }
+        if (ensured?.requestorOrgChartSectionId) {
+          ticketForWorkspace.requestorOrgChartSectionId =
+            ensured.requestorOrgChartSectionId;
+          department =
+            (ensured.requestorOrgChartSectionName ?? "").trim() || department;
+        }
+        if (ensured?.requestBudgetFromCompanyName) {
+          requestingCompany = ensured.requestBudgetFromCompanyName;
+        }
+        // Reload payment meta so Prepared by Bookkeeper is visible after backfill.
+        paymentApprovalMeta =
+          (await loadPaymentApprovalMeta(ticketForWorkspace.id)) ?? paymentApprovalMeta;
+        const refreshed = await prisma.ticket.findUnique({
+          where: { id: ticketForWorkspace.id },
+          select: { title: true, description: true, contactName: true, teamId: true },
+        });
+        if (refreshed) {
+          Object.assign(ticketForWorkspace, refreshed);
+        }
+      }
+    } catch (err) {
+      console.error("[ticket] load linked Work Plan failed:", err);
+    }
+  }
   const itemRequisitionApprovalMeta = isRequisitionRequest
     ? ((await loadItemRequisitionApprovalMeta(ticketForWorkspace.id)) ??
       (await initItemRequisitionApprovalMetaIfNeeded(ticketForWorkspace.id)))
@@ -423,6 +489,11 @@ export default async function AgentTicketPage({
               </h1>
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+              {linkedTravelOrderRef ? (
+                <span className="w-fit rounded-full border border-sky-400/50 bg-sky-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-100">
+                  Work Plan
+                </span>
+              ) : null}
               <span className="w-fit rounded-full bg-white/12 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-100 dark:bg-zinc-700 dark:text-zinc-200">
                 {formatTicketStatusLabel(ticketForWorkspace.status)}
               </span>
@@ -450,7 +521,9 @@ export default async function AgentTicketPage({
               ticketForWorkspace.requestorEmail ?? ticketForWorkspace.contactEmail ?? "—"
             }
             company={requestorCompanyName ?? "Not assigned"}
-            requestingCompany={requestingCompany}
+            requestingCompany={
+              isPaymentRequest && linkedTravelOrderRef ? null : requestingCompany
+            }
             branch={branch ?? "—"}
             sendRequestTo={sendRequestToDisplay.value}
             sendRequestToLabel={sendRequestToDisplay.label}
@@ -471,6 +544,10 @@ export default async function AgentTicketPage({
             isPaymentRequest={isPaymentRequest}
             paymentApprovalMeta={paymentApprovalMeta}
             paymentApprovalAgentNames={paymentApprovalAgentNames}
+            linkedTravelOrderRef={linkedTravelOrderRef}
+            requestBudgetFromCompanyName={
+              isPaymentRequest && linkedTravelOrderRef ? requestingCompany : null
+            }
             isRequisitionRequest={isRequisitionRequest}
             itemRequisitionApprovalMeta={itemRequisitionApprovalMeta}
             itemRequisitionApprovalAgentNames={itemRequisitionApprovalAgentNames}

@@ -131,7 +131,7 @@ export function filterOrgChartSectionsByCompanyTeam(
   return sections.filter((s) => orgChartSectionCompanyTeamId(sections, s.id) === team);
 }
 
-/** Smart-filter options: same labels/indent as org-chart ticket intake. */
+/** Smart-filter options: flat department names (no hierarchy indent). */
 export function buildOrgChartDepartmentFilterOptions(
   sections: OrgChartSectionOption[],
   companyTeamId?: string | null,
@@ -139,7 +139,7 @@ export function buildOrgChartDepartmentFilterOptions(
   const scoped = filterOrgChartSectionsByCompanyTeam(sections, companyTeamId);
   return scoped.map((section) => ({
     value: section.id,
-    label: orgChartSectionOptionText(section),
+    label: section.name,
   }));
 }
 
@@ -211,6 +211,21 @@ export function orgChartSubDepartments(
     /** Relative indent under the major for the sub-department dropdown. */
     depth: Math.max(0, s.depth - majorDepth - 1),
   }));
+}
+
+/**
+ * Request-intake “Send to department” options: sub-departments (and nested leaves)
+ * plus majors that have no children. Parent containers with children are omitted so
+ * the picker is one flat select instead of major → sub.
+ */
+export function orgChartIntakeSendToDepartments(
+  sections: OrgChartSectionOption[],
+): OrgChartSectionOption[] {
+  const parentsWithChildren = new Set<string>();
+  for (const section of sections) {
+    if (section.parentId) parentsWithChildren.add(section.parentId);
+  }
+  return sections.filter((s) => !parentsWithChildren.has(s.id));
 }
 
 /** Walk to the top-level department for a section. */

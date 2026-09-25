@@ -1,9 +1,6 @@
 import type { Prisma } from "@prisma/client/primary";
 import { prisma } from "@/lib/prisma";
-import {
-  filterOrgChartSectionsByCompanyTeam,
-  orgChartSectionOptionText,
-} from "@/lib/org-chart-section-display";
+import { filterOrgChartSectionsByCompanyTeam } from "@/lib/org-chart-section-display";
 import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
 import { expandOrgChartSectionIdsWithDescendants } from "@/lib/org-chart-section-scope";
 
@@ -45,7 +42,7 @@ export function buildGroupBoardDirectionFilterOptions(opts: {
   }));
   const deptOpts = opts.sections.map((s) => ({
     value: `dept:${s.id}`,
-    label: `Dept · ${orgChartSectionOptionText(s)}`,
+    label: `Dept · ${s.name}`,
   }));
   return [
     { value: "ALL", label: "All" },

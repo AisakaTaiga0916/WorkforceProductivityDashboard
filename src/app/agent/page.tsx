@@ -31,7 +31,6 @@ import { visibleIntakeRequestTypes } from "@/lib/intake-request-type-visibility"
 import { getIntakeRequestTypeVisibility } from "@/lib/intake-request-type-visibility-db";
 import {
   listOrgChartSectionOptions,
-  orgChartSectionOptionText,
   resolveAgentIdsForOrgChartSection,
 } from "@/lib/org-chart-section-roster";
 import {
@@ -1170,7 +1169,7 @@ export default async function AgentHome({
                       { value: "ALL", label: "All departments" },
                       ...orgChartSectionsForTicketFilter.map((s) => ({
                         value: s.id,
-                        label: orgChartSectionOptionText(s),
+                        label: s.name,
                       })),
                     ],
                   }}
@@ -1387,7 +1386,7 @@ export default async function AgentHome({
                             { value: "ALL", label: "All departments" },
                             ...orgChartSectionsForTicketFilter.map((s) => ({
                               value: s.id,
-                              label: orgChartSectionOptionText(s),
+                              label: s.name,
                             })),
                           ],
                         }}

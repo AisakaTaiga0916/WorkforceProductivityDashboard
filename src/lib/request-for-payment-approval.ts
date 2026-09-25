@@ -58,6 +58,11 @@ export type PaymentApprovalMeta = PaymentApprovalAssignees & {
    * goes NOTED BY → APPROVED BY (Accounting) unless Noted By is also skipped.
    */
   skipApprovedBy?: boolean;
+  /**
+   * RFP was auto-created from a Travel Order / Work Plan and is held until that
+   * order is fully APPROVED. Board / pending-approval queues ignore it while true.
+   */
+  awaitingTravelOrderApproval?: boolean;
 };
 
 export const PAYMENT_APPROVAL_STEP_LABELS: Record<PaymentApprovalStep, string> = {
@@ -116,9 +121,11 @@ export function paymentApprovalStartStep(
 export function defaultPaymentApprovalMeta(opts?: {
   skipNotedBy?: boolean;
   skipApprovedBy?: boolean;
+  awaitingTravelOrderApproval?: boolean;
 }): PaymentApprovalMeta {
   const skipNotedBy = opts?.skipNotedBy === true;
   const skipApprovedBy = opts?.skipApprovedBy === true;
+  const awaitingTravelOrderApproval = opts?.awaitingTravelOrderApproval === true;
   return {
     preparedByAgentId: null,
     notedByAgentId: null,
@@ -130,6 +137,7 @@ export function defaultPaymentApprovalMeta(opts?: {
     stepApproved: {},
     ...(skipNotedBy ? { skipNotedBy: true } : {}),
     ...(skipApprovedBy ? { skipApprovedBy: true } : {}),
+    ...(awaitingTravelOrderApproval ? { awaitingTravelOrderApproval: true } : {}),
   };
 }
 
@@ -168,6 +176,7 @@ export function parsePaymentApprovalMeta(raw: unknown): PaymentApprovalMeta | nu
     deferPaymentModeToAccounting: o.deferPaymentModeToAccounting === true,
     skipNotedBy: o.skipNotedBy === true,
     skipApprovedBy: o.skipApprovedBy === true,
+    awaitingTravelOrderApproval: o.awaitingTravelOrderApproval === true,
   };
 }
 
@@ -211,6 +220,7 @@ export function assigneeIdForStep(
 export function currentPaymentStepBoardAssigneeId(
   meta: PaymentApprovalMeta,
 ): string | null {
+  if (meta.awaitingTravelOrderApproval) return null;
   if (meta.proceduralStep === "DONE") return null;
   return assigneeIdForStep(meta, meta.proceduralStep);
 }

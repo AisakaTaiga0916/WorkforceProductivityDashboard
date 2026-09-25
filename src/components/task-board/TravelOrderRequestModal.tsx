@@ -65,6 +65,7 @@ type TravelOrderRequestModalProps = {
   onCreated: (payload: {
     kpiId: string;
     travelOrderId?: string | null;
+    linkedRfpTicketId?: string | null;
     offlineQueued?: boolean;
   }) => void;
   onDraftSaved?: () => void;
@@ -637,6 +638,7 @@ export function TravelOrderRequestModal({
           error?: string;
           kpi?: { id?: string };
           travelOrder?: { id?: string };
+          linkedRfp?: { id?: string } | null;
         };
         if (!res.ok) {
           setError(body.error ?? "Could not create the travel order.");
@@ -648,7 +650,11 @@ export function TravelOrderRequestModal({
           return;
         }
         void deleteOfflineDraft(localDraftId).catch(() => undefined);
-        onCreated({ kpiId, travelOrderId: body.travelOrder?.id ?? null });
+        onCreated({
+          kpiId,
+          travelOrderId: body.travelOrder?.id ?? null,
+          linkedRfpTicketId: body.linkedRfp?.id ?? null,
+        });
         onClose();
       } catch (err) {
         if (isTravelOrderNetworkFailure(err)) {

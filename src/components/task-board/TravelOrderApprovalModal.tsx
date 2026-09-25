@@ -16,6 +16,8 @@ type TravelOrderApprovalModalProps = {
   canCheckIn?: boolean;
   onClose: () => void;
   onUpdated?: () => void;
+  /** Open the linked Request for Payment editor for this travel order. */
+  onEditLinkedRfp?: () => void;
 };
 
 /**
@@ -33,6 +35,7 @@ export function TravelOrderApprovalModal({
   canCheckIn = false,
   onClose,
   onUpdated,
+  onEditLinkedRfp,
 }: TravelOrderApprovalModalProps) {
   const [fetchedOperatorAgentId, setFetchedOperatorAgentId] = useState<string | null>(null);
   const operatorAgentId = operatorAgentIdProp ?? fetchedOperatorAgentId;
@@ -73,6 +76,7 @@ export function TravelOrderApprovalModal({
           canAssignWork={canAssignWork}
           canCheckIn={canCheckIn}
           onKpiSubmitted={onUpdated}
+          onEditLinkedRfp={onEditLinkedRfp}
         />
       ) : null}
     </TaskBoardPopup>

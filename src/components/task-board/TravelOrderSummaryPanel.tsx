@@ -89,6 +89,8 @@ type TravelOrderSummaryPanelProps = {
   personnelGuard?: boolean;
   /** Refresh board after KPI is recorded. */
   onKpiSubmitted?: () => void;
+  /** Open linked Request for Payment editor (Work Plan → RFP). */
+  onEditLinkedRfp?: () => void;
 };
 
 /** Display travel-order check-in times in Taiwan (GMT+8). */
@@ -192,6 +194,7 @@ export function TravelOrderSummaryPanel({
   canCheckIn = true,
   personnelGuard: personnelGuardProp = false,
   onKpiSubmitted,
+  onEditLinkedRfp,
 }: TravelOrderSummaryPanelProps) {
   const { data: session } = useSession();
   const personnelGuard =
@@ -1370,19 +1373,33 @@ export function TravelOrderSummaryPanel({
                 onPageChange={(page) => setOrderPage(order.id, page)}
                 showGatePass={showGatePassPage}
                 stepActions={
-                  canCancelThis && formPage === 1 ? (
-                    <button
-                      type="button"
-                      disabled={busyKey === `cancel-${order.id}`}
-                      onClick={() => void cancelOrder(order)}
-                      title="Cancel this travel order if it should not proceed"
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-400/60 bg-zinc-500/10 px-2.5 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
-                    >
-                      {busyKey === `cancel-${order.id}` ? (
-                        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  formPage === 1 && (canCancelThis || onEditLinkedRfp) ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {onEditLinkedRfp ? (
+                        <button
+                          type="button"
+                          onClick={onEditLinkedRfp}
+                          title="View or edit the Request for Payment linked to this Work Plan"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/50 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-500/20 dark:text-emerald-200"
+                        >
+                          View / Edit RFP
+                        </button>
                       ) : null}
-                      Cancel T.O.
-                    </button>
+                      {canCancelThis ? (
+                        <button
+                          type="button"
+                          disabled={busyKey === `cancel-${order.id}`}
+                          onClick={() => void cancelOrder(order)}
+                          title="Cancel this travel order if it should not proceed"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-400/60 bg-zinc-500/10 px-2.5 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-600 dark:text-zinc-200"
+                        >
+                          {busyKey === `cancel-${order.id}` ? (
+                            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                          ) : null}
+                          Cancel T.O.
+                        </button>
+                      ) : null}
+                    </div>
                   ) : null
                 }
               />

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { AmountCalculatorButton } from "@/components/task-board/AmountCalculatorModal";
 import { CompanyUserSearchField } from "@/components/tickets/CompanyUserSearchField";
 import { DatePickerField } from "@/components/ui/DatePickerField";
 import { Input, Textarea } from "@/components/ui/field";
@@ -469,20 +470,40 @@ export function WorkPlanFormFields({
                   patch({ budgetLines });
                 }}
               />
-              <Input
-                placeholder="Amount (₱)"
-                value={line.amount}
-                disabled={disabled}
-                onChange={(e) => {
-                  const budgetLines = meta.budgetLines.map((l, i) =>
-                    i === index ? { ...l, amount: e.target.value } : l,
-                  );
-                  patch({
-                    budgetLines,
-                    totalEstimatedBudget: formatWorkPlanAmount(sumWorkPlanBudgetLines(budgetLines)),
-                  });
-                }}
-              />
+              <div className="flex items-center gap-1.5">
+                <Input
+                  placeholder="Amount (₱)"
+                  value={line.amount}
+                  disabled={disabled}
+                  className="min-w-0 flex-1"
+                  onChange={(e) => {
+                    const budgetLines = meta.budgetLines.map((l, i) =>
+                      i === index ? { ...l, amount: e.target.value } : l,
+                    );
+                    patch({
+                      budgetLines,
+                      totalEstimatedBudget: formatWorkPlanAmount(
+                        sumWorkPlanBudgetLines(budgetLines),
+                      ),
+                    });
+                  }}
+                />
+                <AmountCalculatorButton
+                  disabled={disabled}
+                  value={line.amount}
+                  onApply={(amount) => {
+                    const budgetLines = meta.budgetLines.map((l, i) =>
+                      i === index ? { ...l, amount } : l,
+                    );
+                    patch({
+                      budgetLines,
+                      totalEstimatedBudget: formatWorkPlanAmount(
+                        sumWorkPlanBudgetLines(budgetLines),
+                      ),
+                    });
+                  }}
+                />
+              </div>
             </div>
           </div>
         ))}

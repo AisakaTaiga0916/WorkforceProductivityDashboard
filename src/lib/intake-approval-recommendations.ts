@@ -239,15 +239,16 @@ async function resolvePositionHolderInSectionTree(opts: {
 /** Bookkeeper: user in send-to section whose company matches the effective company scope.
  * Excludes the send-to department head — that role is not a bookkeeper recommendation.
  */
-async function resolveBookkeeperSeat(opts: {
+export async function resolveBookkeeperSeat(opts: {
   sendToSectionId: string | null;
   sendToSectionName: string | null;
   companyTeamId: string | null;
   companyName: string | null;
   requestorCompanyName?: string | null;
   requestingCompanyName?: string | null;
-  maps: Awaited<ReturnType<typeof loadStaffMaps>>;
+  maps?: Awaited<ReturnType<typeof loadStaffMaps>>;
 }): Promise<IntakeApprovalRecommendationSeat> {
+  const maps = opts.maps ?? (await loadStaffMaps());
   const key = "accountingAgentId";
   const label = "Prepared by Bookkeeper";
   const sendToSectionId = (opts.sendToSectionId ?? "").trim();
@@ -283,7 +284,7 @@ async function resolveBookkeeperSeat(opts: {
   if (sendToContext) {
     for (const section of [sendToContext.selected, sendToContext.main]) {
       if (!section) continue;
-      const head = await resolveHeadForSection(section, opts.maps);
+      const head = await resolveHeadForSection(section, maps);
       if (head?.agentId) excludedHeadAgentIds.add(head.agentId);
     }
   }
@@ -294,7 +295,7 @@ async function resolveBookkeeperSeat(opts: {
   for (const agentId of sectionAgentIds) {
     if (!companySet.has(agentId)) continue;
     if (excludedHeadAgentIds.has(agentId)) continue;
-    const agentName = opts.maps.nameByAgentId.get(agentId) ?? null;
+    const agentName = maps.nameByAgentId.get(agentId) ?? null;
     if (!agentName) continue;
     return {
       key,
@@ -320,6 +321,137 @@ async function resolveBookkeeperSeat(opts: {
         : `No one in ${opts.sendToSectionName} assigned to ${companyLabel}.`
       : "No bookkeeper found in the send-to section for the selected company.",
   };
+}
+
+/** Prefer Accounting (not Finance) when auto-defaulting TO-linked RFP send-to. */
+function accountingSectionRank(name: string): number {
+  const n = name.toLowerCase();
+  if (/\baccounting\b/.test(n) || /\bbookkeep/.test(n)) return 0;
+  return 1;
+}
+
+/**
+ * Resolve a bookkeeper for a budget company using the same intake rule
+ * (send-to department ∩ company).
+ *
+ * Travel Order–linked RFPs are assumed to already live on the default
+ * Accounting send-to section for that company — prefer that section,
+ * then other company-scoped sections, then remaining sections.
+ */
+export async function resolveRfpBookkeeperForBudgetCompany(opts: {
+  companyTeamId: string;
+  /** When set (TO-RFP already defaulted), resolve against this section first. */
+  sendToSectionId?: string | null;
+}): Promise<{
+  agentId: string;
+  agentName: string;
+  sectionId: string;
+  sectionName: string | null;
+} | null> {
+  const companyTeamId = opts.companyTeamId.trim();
+  if (!companyTeamId) return null;
+
+  const [company, sections, maps] = await Promise.all([
+    prisma.team.findUnique({
+      where: { id: companyTeamId },
+      select: { id: true, name: true },
+    }),
+    prisma.orgChartSection.findMany({
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, parentId: true, companyTeamId: true },
+    }),
+    loadStaffMaps(),
+  ]);
+  if (!company) return null;
+
+  const rank = accountingSectionRank;
+
+  const sectionBelongsToCompany = (sectionId: string) => {
+    let current: string | null = sectionId;
+    const seen = new Set<string>();
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      const row = sections.find((x) => x.id === current);
+      if (!row) return false;
+      if (row.companyTeamId === companyTeamId) return true;
+      current = row.parentId;
+    }
+    return false;
+  };
+
+  const preferredSendTo = (opts.sendToSectionId ?? "").trim();
+  const byCompany = sections.filter((s) => sectionBelongsToCompany(s.id));
+  const accountingFirst = [...byCompany].sort(
+    (a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name),
+  );
+  const defaultSectionId =
+    preferredSendTo ||
+    accountingFirst[0]?.id ||
+    sections.sort((a, b) => rank(a.name) - rank(b.name))[0]?.id ||
+    "";
+
+  const candidates = [
+    ...(defaultSectionId
+      ? sections.filter((s) => s.id === defaultSectionId)
+      : []),
+    ...accountingFirst.filter((s) => s.id !== defaultSectionId),
+    ...sections.filter(
+      (s) => s.id !== defaultSectionId && !byCompany.some((c) => c.id === s.id),
+    ).sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name)),
+  ];
+
+  for (const section of candidates) {
+    const seat = await resolveBookkeeperSeat({
+      sendToSectionId: section.id,
+      sendToSectionName: section.name,
+      companyTeamId,
+      companyName: company.name,
+      requestingCompanyName: company.name,
+      maps,
+    });
+    if (seat.agentId && seat.agentName) {
+      return {
+        agentId: seat.agentId,
+        agentName: seat.agentName,
+        sectionId: section.id,
+        sectionName: seat.sectionName,
+      };
+    }
+  }
+
+  return null;
+}
+
+/** Default send-to section for a TO-linked RFP (Accounting for company). */
+export async function resolveDefaultSendToSectionForBudgetCompany(
+  companyTeamId: string,
+): Promise<{ sectionId: string; sectionName: string } | null> {
+  const teamId = companyTeamId.trim();
+  if (!teamId) return null;
+  const sections = await prisma.orgChartSection.findMany({
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, parentId: true, companyTeamId: true },
+  });
+  const rank = accountingSectionRank;
+  const belongs = (sectionId: string) => {
+    let current: string | null = sectionId;
+    const seen = new Set<string>();
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      const row = sections.find((x) => x.id === current);
+      if (!row) return false;
+      if (row.companyTeamId === teamId) return true;
+      current = row.parentId;
+    }
+    return false;
+  };
+  const byCompany = sections
+    .filter((s) => belongs(s.id))
+    .sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+  const pick =
+    byCompany[0] ||
+    [...sections].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name))[0];
+  return pick ? { sectionId: pick.id, sectionName: pick.name } : null;
 }
 
 function emptySeat(

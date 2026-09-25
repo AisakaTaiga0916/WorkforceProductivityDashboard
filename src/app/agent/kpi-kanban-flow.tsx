@@ -118,6 +118,7 @@ import { SubTasksManagerPopup } from "@/components/task-board/SubTasksManagerPop
 import { TravelOrderSummaryPanel } from "@/components/task-board/TravelOrderSummaryPanel";
 import { TravelOrderRequestModal } from "@/components/task-board/TravelOrderRequestModal";
 import { TravelOrderApprovalModal } from "@/components/task-board/TravelOrderApprovalModal";
+import { TravelOrderRfpEditModal } from "@/components/task-board/TravelOrderRfpEditModal";
 import { TravelOrderOfflineBanner } from "@/components/offline/TravelOrderOfflineBanner";
 import { TaskBoardPopup } from "@/components/task-board/TaskBoardPopup";
 import type { TravelOrderDto } from "@/lib/travel-order";
@@ -610,6 +611,11 @@ export function AgentKpiKanbanFlow({
     taskId: string;
     travelOrderId: string | null;
     title: string;
+  } | null>(null);
+  const [editTravelOrderRfp, setEditTravelOrderRfp] = useState<{
+    taskId: string;
+    travelOrderId: string;
+    linkedRfpTicketId?: string | null;
   } | null>(null);
   const [mobileLane, setMobileLane] = useState<KpiBoardStatus>("CURRENT");
   const [laneRegisterKey, setLaneRegisterKey] = useState(0);
@@ -6269,24 +6275,39 @@ export function AgentKpiKanbanFlow({
           setResumeTravelOrderDraftId(null);
           void reloadCompanyTravelOrders();
         }}
-        onCreated={({ kpiId, travelOrderId, offlineQueued }) => {
+        onCreated={({ kpiId, travelOrderId, linkedRfpTicketId, offlineQueued }) => {
           setCreateTravelOrderOpen(false);
           setResumeTravelOrderDraftId(null);
           if (offlineQueued) {
             void reloadCompanyTravelOrders();
             return;
           }
-          // Open the view modal first; defer list/board reloads so submit feels instant.
-          setViewTravelOrder({
-            taskId: kpiId,
-            travelOrderId: travelOrderId ?? null,
-            title: "Travel Order",
-          });
+          // After submit, open the linked RFP editor so the requestor can review/edit.
+          if (travelOrderId) {
+            setEditTravelOrderRfp({
+              taskId: kpiId,
+              travelOrderId,
+              linkedRfpTicketId: linkedRfpTicketId ?? null,
+            });
+          } else {
+            setViewTravelOrder({
+              taskId: kpiId,
+              travelOrderId: null,
+              title: "Travel Order",
+            });
+          }
           queueMicrotask(() => {
             void reloadCompanyTravelOrders();
             void load();
           });
         }}
+      />
+      <TravelOrderRfpEditModal
+        open={Boolean(editTravelOrderRfp)}
+        taskId={editTravelOrderRfp?.taskId ?? null}
+        travelOrderId={editTravelOrderRfp?.travelOrderId ?? null}
+        initialTicketId={editTravelOrderRfp?.linkedRfpTicketId ?? null}
+        onClose={() => setEditTravelOrderRfp(null)}
       />
       <TravelOrderApprovalModal
         open={Boolean(viewTravelOrder)}
@@ -6302,6 +6323,20 @@ export function AgentKpiKanbanFlow({
           void reloadCompanyTravelOrders();
           void load();
         }}
+        onEditLinkedRfp={
+          viewTravelOrder?.travelOrderId
+            ? () => {
+                const toId = viewTravelOrder.travelOrderId;
+                if (!toId) return;
+                const taskId = viewTravelOrder.taskId;
+                setViewTravelOrder(null);
+                setEditTravelOrderRfp({
+                  taskId,
+                  travelOrderId: toId,
+                });
+              }
+            : undefined
+        }
       />
       {(() => {
         return (

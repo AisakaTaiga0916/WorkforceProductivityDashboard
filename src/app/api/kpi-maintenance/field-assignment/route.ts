@@ -20,6 +20,7 @@ import {
   serializeTravelOrder,
   updateTravelOrderAttachments,
 } from "@/lib/travel-order-db";
+import { createRfpFromSubmittedTravelOrder } from "@/lib/travel-order-rfp";
 import {
   MAX_TRAVEL_ORDER_ATTACHMENTS,
   persistTravelOrderAttachment,
@@ -307,10 +308,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
+  let linkedRfp: Awaited<ReturnType<typeof createRfpFromSubmittedTravelOrder>> | null = null;
+  try {
+    linkedRfp = await createRfpFromSubmittedTravelOrder(travelOrder);
+  } catch (err) {
+    console.error("[field-assignment] auto-create RFP from travel order failed:", err);
+  }
+
   return NextResponse.json(
     {
       kpi: { id: kpi.id, isFieldAssignment: true },
       travelOrder: serializeTravelOrder(travelOrder),
+      linkedRfp,
+      linkedRfpError: linkedRfp
+        ? undefined
+        : "Travel order was created, but the linked Request for Payment could not be created. Open the travel order to retry.",
     },
     { status: 201 },
   );

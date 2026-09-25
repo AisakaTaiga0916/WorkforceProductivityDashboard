@@ -2,6 +2,7 @@
 
 import { CompanyUserSearchField } from "@/components/tickets/CompanyUserSearchField";
 import { TicketDetailsPrintButton } from "@/components/tickets/TicketDetailsPrintButton";
+import { TravelOrderApprovalModal } from "@/components/task-board/TravelOrderApprovalModal";
 import type { Agent, Team, Ticket, TicketActivity, TicketMessage } from "@prisma/client/primary";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -137,6 +138,8 @@ export function AgentWorkspace({
   isPaymentRequest = false,
   paymentApprovalMeta = null,
   paymentApprovalAgentNames = {},
+  linkedTravelOrderRef = null,
+  requestBudgetFromCompanyName = null,
   isRequisitionRequest = false,
   itemRequisitionApprovalMeta = null,
   itemRequisitionApprovalAgentNames = {},
@@ -175,6 +178,10 @@ export function AgentWorkspace({
   paymentApprovalMeta?: PaymentApprovalMeta | null;
   /** Agent id → display name for payment approval roles. */
   paymentApprovalAgentNames?: Record<string, string>;
+  /** When this RFP was created from a Work Plan. */
+  linkedTravelOrderRef?: { travelOrderId: string; kpiMaintenanceId: string } | null;
+  /** Request Budget From — Work Plan–linked RFPs only; shown above Payee. */
+  requestBudgetFromCompanyName?: string | null;
   isRequisitionRequest?: boolean;
   itemRequisitionApprovalMeta?: ItemRequisitionApprovalMeta | null;
   itemRequisitionApprovalAgentNames?: Record<string, string>;
@@ -231,6 +238,7 @@ export function AgentWorkspace({
   const [priority, setPriority] = useState(ticket.priority);
   const [transferReason, setTransferReason] = useState("");
   const [logModalOpen, setLogModalOpen] = useState(false);
+  const [viewLinkedTravelOrder, setViewLinkedTravelOrder] = useState(false);
   const [remarksDraft, setRemarksDraft] = useState(() => ticket.remarks ?? "");
   const [remarksSaving, setRemarksSaving] = useState(false);
 
@@ -1328,6 +1336,11 @@ export function AgentWorkspace({
             <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] text-zinc-700 dark:bg-zinc-700/70 dark:text-zinc-200">
               {formatTicketPriorityLabel(ticket.priority)}
             </span>
+            {linkedTravelOrderRef ? (
+              <span className="rounded-full border border-sky-500/40 bg-sky-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-sky-800 dark:text-sky-200">
+                Work Plan
+              </span>
+            ) : null}
             <TicketDetailsPrintButton model={printModel} />
           </div>
             <time
@@ -1372,9 +1385,30 @@ export function AgentWorkspace({
               {acaProceduralLabelText}
             </p>
           ) : null}
+          {paymentDetails && linkedTravelOrderRef ? (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setViewLinkedTravelOrder(true)}
+                className="inline-flex items-center rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-sky-900 hover:bg-sky-500/20 dark:text-sky-100"
+              >
+                SEE ATTACHED WORK PLAN
+              </button>
+            </div>
+          ) : null}
           {paymentDetails ? (
             <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
               <dl className="space-y-2 text-sm">
+                {(requestBudgetFromCompanyName ?? "").trim() ? (
+                  <div>
+                    <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-500">
+                      Request Budget From
+                    </dt>
+                    <dd className="mt-0.5 break-words font-medium text-zinc-800 dark:text-zinc-200">
+                      {(requestBudgetFromCompanyName ?? "").trim()}
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-500">
                     Payee
@@ -3806,6 +3840,17 @@ export function AgentWorkspace({
             </div>
           </section>
         </div>
+      ) : null}
+      {linkedTravelOrderRef ? (
+        <TravelOrderApprovalModal
+          open={viewLinkedTravelOrder}
+          taskId={linkedTravelOrderRef.kpiMaintenanceId}
+          travelOrderId={linkedTravelOrderRef.travelOrderId}
+          title="Attached Work Plan"
+          description="Work Plan linked to this Request for Payment."
+          operatorAgentId={sessionAgentId}
+          onClose={() => setViewLinkedTravelOrder(false)}
+        />
       ) : null}
     </div>
   );

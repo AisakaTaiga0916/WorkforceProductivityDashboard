@@ -3,11 +3,11 @@
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts/register-db-backup-task.ps1
-#   powershell -ExecutionPolicy Bypass -File scripts/register-db-backup-task.ps1 -Time "03:30"
+#   powershell -ExecutionPolicy Bypass -File scripts/register-db-backup-task.ps1 -Time "06:00"
 #   powershell -ExecutionPolicy Bypass -File scripts/register-db-backup-task.ps1 -Unregister
 
 param(
-  [string]$Time = "02:00",
+  [string]$Time = "06:00",
   [switch]$Unregister
 )
 
@@ -27,7 +27,7 @@ if (-not (Test-Path $runScript)) {
 }
 
 $action = New-ScheduledTaskAction `
-  -Execute "powershell.exe" `
+  -Execute "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" `
   -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$runScript`"" `
   -WorkingDirectory $root
 
@@ -44,7 +44,7 @@ Register-ScheduledTask `
   -Action $action `
   -Trigger $trigger `
   -Settings $settings `
-  -Description "Daily PostgreSQL backup for ticket_system_v3 (local PM2 production behind Cloudflare DNS)." `
+  -Description "Daily PostgreSQL backup (primary + auth) for ticket_system_v3." `
   -Force | Out-Null
 
 Write-Host "Registered scheduled task: $taskName"

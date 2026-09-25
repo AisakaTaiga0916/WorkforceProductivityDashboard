@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   findOrgChartSectionByName,
+  orgChartIntakeSendToDepartments,
   orgChartMajorDepartments,
   orgChartScopeRootDepartments,
   orgChartSubDepartments,
@@ -70,6 +71,16 @@ describe("intake send-to department helpers", () => {
     ]);
     expect(orgChartSubDepartments(sections, "corp").map((s) => s.id)).toEqual(["gs", "hr"]);
     expect(orgChartSubDepartments(sections, "acct")).toEqual([]);
+  });
+
+  it("lists intake send-to options as leaves (subs + childless majors)", () => {
+    expect(orgChartIntakeSendToDepartments(sections).map((s) => s.id)).toEqual([
+      "gs",
+      "hr",
+      "acct",
+      "fin",
+      "proc",
+    ]);
   });
 
   it("shows sub-department as a scope root when major is outside the viewer set", () => {

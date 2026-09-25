@@ -29,6 +29,7 @@ import {
   updateTravelOrderGatePass,
   updateTravelOrderStatus,
 } from "@/lib/travel-order-db";
+import { releaseRfpAfterTravelOrderApproved } from "@/lib/travel-order-rfp";
 import { triggerTravelOrderConfirmedSideEffects } from "@/lib/sync/travel-order-confirm-side-effects";
 
 /**
@@ -247,6 +248,16 @@ export async function PATCH(
         operatorAgentId: operatorId,
         canAssignWork,
       });
+      if (
+        updated.status === TRAVEL_ORDER_STATUS.APPROVED &&
+        order.status !== TRAVEL_ORDER_STATUS.APPROVED
+      ) {
+        try {
+          await releaseRfpAfterTravelOrderApproved(updated.id);
+        } catch (err) {
+          console.error("[travel-orders] release linked RFP failed:", err);
+        }
+      }
       return NextResponse.json({ travelOrder: serializeTravelOrder(updated) });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not approve travel order.";

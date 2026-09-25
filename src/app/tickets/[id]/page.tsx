@@ -20,6 +20,9 @@ import { AgentTicketModalShell } from "@/components/ticket/AgentTicketModalShell
 import { TicketRequestMetaDetails } from "@/components/ticket/TicketRequestMetaDetails";
 import { resolveTicketSendRequestToDisplay } from "@/lib/ticket-send-to-display";
 import { CustomerTicketPanel } from "./ui";
+import { ensureTicketLinkedTravelOrderColumn } from "@/lib/ensure-ticket-linked-travel-order-column";
+import { findTravelOrderById } from "@/lib/travel-order-db";
+import { ensureLinkedRfpAccountingDefaults } from "@/lib/travel-order-rfp";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +77,7 @@ export default async function TicketPage({
   const branchActivity = ticket.activities.find((a) => a.summary === "Branch");
   const branch = branchActivity?.detail?.trim() ?? null;
   const requestingCompanyActivity = ticket.activities.find((a) => a.summary === "Requesting company");
-  const requestingCompany = requestingCompanyActivity?.detail?.trim() ?? null;
+  let requestingCompany = requestingCompanyActivity?.detail?.trim() ?? null;
   const departmentActivity = ticket.activities.find(
     (a) =>
       a.summary === "Department" ||
@@ -82,7 +85,7 @@ export default async function TicketPage({
       a.summary === "Requesting department" ||
       a.summary === "Requesting department/business unit",
   );
-  const department = departmentActivity?.detail?.trim() ?? null;
+  let department = departmentActivity?.detail?.trim() ?? null;
   const sendToSectionRows = await prisma.$queryRaw<
     Array<{ org_chart_section_id: string | null }>
   >`
@@ -91,8 +94,9 @@ export default async function TicketPage({
     WHERE id = ${id}
     LIMIT 1
   `;
-  const sendToOrgChartSectionId = sendToSectionRows[0]?.org_chart_section_id ?? null;
-  const sendToSectionName = sendToOrgChartSectionId
+  const sendToOrgChartSectionIdInitial = sendToSectionRows[0]?.org_chart_section_id ?? null;
+  let sendToOrgChartSectionId = sendToOrgChartSectionIdInitial;
+  let sendToSectionName = sendToOrgChartSectionId
     ? (
         await prisma.orgChartSection.findUnique({
           where: { id: sendToOrgChartSectionId },
@@ -100,7 +104,7 @@ export default async function TicketPage({
         })
       )?.name?.trim() ?? null
     : null;
-  const sendRequestToDisplay = resolveTicketSendRequestToDisplay({
+  let sendRequestToDisplay = resolveTicketSendRequestToDisplay({
     activities: ticket.activities,
     orgChartSectionId: sendToOrgChartSectionId,
     orgChartSectionName: sendToSectionName,
@@ -127,6 +131,61 @@ export default async function TicketPage({
     requestTypeId === "JOB_ORDER" ||
     (requestTypeActivity?.detail?.trim().toUpperCase() ?? "").includes("JOB ORDER");
 
+  let linkedTravelOrderRef: {
+    travelOrderId: string;
+    kpiMaintenanceId: string;
+  } | null = null;
+  if (isPaymentRequest) {
+    await ensureTicketLinkedTravelOrderColumn();
+    try {
+      const linkRows = await prisma.$queryRaw<
+        Array<{ linked_travel_order_id: string | null }>
+      >`
+        SELECT linked_travel_order_id FROM tickets WHERE id = ${ticket.id} LIMIT 1
+      `;
+      const toId = linkRows[0]?.linked_travel_order_id?.trim() || "";
+      if (toId) {
+        const order = await findTravelOrderById(toId);
+        if (order) {
+          linkedTravelOrderRef = {
+            travelOrderId: order.id,
+            kpiMaintenanceId: order.kpiMaintenanceId,
+          };
+        }
+        const ensured = await ensureLinkedRfpAccountingDefaults({
+          ticketId: ticket.id,
+          companyTeamId: ticket.teamId || order?.companyTeamId,
+          requestorName: ticket.contactName,
+          requestorEmail: ticket.requestorEmail ?? ticket.contactEmail,
+          requestorAgentId: order?.createdByAgentId ?? order?.createdByAgent?.id ?? null,
+        });
+        if (ensured?.orgChartSectionId) {
+          sendToOrgChartSectionId = ensured.orgChartSectionId;
+          sendToSectionName = ensured.orgChartSectionName;
+          sendRequestToDisplay = {
+            label: "Send request to (department)",
+            value: (ensured.orgChartSectionName ?? "").trim() || "Accounting",
+          };
+        }
+        if (ensured?.requestorOrgChartSectionName) {
+          department =
+            ensured.requestorOrgChartSectionName.trim() || department;
+        }
+        if (ensured?.requestBudgetFromCompanyName) {
+          requestingCompany = ensured.requestBudgetFromCompanyName;
+        }
+        const refreshed = await prisma.ticket.findUnique({
+          where: { id: ticket.id },
+          select: { title: true, description: true, contactName: true, teamId: true },
+        });
+        if (refreshed) {
+          Object.assign(ticket, refreshed);
+        }
+      }
+    } catch (err) {
+      console.error("[ticket] load linked Work Plan failed:", err);
+    }
+  }
   const paymentApprovalMeta = isPaymentRequest
     ? ((await loadPaymentApprovalMeta(ticket.id)) ??
       (await initPaymentApprovalMetaIfNeeded(ticket.id)))
@@ -272,6 +331,11 @@ export default async function TicketPage({
           </h1>
         </div>
             <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+              {linkedTravelOrderRef ? (
+                <span className="w-fit rounded-full border border-sky-400/50 bg-sky-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-100">
+                  Work Plan
+                </span>
+              ) : null}
               <span className="w-fit rounded-full bg-white/12 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-zinc-100 dark:bg-zinc-700 dark:text-zinc-200">
                 {formatTicketStatusLabel(ticket.status)}
               </span>
@@ -297,7 +361,9 @@ export default async function TicketPage({
             contactName={ticket.contactName}
             email={ticket.requestorEmail ?? ticket.contactEmail ?? "—"}
             company={requestorCompanyName ?? "Not assigned"}
-            requestingCompany={requestingCompany}
+            requestingCompany={
+              isPaymentRequest && linkedTravelOrderRef ? null : requestingCompany
+            }
             branch={branch ?? "—"}
             sendRequestTo={sendRequestToDisplay.value}
             sendRequestToLabel={sendRequestToDisplay.label}
@@ -318,6 +384,10 @@ export default async function TicketPage({
             isPaymentRequest={isPaymentRequest}
             paymentApprovalMeta={paymentApprovalMeta}
             paymentApprovalAgentNames={paymentApprovalAgentNames}
+            linkedTravelOrderRef={linkedTravelOrderRef}
+            requestBudgetFromCompanyName={
+              isPaymentRequest && linkedTravelOrderRef ? requestingCompany : null
+            }
             isRequisitionRequest={isRequisitionRequest}
             itemRequisitionApprovalMeta={itemRequisitionApprovalMeta}
             itemRequisitionApprovalAgentNames={itemRequisitionApprovalAgentNames}

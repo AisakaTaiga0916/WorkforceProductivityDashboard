@@ -71,10 +71,7 @@ import { acaRecommendedByUsesRequestorCompanyLock, resolveAcaAuthority } from "@
 import { parseAcaAmountNumber } from "@/lib/authority-to-conduct-activity";
 import {
   findOrgChartSectionByName,
-  orgChartMajorDepartments,
-  orgChartSectionOptionText,
-  orgChartSubDepartments,
-  resolveSendToDepartmentSelection,
+  orgChartIntakeSendToDepartments,
   type OrgChartSectionOption,
 } from "@/lib/org-chart-section-display";
 import { IntakeApprovalRecommendationGuide } from "@/components/tickets/IntakeApprovalRecommendationGuide";
@@ -261,10 +258,7 @@ function NewTicketPageInner({
   >([]);
   const [sectionsLoading, setSectionsLoading] = useState(false);
   const [selectedRequestorOrgChartSectionId, setSelectedRequestorOrgChartSectionId] = useState("");
-  const [selectedSendToMajorDepartmentId, setSelectedSendToMajorDepartmentId] = useState("");
-  const [selectedSendToSubDepartmentId, setSelectedSendToSubDepartmentId] = useState("");
-  const selectedSendToOrgChartSectionId =
-    selectedSendToSubDepartmentId.trim() || selectedSendToMajorDepartmentId.trim();
+  const [selectedSendToOrgChartSectionId, setSelectedSendToOrgChartSectionId] = useState("");
   const [useCustomRequestingCompany, setUseCustomRequestingCompany] = useState(false);
   const [selectedRequestingCompanyTeamId, setSelectedRequestingCompanyTeamId] = useState("");
   const [paymentAssignees, setPaymentAssignees] = useState({
@@ -567,8 +561,7 @@ function NewTicketPageInner({
       setOrgChartSectionOptions([]);
       setRequestorSectionOptions([]);
       setSelectedRequestorOrgChartSectionId("");
-      setSelectedSendToMajorDepartmentId("");
-      setSelectedSendToSubDepartmentId("");
+      setSelectedSendToOrgChartSectionId("");
       setSendToMode("department");
       setSelectedSendToCompanyTeamId("");
       setUseCustomRequestingCompany(false);
@@ -624,14 +617,9 @@ function NewTicketPageInner({
     };
   }, [isStaffRequestorIntake, sessionStatus]);
 
-  const sendToMajorDepartments = useMemo(
-    () => orgChartMajorDepartments(orgChartSectionOptions),
+  const sendToDepartments = useMemo(
+    () => orgChartIntakeSendToDepartments(orgChartSectionOptions),
     [orgChartSectionOptions],
-  );
-  const sendToSubDepartments = useMemo(
-    () =>
-      orgChartSubDepartments(orgChartSectionOptions, selectedSendToMajorDepartmentId),
-    [orgChartSectionOptions, selectedSendToMajorDepartmentId],
   );
   const recommendedSendToName = useMemo(
     () => recommendedSendToDepartmentName(activeRequestType),
@@ -643,19 +631,32 @@ function NewTicketPageInner({
     if (sendToMode !== "department") return;
     const recommendedName = recommendedSendToDepartmentName(activeRequestType);
     if (!recommendedName) {
-      setSelectedSendToMajorDepartmentId("");
-      setSelectedSendToSubDepartmentId("");
+      setSelectedSendToOrgChartSectionId("");
       return;
     }
     const match = findOrgChartSectionByName(orgChartSectionOptions, recommendedName);
     if (!match) {
-      setSelectedSendToMajorDepartmentId("");
-      setSelectedSendToSubDepartmentId("");
+      setSelectedSendToOrgChartSectionId("");
       return;
     }
-    const selection = resolveSendToDepartmentSelection(orgChartSectionOptions, match.id);
-    setSelectedSendToMajorDepartmentId(selection.majorId);
-    setSelectedSendToSubDepartmentId(selection.subId);
+    const intakeOptions = orgChartIntakeSendToDepartments(orgChartSectionOptions);
+    if (intakeOptions.some((s) => s.id === match.id)) {
+      setSelectedSendToOrgChartSectionId(match.id);
+      return;
+    }
+    // Recommendation named a parent container — pick its first selectable leaf.
+    const byId = new Map(orgChartSectionOptions.map((s) => [s.id, s]));
+    const firstChildLeaf = intakeOptions.find((s) => {
+      let cur: OrgChartSectionOption | undefined = s;
+      const seen = new Set<string>();
+      while (cur?.parentId && !seen.has(cur.id)) {
+        seen.add(cur.id);
+        if (cur.parentId === match.id) return true;
+        cur = byId.get(cur.parentId);
+      }
+      return false;
+    });
+    setSelectedSendToOrgChartSectionId(firstChildLeaf?.id ?? "");
   }, [isStaffRequestorIntake, activeRequestType, orgChartSectionOptions, sendToMode]);
 
   const effectiveSendToCompanyTeamId = useMemo(() => {
@@ -764,8 +765,7 @@ function NewTicketPageInner({
     setSkipJobOrderNotedBy(false);
     setSkipJobOrderApprovedBy(false);
     setSelectedRequestorOrgChartSectionId("");
-    setSelectedSendToMajorDepartmentId("");
-    setSelectedSendToSubDepartmentId("");
+    setSelectedSendToOrgChartSectionId("");
     setUseCustomRequestingCompany(false);
     setSelectedRequestingCompanyTeamId("");
     setRequisitionItems([emptyRequisitionLineItem(0)]);
@@ -1711,7 +1711,7 @@ function NewTicketPageInner({
                       </option>
                       {requestorSectionOptions.map((section) => (
                         <option key={section.id} value={section.id}>
-                          {orgChartSectionOptionText(section)}
+                          {section.name}
                         </option>
                       ))}
                     </select>
@@ -1834,8 +1834,7 @@ function NewTicketPageInner({
                         aria-selected={sendToMode === "company"}
                         onClick={() => {
                           setSendToMode("company");
-                          setSelectedSendToMajorDepartmentId("");
-                          setSelectedSendToSubDepartmentId("");
+                          setSelectedSendToOrgChartSectionId("");
                         }}
                         className={
                           sendToMode === "company"
@@ -1881,45 +1880,23 @@ function NewTicketPageInner({
                       ))}
                     </select>
                   ) : (
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <select
-                        id="intake-send-request-to-department"
-                        required
-                        value={selectedSendToMajorDepartmentId}
-                        onChange={(e) => {
-                          setSelectedSendToMajorDepartmentId(e.target.value);
-                          setSelectedSendToSubDepartmentId("");
-                        }}
-                        disabled={sectionsLoading}
-                        className="box-border h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm leading-none text-zinc-900 outline-none ring-orange-500/40 focus:border-orange-500 focus:ring disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-                      >
-                        <option value="">
-                          {sectionsLoading ? "Loading departments…" : "Select a department"}
+                    <select
+                      id="intake-send-request-to-department"
+                      required
+                      value={selectedSendToOrgChartSectionId}
+                      onChange={(e) => setSelectedSendToOrgChartSectionId(e.target.value)}
+                      disabled={sectionsLoading}
+                      className="box-border h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm leading-none text-zinc-900 outline-none ring-orange-500/40 focus:border-orange-500 focus:ring disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                    >
+                      <option value="">
+                        {sectionsLoading ? "Loading departments…" : "Select a department"}
+                      </option>
+                      {sendToDepartments.map((section) => (
+                        <option key={section.id} value={section.id}>
+                          {section.name}
                         </option>
-                        {sendToMajorDepartments.map((section) => (
-                          <option key={section.id} value={section.id}>
-                            {section.name}
-                          </option>
-                        ))}
-                      </select>
-                      {sendToSubDepartments.length > 0 ? (
-                        <select
-                          id="intake-send-request-to-sub-department"
-                          aria-label="Send request to sub-department"
-                          value={selectedSendToSubDepartmentId}
-                          onChange={(e) => setSelectedSendToSubDepartmentId(e.target.value)}
-                          disabled={sectionsLoading || !selectedSendToMajorDepartmentId}
-                          className="box-border h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm leading-none text-zinc-900 outline-none ring-orange-500/40 focus:border-orange-500 focus:ring disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-                        >
-                          <option value="">Whole department (no sub-department)</option>
-                          {sendToSubDepartments.map((section) => (
-                            <option key={section.id} value={section.id}>
-                              {orgChartSectionOptionText(section)}
-                            </option>
-                          ))}
-                        </select>
-                      ) : null}
-                    </div>
+                      ))}
+                    </select>
                   )}
                   {sendToMode === "department" && recommendedSendToName ? (
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
