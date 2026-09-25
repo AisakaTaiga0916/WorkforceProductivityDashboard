@@ -339,7 +339,6 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
   });
 
   if (highAdminRestrictSectionIds && highAdminCompanyTeamIds) {
-    ticketWhereBase.OR = [{ orgChartSectionId: { in: highAdminRestrictSectionIds } }];
     const allowedTeamIds = teams.map((t) => t.id);
     const displayTeamIds = highAdminCompanyTeamIds.filter((id) => allowedTeamIds.includes(id));
     if (displayTeamIds.length === 0) {
@@ -358,6 +357,13 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
     if (filterBySpecificCompany && filteredDisplay.length === 0) {
       return { ok: false, cardMode, emptyHint: "No matching company filter in your scope." };
     }
+    // Include company-only send-to (no department) for companies in this HighAdmin's scope.
+    // Intake "Send to company" stores teamId with orgChartSectionId null — those must still
+    // appear on Group Board company cards (e.g. AGC REQ-2026-00386 / 00387).
+    ticketWhereBase.OR = [
+      { orgChartSectionId: { in: highAdminRestrictSectionIds } },
+      { teamId: { in: filteredDisplay }, orgChartSectionId: null },
+    ];
     return {
       ok: true,
       cardMode,
@@ -404,10 +410,8 @@ async function resolveCompanyBoardScope(opts: CompanyBoardScopeOpts): Promise<Co
     if (sendToSectionIds.length > 0) {
       sendToClauses.push({ orgChartSectionId: { in: sendToSectionIds } });
     }
-    // Company-level tickets with no department only for elevated/unscoped admins.
-    if (!restrictSectionIds) {
-      sendToClauses.push({ teamId: sendToCompanyTeamId, orgChartSectionId: null });
-    }
+    // Company-only send-to (no department) for the Admin's designated company.
+    sendToClauses.push({ teamId: sendToCompanyTeamId, orgChartSectionId: null });
     if (sendToClauses.length === 0) {
       return {
         ok: false,

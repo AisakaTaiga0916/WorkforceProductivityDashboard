@@ -17,6 +17,8 @@ import {
   travelOrderOrgChartLayersInApprovalPath,
   travelOrderRecommendedOptionalForSeat,
   buildTravelOrderRecommendedPath,
+  buildTravelOrderRecommendedPathFromChain,
+  mergeTravelOrderApprovalAncestors,
   buildApprovalLevelsFromOrgChartPath,
   travelOrderDraftToFieldAssignmentPayload,
   emptyTravelOrderDraft,
@@ -287,5 +289,63 @@ describe("org-chart recommended approval path", () => {
       { level: 2, agentId: "", optional: true },
       { level: 3, agentId: "mgr2", optional: false },
     ]);
+  });
+
+  it("merges section-head superiors ahead of people-chart parents without duplicates", () => {
+    const merged = mergeTravelOrderApprovalAncestors({
+      sectionHeads: [
+        {
+          orgChartLayer: 3,
+          agentId: "engelbert",
+          agentName: "Engelbert",
+          mergedSourceUserId: "1687",
+        },
+      ],
+      peopleAncestors: [
+        {
+          orgChartLayer: 2,
+          agentId: "rocelyn",
+          agentName: "Rocelyn",
+          mergedSourceUserId: "1842",
+        },
+        {
+          orgChartLayer: 3,
+          agentId: "engelbert",
+          agentName: "Engelbert",
+          mergedSourceUserId: "1687",
+        },
+      ],
+    });
+    expect(merged.map((a) => a.agentId)).toEqual(["engelbert", "rocelyn"]);
+  });
+
+  it("builds one seat per ordered ancestor including same-layer section heads", () => {
+    const seats = buildTravelOrderRecommendedPathFromChain([
+      {
+        orgChartLayer: 3,
+        agentId: "engelbert",
+        agentName: "Engelbert",
+        mergedSourceUserId: "1687",
+      },
+      {
+        orgChartLayer: 2,
+        agentId: "rocelyn",
+        agentName: "Rocelyn",
+        mergedSourceUserId: "1842",
+      },
+    ]);
+    expect(seats).toHaveLength(2);
+    expect(seats[0]).toMatchObject({
+      sequenceLevel: 1,
+      agentId: "engelbert",
+      orgChartLayer: 3,
+      recommendedOptional: false,
+    });
+    expect(seats[1]).toMatchObject({
+      sequenceLevel: 2,
+      agentId: "rocelyn",
+      orgChartLayer: 2,
+      recommendedOptional: false,
+    });
   });
 });

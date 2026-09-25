@@ -209,7 +209,7 @@ app
       }, 15 * 60 * 1000);
       hrisSyncTimer = setInterval(() => {
         void runHrisSyncJob();
-      }, 30 * 60 * 1000);
+      }, 15 * 60 * 1000);
       portalMergedSyncTimer = setInterval(() => {
         void runPortalMergedSyncJob();
       }, 30 * 60 * 1000);

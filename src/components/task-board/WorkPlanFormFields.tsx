@@ -230,12 +230,14 @@ export function WorkPlanFormFields({
         </div>
         <label className="block space-y-1.5">
           <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-            Expected Outcome / Deliverable
+            Expected Outcome / Deliverable{" "}
+            <span className="font-normal text-zinc-500">(optional)</span>
           </span>
           <Textarea
             rows={2}
             value={meta.expectedOutcome}
             disabled={disabled}
+            placeholder="Optional — describe the expected outcome or deliverable"
             onChange={(e) => patch({ expectedOutcome: e.target.value })}
           />
         </label>
@@ -528,6 +530,9 @@ export function WorkPlanFormFields({
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        Expected results / key deliverables are optional. Add rows if needed.
+      </p>
       <div className="flex justify-end">
         <Button
           type="button"
@@ -548,7 +553,7 @@ export function WorkPlanFormFields({
           className="grid gap-2 rounded-xl border border-zinc-200 p-3 sm:grid-cols-[1fr_auto_auto] dark:border-zinc-700"
         >
           <Input
-            placeholder="Expected Result / Deliverable"
+            placeholder="Expected Result / Deliverable (optional)"
             value={row.deliverable}
             disabled={disabled}
             onChange={(e) => {
@@ -559,7 +564,7 @@ export function WorkPlanFormFields({
             }}
           />
           <Input
-            placeholder="Target Date"
+            placeholder="Target Date (optional)"
             value={row.targetDate}
             disabled={disabled}
             onChange={(e) => {

@@ -6,6 +6,7 @@ import {
 } from "@/lib/auth/sync-portal-profile";
 import { reconcilePortalStaffRolesFromOrgChart } from "@/lib/org-chart-section-scope";
 import { prismaAuth, prismaSecondary } from "@/lib/prisma";
+import { runHrisToMergedIncremental } from "@/lib/sync/hris-to-merged-incremental";
 
 type MergedRow = {
   source_user_id: bigint;
@@ -24,6 +25,8 @@ export type HrisSyncResult = {
   synced: number;
   failed: number;
   durationMs: number;
+  mergeUserChanges?: number;
+  mergeAttendanceChanges?: number;
   attendanceUpserted?: number;
   passwordsUpdated?: number;
 };
@@ -31,7 +34,21 @@ export type HrisSyncResult = {
 export async function runHrisPortalSync(): Promise<HrisSyncResult> {
   const start = Date.now();
 
-  // Pull current clock-ins from the live HRIS DB first, so On Duty is fresh.
+  // Pull new/changed HRIS users into merged first so portal sync sees them.
+  let mergeUserChanges = 0;
+  let mergeAttendanceChanges = 0;
+  try {
+    const merge = await runHrisToMergedIncremental({ verbose: false });
+    mergeUserChanges = merge.userChanges;
+    mergeAttendanceChanges = merge.attendanceChanges;
+    console.log(
+      `[hris-sync-job] HRIS→merged: users=${merge.userChanges} attendance=${merge.attendanceChanges} (${merge.durationMs}ms)`,
+    );
+  } catch (e) {
+    console.error("[hris-sync-job] HRIS→merged incremental failed", e);
+  }
+
+  // Pull current clock-ins from the live HRIS DB, so On Duty is fresh.
   let attendanceUpserted = 0;
   try {
     const att = await runHrisAttendanceSync();
@@ -110,6 +127,8 @@ export async function runHrisPortalSync(): Promise<HrisSyncResult> {
     synced,
     failed,
     durationMs: Date.now() - start,
+    mergeUserChanges,
+    mergeAttendanceChanges,
     attendanceUpserted,
     passwordsUpdated,
   };

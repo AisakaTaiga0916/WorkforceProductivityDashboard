@@ -227,6 +227,7 @@ export function AccountSettingsShell() {
     setIsFramingEditMode(true);
     setProfileImageMessage("Image uploaded. Adjust it, then click Save framing to lock it.");
     await updateSession();
+    window.dispatchEvent(new Event("profile-image-updated"));
   }
 
   async function removeProfileImage() {
@@ -251,6 +252,7 @@ export function AccountSettingsShell() {
     setProfileImageMessage("Profile image removed.");
     if (imageInputRef.current) imageInputRef.current.value = "";
     await updateSession();
+    window.dispatchEvent(new Event("profile-image-updated"));
   }
 
   async function saveProfileImageFraming() {
@@ -293,6 +295,7 @@ export function AccountSettingsShell() {
     setImagePosY(payload.profileImagePosY ?? imagePosY);
     setIsFramingEditMode(false);
     setProfileImageMessage("Profile image framing saved and locked.");
+    window.dispatchEvent(new Event("profile-image-updated"));
   }
 
   function handleImagePointerMove(e: React.PointerEvent<HTMLImageElement>) {

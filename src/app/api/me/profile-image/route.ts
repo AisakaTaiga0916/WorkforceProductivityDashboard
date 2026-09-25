@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { MAX_PROFILE_IMAGE_DATA_URL_CHARS } from "@/lib/profile-image-limits";
 import { prisma } from "@/lib/prisma";
-import { parseProfileImageDataUrl } from "@/lib/session-profile-image";
+import {
+  profileImageToBinaryResponse,
+} from "@/lib/session-profile-image";
 import { safeGetServerSession } from "@/lib/server-session";
 const IMAGE_DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif);base64,/i;
 
@@ -27,25 +29,18 @@ export async function GET() {
         })
       : null);
 
-  const profileImage = portal?.profileImage?.trim();
-  if (!profileImage) {
-    return new NextResponse(null, { status: 404 });
-  }
-
-  if (profileImage.startsWith("data:")) {
-    const parsed = parseProfileImageDataUrl(profileImage);
-    if (!parsed) {
-      return new NextResponse(null, { status: 404 });
-    }
-    return new NextResponse(new Uint8Array(parsed.bytes), {
+  const binary = profileImageToBinaryResponse(portal?.profileImage);
+  if (binary) {
+    return new NextResponse(new Uint8Array(binary.bytes), {
       headers: {
-        "Content-Type": parsed.mime,
+        "Content-Type": binary.mime,
         "Cache-Control": "private, no-store",
       },
     });
   }
 
-  if (/^https?:\/\//i.test(profileImage)) {
+  const profileImage = portal?.profileImage?.trim();
+  if (profileImage && /^https?:\/\//i.test(profileImage)) {
     return NextResponse.redirect(profileImage);
   }
 
@@ -88,7 +83,9 @@ export async function PATCH(req: Request) {
   const updated = await prisma.portalAccount.update({
     where: { email },
     data: {
-      ...(imageDataUrlRaw ? { profileImage: imageDataUrlRaw } : {}),
+      ...(imageDataUrlRaw
+        ? { profileImage: imageDataUrlRaw, profileSyncedAt: new Date() }
+        : {}),
       ...(zoom !== undefined ? { profileImageZoom: zoom } : {}),
       ...(posX !== undefined ? { profileImagePosX: posX } : {}),
       ...(posY !== undefined ? { profileImagePosY: posY } : {}),
@@ -98,6 +95,7 @@ export async function PATCH(req: Request) {
       profileImageZoom: true,
       profileImagePosX: true,
       profileImagePosY: true,
+      profileSyncedAt: true,
     },
   });
 
@@ -106,6 +104,7 @@ export async function PATCH(req: Request) {
     profileImageZoom: updated.profileImageZoom,
     profileImagePosX: updated.profileImagePosX,
     profileImagePosY: updated.profileImagePosY,
+    profileSyncedAt: updated.profileSyncedAt,
   });
 }
 
@@ -123,6 +122,7 @@ export async function DELETE() {
       profileImageZoom: 1,
       profileImagePosX: 50,
       profileImagePosY: 50,
+      profileSyncedAt: new Date(),
     },
   });
 

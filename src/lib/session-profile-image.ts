@@ -12,6 +12,23 @@ export function compactSessionPicture(value: string | null | undefined): string 
   return trimmed;
 }
 
+/**
+ * Lightweight assignee avatar URL (bytes served on demand by GET /api/agents/[id]/profile-image).
+ * Pass `versionMs` (e.g. profileSyncedAt) so browsers pick up photo updates after upload.
+ */
+export function agentProfileImageSrc(
+  agentId: string | null | undefined,
+  versionMs?: number | null,
+): string | null {
+  const id = (agentId ?? "").trim();
+  if (!id) return null;
+  const base = `/api/agents/${encodeURIComponent(id)}/profile-image`;
+  if (versionMs != null && Number.isFinite(versionMs) && versionMs > 0) {
+    return `${base}?v=${Math.trunc(versionMs)}`;
+  }
+  return base;
+}
+
 export function parseProfileImageDataUrl(dataUrl: string): { mime: string; bytes: Buffer } | null {
   const match = dataUrl.match(/^data:(image\/(?:png|jpe?g|webp|gif));base64,([a-z0-9+/=\s]+)$/i);
   if (!match) return null;
@@ -20,4 +37,19 @@ export function parseProfileImageDataUrl(dataUrl: string): { mime: string; bytes
   } catch {
     return null;
   }
+}
+
+/** Decode a stored portal profile_image value into a binary response body. */
+export function profileImageToBinaryResponse(profileImage: string | null | undefined): {
+  bytes: Buffer;
+  mime: string;
+} | null {
+  const value = (profileImage ?? "").trim();
+  if (!value) return null;
+  if (value.startsWith("data:")) {
+    const parsed = parseProfileImageDataUrl(value);
+    if (!parsed) return null;
+    return { bytes: parsed.bytes, mime: parsed.mime };
+  }
+  return null;
 }

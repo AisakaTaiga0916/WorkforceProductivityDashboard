@@ -17,6 +17,10 @@ import {
   resolveAgentIdsForOrgChartSection,
   resolveDepartmentDesignationsByMergedIds,
 } from "@/lib/org-chart-section-roster";
+import {
+  loadPortalAvatarMetaByEmails,
+  resolveAgentProfileImageSrc,
+} from "@/lib/portal-avatar-meta";
 
 export async function GET(req: Request) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel", "SuperAdmin", "HighAdmin"]);
@@ -36,15 +40,11 @@ export async function GET(req: Request) {
     searchParams.get("assignToManager") === "1" || searchParams.get("assignToManager") === "true";
   const orgChartHeads =
     searchParams.get("orgChartHeads") === "1" || searchParams.get("orgChartHeads") === "true";
-  /** Skip portal profile images (base64) — prevents OOM on large rosters; enough for pickers. */
+  /** Skip portal avatar URLs — enough for some pickers that only need id/name. */
   const lite =
     searchParams.get("lite") === "1" ||
     searchParams.get("lite") === "true" ||
     searchParams.get("omitProfile") === "1";
-  const includeProfile =
-    !lite &&
-    (searchParams.get("includeProfile") === "1" ||
-      searchParams.get("includeProfile") === "true");
   const includeOrgChartLayer =
     searchParams.get("includeOrgChartLayer") === "1" ||
     searchParams.get("includeOrgChartLayer") === "true";
@@ -131,21 +131,12 @@ export async function GET(req: Request) {
   const agentEmails = agents
     .map((a) => a.email?.trim().toLowerCase())
     .filter((email): email is string => Boolean(email));
-  // Never select profileImage (often multi‑MB data URLs) unless explicitly requested —
-  // loading every portal row with images OOMs Postgres/Node on large rosters.
-  const portalProfiles =
-    includeProfile && agentEmails.length
-      ? await prisma.portalAccount.findMany({
-          where: { email: { in: agentEmails } },
-          select: {
-            email: true,
-            profileImageZoom: true,
-            profileImagePosX: true,
-            profileImagePosY: true,
-          },
-        })
-      : [];
-  const profileByEmail = new Map(portalProfiles.map((p) => [p.email.trim().toLowerCase(), p]));
+  // Lightweight avatar meta only (no profile_image blob) — roster URLs point at
+  // GET /api/agents/[id]/profile-image so task board photos work without OOM.
+  const profileByEmail =
+    !lite && agentEmails.length > 0
+      ? await loadPortalAvatarMetaByEmails(agentEmails)
+      : new Map();
   const onDutyIds = await loadOnDutyAgentIdSet(agentIds);
   let departmentByMergedId = new Map<string, string>();
   if (includeOrgChartLayer) {
@@ -181,7 +172,7 @@ export async function GET(req: Request) {
         assignmentCompany,
         isOnDuty,
         dutyStatus: isOnDuty ? ("ON_DUTY" as const) : ("OFFLINE" as const),
-        profileImage: null as string | null,
+        profileImage: resolveAgentProfileImageSrc(agent.id, profile),
         profileImageZoom: profile?.profileImageZoom ?? 1,
         profileImagePosX: profile?.profileImagePosX ?? 50,
         profileImagePosY: profile?.profileImagePosY ?? 50,

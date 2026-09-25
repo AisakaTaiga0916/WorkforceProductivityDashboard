@@ -44,7 +44,7 @@ export const WORK_PLAN_WIZARD_STEPS: Array<{
   { id: "people", label: "People", title: "III. Personnel Involved" },
   { id: "budget", label: "Budget", title: "IV. Budget" },
   { id: "justification", label: "Justification", title: "V. Justification" },
-  { id: "results", label: "Results", title: "VI. Expected Results / Key Deliverables" },
+  { id: "results", label: "Results", title: "VI. Expected Results / Key Deliverables (optional)" },
   { id: "approval", label: "Approval", title: "VII. Management Approval" },
 ];
 
@@ -72,8 +72,7 @@ export function isWorkPlanSectionComplete(
         m.activityProposedWorkPlan.trim() &&
           m.purposeObjective.trim() &&
           m.implementationPeriod.trim() &&
-          workPlanVenueLabels(m).length > 0 &&
-          m.expectedOutcome.trim(),
+          workPlanVenueLabels(m).length > 0,
       );
     case "people":
       return (
@@ -90,7 +89,15 @@ export function isWorkPlanSectionComplete(
     case "justification":
       return Boolean(m.justification.trim());
     case "results":
-      return m.expectedResults.some((r) => r.deliverable.trim() && r.targetDate.trim());
+      // Expected results / deliverables are optional — empty section is OK.
+      // If a row is partially filled, both deliverable and target date are required.
+      {
+        const filled = m.expectedResults.filter(
+          (r) => r.deliverable.trim() || r.targetDate.trim(),
+        );
+        if (filled.length === 0) return true;
+        return filled.every((r) => r.deliverable.trim() && r.targetDate.trim());
+      }
     case "approval":
       return (
         draft.approvalLevels.length > 0 &&
@@ -608,9 +615,6 @@ export function validateWorkPlanDraft(draft: WorkPlanDraft): string | null {
   if (workPlanVenueLabels(m).length === 0) {
     return "Add at least one venue / location.";
   }
-  if (!m.expectedOutcome.trim()) {
-    return "Expected Outcome / Deliverable is required.";
-  }
 
   const namedPersonnel = m.personnel.filter((p) => p.name.trim());
   if (namedPersonnel.length === 0) {
@@ -650,12 +654,10 @@ export function validateWorkPlanDraft(draft: WorkPlanDraft): string | null {
     return "Justification is required.";
   }
 
+  // Expected results are optional; if a row is started, require both fields.
   const filledResults = m.expectedResults.filter(
     (r) => r.deliverable.trim() || r.targetDate.trim(),
   );
-  if (filledResults.length === 0) {
-    return "Add at least one expected result / key deliverable.";
-  }
   for (let i = 0; i < filledResults.length; i++) {
     const r = filledResults[i]!;
     if (!r.deliverable.trim()) {

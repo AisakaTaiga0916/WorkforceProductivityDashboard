@@ -526,14 +526,14 @@ export async function createTravelOrderWithLocations(input: {
     ? parseTravelerAgentIds(
         [
           createdByAgentId,
-          workPlanMeta.personInChargeAgentId,
-          includesTravel ? workPlanMeta.travel?.driverAgentId : null,
+          workPlanMeta?.personInChargeAgentId,
+          includesTravel ? workPlanMeta?.travel?.driverAgentId : null,
         ].filter((v): v is string => Boolean(v)),
         createdByAgentId,
       )
     : parseTravelerAgentIds(input.travelerAgentIds ?? [], createdByAgentId);
   const vehicleFromMeta =
-    includesTravel && workPlanMeta.travel?.vehicle?.trim()
+    includesTravel && workPlanMeta?.travel?.vehicle?.trim()
       ? workPlanMeta.travel.vehicle.trim()
       : null;
   const vehicle =
@@ -544,20 +544,20 @@ export async function createTravelOrderWithLocations(input: {
           : null)
       : null;
   const driverPresent = includesTravel
-    ? workPlanMeta.travel?.driverPresent === true
+    ? workPlanMeta?.travel?.driverPresent === true
     : isWorkPlan
       ? false
       : input.driverPresent === true;
   const driverAgentId = driverPresent
     ? (includesTravel
-        ? workPlanMeta.travel?.driverAgentId?.trim() || null
+        ? workPlanMeta?.travel?.driverAgentId?.trim() || null
         : typeof input.driverAgentId === "string" && input.driverAgentId.trim()
           ? input.driverAgentId.trim()
           : null)
     : null;
   const driverLicenseNo = driverPresent
     ? (includesTravel
-        ? workPlanMeta.travel?.driverLicenseNo?.trim() || null
+        ? workPlanMeta?.travel?.driverLicenseNo?.trim() || null
         : typeof input.driverLicenseNo === "string" && input.driverLicenseNo.trim()
           ? input.driverLicenseNo.trim()
           : null)
@@ -573,12 +573,22 @@ export async function createTravelOrderWithLocations(input: {
   const travelGatePass = includesTravel
     ? {
         included: true,
-        estDepartureAt: workPlanMeta.travel?.estDepartureAt?.trim()
-          ? new Date(workPlanMeta.travel.estDepartureAt)
-          : null,
-        estArrivalAt: workPlanMeta.travel?.estArrivalAt?.trim()
-          ? new Date(workPlanMeta.travel.estArrivalAt)
-          : null,
+        estDepartureAt: (() => {
+          const raw = workPlanMeta?.travel?.estDepartureAt?.trim();
+          return raw ? new Date(raw) : null;
+        })(),
+        estArrivalAt: (() => {
+          const raw = workPlanMeta?.travel?.estArrivalAt?.trim();
+          return raw ? new Date(raw) : null;
+        })(),
+        actualDepartureStartedAt: null as Date | null,
+        actualDepartureStartedLatitude: null as number | null,
+        actualDepartureStartedLongitude: null as number | null,
+        actualDepartureEndedAt: null as Date | null,
+        actualDepartureEndedLatitude: null as number | null,
+        actualDepartureEndedLongitude: null as number | null,
+        gatePassStartGuardOnDuty: null as string | null,
+        gatePassEndGuardOnDuty: null as string | null,
       }
     : null;
   const gp = isWorkPlan ? travelGatePass : (input.gatePass ?? null);

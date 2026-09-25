@@ -70,22 +70,41 @@ export default async function ManualAssignmentPage() {
       : prisma.ticket.findMany({
           where: {
             assignedAgentId: null,
-            OR: [
-              { status: { in: ACTIVE_STATUSES } },
+            AND: [
               {
-                status: "FOR_CONFIRMATION",
-                requestType: "JOB_ORDER",
-                jobOrderApprovalMeta: {
-                  path: ["proceduralStep"],
-                  equals: "DONE",
-                },
+                OR: [
+                  { status: { in: ACTIVE_STATUSES } },
+                  {
+                    status: "FOR_CONFIRMATION",
+                    requestType: "JOB_ORDER",
+                    jobOrderApprovalMeta: {
+                      path: ["proceduralStep"],
+                      equals: "DONE",
+                    },
+                  },
+                ],
               },
+              ...(restrictSectionIds
+                ? [
+                    {
+                      OR: [
+                        { orgChartSectionId: { in: restrictSectionIds } },
+                        // Company-only send-to (no department) — same rule as Group / Request Board.
+                        ...(scopedCompanyFilterTeamId
+                          ? [
+                              {
+                                teamId: scopedCompanyFilterTeamId,
+                                orgChartSectionId: null,
+                              } satisfies Prisma.TicketWhereInput,
+                            ]
+                          : []),
+                      ],
+                    } satisfies Prisma.TicketWhereInput,
+                  ]
+                : scopedCompanyFilterTeamId
+                  ? [{ teamId: scopedCompanyFilterTeamId } satisfies Prisma.TicketWhereInput]
+                  : []),
             ],
-            ...(restrictSectionIds
-              ? { orgChartSectionId: { in: restrictSectionIds } }
-              : scopedCompanyFilterTeamId
-                ? { teamId: scopedCompanyFilterTeamId }
-                : {}),
           },
           orderBy: { updatedAt: "desc" },
           select: {

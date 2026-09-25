@@ -594,6 +594,55 @@ export function buildTravelOrderRecommendedPath(opts: {
   });
 }
 
+/**
+ * Merge section-head superiors (sub-dept → major) ahead of people-chart parents.
+ * Dedupes by agentId / mergedSourceUserId so an immediate section head who is also
+ * the people-chart parent appears once.
+ */
+export function mergeTravelOrderApprovalAncestors(opts: {
+  sectionHeads: readonly TravelOrderOrgChartAncestor[];
+  peopleAncestors: readonly TravelOrderOrgChartAncestor[];
+}): TravelOrderOrgChartAncestor[] {
+  const out: TravelOrderOrgChartAncestor[] = [];
+  const seen = new Set<string>();
+  const push = (ancestor: TravelOrderOrgChartAncestor) => {
+    const key =
+      ancestor.agentId?.trim() ||
+      ancestor.mergedSourceUserId?.trim() ||
+      "";
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(ancestor);
+  };
+  for (const ancestor of opts.sectionHeads) push(ancestor);
+  for (const ancestor of opts.peopleAncestors) push(ancestor);
+  return out;
+}
+
+/**
+ * One approval seat per ordered ancestor (no empty layer gaps).
+ * Use when the chain includes section heads who share a people-chart layer
+ * with the requestor (common for sub-department heads under a major head).
+ */
+export function buildTravelOrderRecommendedPathFromChain(
+  ancestors: readonly TravelOrderOrgChartAncestor[],
+): TravelOrderOrgChartPathSeat[] {
+  const total = ancestors.length;
+  if (total < 1) return [];
+  return ancestors.map((ancestor, index) => {
+    const sequenceLevel = index + 1;
+    return {
+      sequenceLevel,
+      orgChartLayer: ancestor.orgChartLayer,
+      recommendedOptional: travelOrderRecommendedOptionalForSeat(sequenceLevel, total),
+      agentId: ancestor.agentId ?? null,
+      agentName: ancestor.agentName ?? null,
+      mergedSourceUserId: ancestor.mergedSourceUserId,
+      alternateAgents: ancestor.alternateAgents ?? [],
+    };
+  });
+}
+
 export function buildApprovalLevelsFromOrgChartPath(
   seats: readonly TravelOrderOrgChartPathSeat[],
 ): TravelOrderApprovalLevelDraft[] {
