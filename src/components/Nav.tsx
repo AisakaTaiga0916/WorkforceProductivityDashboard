@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, Search, SlidersHorizontal } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { GlobalSearchBar } from "@/components/global-search/GlobalSearchBar";
 import { useGlobalSearch } from "@/components/global-search/GlobalSearchProvider";
@@ -16,33 +16,13 @@ import { PhilippineTimeClock } from "@/components/PhilippineTimeClock";
 import { PatchNotesControl } from "@/components/PatchNotesControl";
 import { TravelOrderApprovalModal } from "@/components/task-board/TravelOrderApprovalModal";
 import type { StaffNotificationFeedItem } from "@/lib/staff-notifications";
+import {
+  groupStaffNotifTimeBucket,
+  staffNotifCategoryForKind,
+  type StaffNotifCategory,
+} from "@/lib/staff-notification-copy";
 
-const NOTIF_DROPDOWN_PAGE_SIZE = 5;
-function notifSeenTsKey(email: string) {
-  return `notif-open-seen-ts:${email}`;
-}
-
-function notifTravelSeenIdsKey(email: string) {
-  return `notif-travel-seen-ids:${email}`;
-}
-
-function readTravelSeenIds(email: string): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(notifTravelSeenIdsKey(email));
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((id): id is string => typeof id === "string" && id.trim().length > 0));
-  } catch {
-    return new Set();
-  }
-}
-
-function writeTravelSeenIds(email: string, ids: Set<string>) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(notifTravelSeenIdsKey(email), JSON.stringify([...ids]));
-}
+const NOTIF_DROPDOWN_PAGE_SIZE = 12;
 
 export function Nav() {
   const { data } = useSession();
@@ -52,7 +32,7 @@ export function Nav() {
   const [feedItems, setFeedItems] = useState<StaffNotificationFeedItem[]>([]);
   const [feedTotal, setFeedTotal] = useState(0);
   const [unreadOpenCount, setUnreadOpenCount] = useState(0);
-  const [seenTravelIds, setSeenTravelIds] = useState<Set<string>>(() => new Set());
+  const [notifFilter, setNotifFilter] = useState<StaffNotifCategory>("all");
   const [travelApprovalModal, setTravelApprovalModal] = useState<{
     taskId: string;
     travelOrderId: string;
@@ -62,99 +42,48 @@ export function Nav() {
   const mobileNotifPanelRef = useRef<HTMLDivElement | null>(null);
   const desktopNotifPanelRef = useRef<HTMLDivElement | null>(null);
   const role = data?.user?.role;
-  const userEmail = data?.user?.email ?? "unknown";
   const { openPalette } = useGlobalSearch();
   const showUtilities =
     isElevatedPlatformRole(role) || role === "Admin" || role === "Personnel";
 
-  const refreshUnreadOpenCount = useCallback(async (lastSeenMs: number, email: string) => {
+  const refreshUnreadOpenCount = useCallback(async () => {
     try {
-      const params = new URLSearchParams({ lastSeenMs: String(lastSeenMs) });
-      const res = await fetch(`/api/notifications/unread-count?${params.toString()}`, { cache: "no-store" });
+      const res = await fetch("/api/notifications/unread-count", { cache: "no-store" });
       if (!res.ok) return;
-      const payload = (await res.json()) as {
-        ticketCount?: number;
-        accountRequestCount?: number;
-        travelOrderApprovalIds?: string[];
-        travelOrderConfirmationIds?: string[];
-        total?: number;
-      };
-      const ticketCount = Math.max(0, Number(payload.ticketCount ?? 0) || 0);
-      const accountRequestCount = Math.max(0, Number(payload.accountRequestCount ?? 0) || 0);
-      const travelIds = Array.isArray(payload.travelOrderApprovalIds)
-        ? payload.travelOrderApprovalIds.filter((id): id is string => typeof id === "string")
-        : [];
-      const confirmationIds = Array.isArray(payload.travelOrderConfirmationIds)
-        ? payload.travelOrderConfirmationIds.filter((id): id is string => typeof id === "string")
-        : [];
-      const pendingIds = [...travelIds, ...confirmationIds];
-      const seenTravelIds = readTravelSeenIds(email);
-      // Drop dismissed ids that are no longer pending (approval or confirmation).
-      const pruned = new Set([...seenTravelIds].filter((id) => pendingIds.includes(id)));
-      if (pruned.size !== seenTravelIds.size) writeTravelSeenIds(email, pruned);
-      const unreadTravelCount = pendingIds.filter((id) => !pruned.has(id)).length;
-      setUnreadOpenCount(ticketCount + accountRequestCount + unreadTravelCount);
+      const payload = (await res.json()) as { total?: number };
+      setUnreadOpenCount(Math.max(0, Number(payload.total ?? 0) || 0));
     } catch {
       // Ignore polling/network failures for badge updates.
     }
   }, []);
 
   const markAllNotificationsRead = useCallback(() => {
-    if (typeof window === "undefined") return;
-    const now = Date.now();
-    window.localStorage.setItem(notifSeenTsKey(userEmail), String(now));
     setUnreadOpenCount(0);
-
+    setFeedItems((prev) => prev.map((item) => ({ ...item, unread: false })));
     void (async () => {
       try {
-        const params = new URLSearchParams({ lastSeenMs: String(now) });
-        const res = await fetch(`/api/notifications/unread-count?${params.toString()}`, {
-          cache: "no-store",
-        });
-        const nextSeen = readTravelSeenIds(userEmail);
-        for (const item of feedItems) {
-          if (
-            (item.kind === "travel_approval" || item.kind === "travel_confirmation") &&
-            item.travelOrderId
-          ) {
-            nextSeen.add(item.travelOrderId);
-          }
-        }
-        if (res.ok) {
-          const payload = (await res.json()) as {
-            travelOrderApprovalIds?: string[];
-            travelOrderConfirmationIds?: string[];
-          };
-          for (const id of payload.travelOrderApprovalIds ?? []) {
-            if (typeof id === "string" && id.trim()) nextSeen.add(id);
-          }
-          for (const id of payload.travelOrderConfirmationIds ?? []) {
-            if (typeof id === "string" && id.trim()) nextSeen.add(id);
-          }
-        }
-        writeTravelSeenIds(userEmail, nextSeen);
-        setSeenTravelIds(new Set(nextSeen));
-        await refreshUnreadOpenCount(now, userEmail);
+        await fetch("/api/notifications/mark-read", { method: "POST" });
+        await refreshUnreadOpenCount();
       } catch {
-        const nextSeen = readTravelSeenIds(userEmail);
-        for (const item of feedItems) {
-          if (
-            (item.kind === "travel_approval" || item.kind === "travel_confirmation") &&
-            item.travelOrderId
-          ) {
-            nextSeen.add(item.travelOrderId);
-          }
-        }
-        writeTravelSeenIds(userEmail, nextSeen);
-        setSeenTravelIds(new Set(nextSeen));
+        // Keep optimistic clear; next poll will reconcile.
       }
     })();
-  }, [userEmail, feedItems, refreshUnreadOpenCount]);
+  }, [refreshUnreadOpenCount]);
 
-  useEffect(() => {
-    if (!data?.user) return;
-    setSeenTravelIds(readTravelSeenIds(data.user.email ?? "unknown"));
-  }, [data?.user]);
+  const filteredFeedItems = useMemo(() => {
+    if (notifFilter === "all") return feedItems;
+    return feedItems.filter((item) => staffNotifCategoryForKind(item.kind) === notifFilter);
+  }, [feedItems, notifFilter]);
+
+  const groupedFeed = useMemo(() => {
+    const today: StaffNotificationFeedItem[] = [];
+    const earlier: StaffNotificationFeedItem[] = [];
+    for (const item of filteredFeedItems) {
+      if (groupStaffNotifTimeBucket(item.at) === "today") today.push(item);
+      else earlier.push(item);
+    }
+    return { today, earlier };
+  }, [filteredFeedItems]);
 
   useEffect(() => {
     if (!notifOpen || !showUtilities) return;
@@ -166,11 +95,22 @@ export function Nav() {
     });
     void fetch(`/api/notifications/feed?${params.toString()}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((payload: { items?: StaffNotificationFeedItem[]; total?: number } | null) => {
-        if (ignore) return;
-        setFeedItems(payload?.items ?? []);
-        setFeedTotal(Math.max(0, Number(payload?.total ?? 0) || 0));
-      })
+      .then(
+        (
+          payload: {
+            items?: StaffNotificationFeedItem[];
+            total?: number;
+            unreadCount?: number;
+          } | null,
+        ) => {
+          if (ignore) return;
+          setFeedItems(payload?.items ?? []);
+          setFeedTotal(Math.max(0, Number(payload?.total ?? 0) || 0));
+          if (typeof payload?.unreadCount === "number") {
+            setUnreadOpenCount(Math.max(0, payload.unreadCount));
+          }
+        },
+      )
       .catch(() => {
         if (!ignore) {
           setFeedItems([]);
@@ -187,14 +127,9 @@ export function Nav() {
 
   useEffect(() => {
     if (!showUtilities || !data?.user) return;
-    if (typeof window === "undefined") return;
-    const key = notifSeenTsKey(data.user.email ?? "unknown");
-    const email = data.user.email ?? "unknown";
-    const lastSeenMs = Number(window.localStorage.getItem(key) ?? "0") || 0;
-    queueMicrotask(() => void refreshUnreadOpenCount(lastSeenMs, email));
+    queueMicrotask(() => void refreshUnreadOpenCount());
     const timer = window.setInterval(() => {
-      const latestSeen = Number(window.localStorage.getItem(key) ?? "0") || 0;
-      void refreshUnreadOpenCount(latestSeen, email);
+      void refreshUnreadOpenCount();
     }, 30000);
     return () => window.clearInterval(timer);
   }, [showUtilities, data?.user, refreshUnreadOpenCount]);
@@ -229,6 +164,31 @@ export function Nav() {
     return null;
   }
 
+  function renderNotifGroup(label: string, items: StaffNotificationFeedItem[]) {
+    if (items.length === 0) return null;
+    return (
+      <div className="space-y-1">
+        <p className="px-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-500">
+          {label}
+        </p>
+        {items.map((item) => (
+          <StaffNotificationFeedItemView
+            key={item.key}
+            item={item}
+            onNavigate={() => setNotifOpen(false)}
+            onOpenTravel={(args) => setTravelApprovalModal(args)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  const filterTabs: Array<{ id: StaffNotifCategory; label: string }> = [
+    { id: "all", label: "All" },
+    { id: "action", label: "Action" },
+    { id: "requests", label: "Requests" },
+  ];
+
   const notifPanelBody = (
     <>
       <div className="flex items-center justify-between gap-2 px-2 py-1.5">
@@ -245,23 +205,36 @@ export function Nav() {
           </button>
         ) : null}
       </div>
-      <div className="mt-1 max-h-[min(70dvh,calc(100dvh_-_9rem))] min-h-0 space-y-1 overflow-y-auto overscroll-contain">
+      <div role="tablist" aria-label="Notification filters" className="mb-1 flex gap-1 px-2">
+        {filterTabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={notifFilter === tab.id}
+            onClick={() => setNotifFilter(tab.id)}
+            className={
+              notifFilter === tab.id
+                ? "rounded-md bg-orange-600 px-2 py-0.5 text-[11px] font-semibold text-white"
+                : "rounded-md px-2 py-0.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <div className="mt-1 max-h-[min(70dvh,calc(100dvh_-_9rem))] min-h-0 space-y-2 overflow-y-auto overscroll-contain">
         {notifLoading ? (
           <p className="px-2 py-6 text-center text-sm text-zinc-500 dark:text-zinc-500">Loading…</p>
-        ) : feedItems.length === 0 ? (
+        ) : filteredFeedItems.length === 0 ? (
           <p className="px-2 py-6 text-center text-sm text-zinc-500 dark:text-zinc-500">
             No recent notifications.
           </p>
         ) : (
-          feedItems.map((item) => (
-            <StaffNotificationFeedItemView
-              key={item.key}
-              item={item}
-              seenTravelIds={seenTravelIds}
-              onNavigate={() => setNotifOpen(false)}
-              onOpenTravel={(args) => setTravelApprovalModal(args)}
-            />
-          ))
+          <>
+            {renderNotifGroup("Today", groupedFeed.today)}
+            {renderNotifGroup("Earlier", groupedFeed.earlier)}
+          </>
         )}
       </div>
       <div className="mt-2 border-t border-zinc-200 px-2 pt-2 dark:border-zinc-800">
@@ -305,7 +278,6 @@ export function Nav() {
   return (
     <header className="relative z-50 shrink-0 overflow-visible border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
       <div className="relative flex h-16 w-full min-w-0 items-center px-3 sm:px-4">
-        {/* True horizontal center of the header — independent of side columns */}
         {showUtilities ? (
           <div className="pointer-events-none absolute inset-0 z-[1] flex items-center justify-center">
             <div className="pointer-events-auto">
@@ -314,7 +286,6 @@ export function Nav() {
           </div>
         ) : null}
 
-        {/* Stretch to the clock: half the header minus half the clock + a small gap */}
         <div
           className="relative z-[2] hidden min-w-0 shrink-0 pr-2 sm:block"
           style={{ width: "calc(50% - 5.25rem)" }}
@@ -342,11 +313,7 @@ export function Nav() {
                   onClick={() => {
                     setNotifOpen((v) => {
                       const next = !v;
-                      if (next && typeof window !== "undefined") {
-                        const key = notifSeenTsKey(data?.user?.email ?? "unknown");
-                        const lastSeenMs = Number(window.localStorage.getItem(key) ?? "0") || 0;
-                        void refreshUnreadOpenCount(lastSeenMs, data?.user?.email ?? "unknown");
-                      }
+                      if (next) void refreshUnreadOpenCount();
                       return next;
                     });
                   }}
@@ -400,12 +367,7 @@ export function Nav() {
         title={travelApprovalModal?.title}
         onClose={() => setTravelApprovalModal(null)}
         onUpdated={() => {
-          const key = notifSeenTsKey(userEmail);
-          const lastSeenMs =
-            typeof window !== "undefined"
-              ? Number(window.localStorage.getItem(key) ?? "0") || 0
-              : 0;
-          void refreshUnreadOpenCount(lastSeenMs, userEmail);
+          void refreshUnreadOpenCount();
         }}
       />
     </header>

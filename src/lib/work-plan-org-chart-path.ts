@@ -483,7 +483,6 @@ export async function resolveWorkPlanOrgChartApprovalPath(
   }
   const labeledSeats = seats.map((seat) => ({
     ...seat,
-    recommendedOptional: false,
     label: "Approved by",
     hint:
       (seat.mergedSourceUserId

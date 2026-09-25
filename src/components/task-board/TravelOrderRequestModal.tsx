@@ -25,7 +25,7 @@ import {
   fetchTravelOrderWithTimeout,
   isTravelOrderNetworkFailure,
 } from "@/lib/offline/travel-order-sync";
-import { type TravelOrderApprovalLevelDraft } from "@/lib/travel-order";
+import { type TravelOrderApprovalLevelDraft, approvalLevelsAllowOptional } from "@/lib/travel-order";
 import {
   WORK_PLAN_APPROVAL_TOP_ORG_LAYER,
   WORK_PLAN_WIZARD_STEPS,
@@ -144,6 +144,7 @@ export function TravelOrderRequestModal({
       : [{ level: 1, agentId: "", optional: false }];
   const approversFilled = approvalLevels.filter((l) => l.agentId.trim()).length;
   const approversTotal = approvalLevels.length;
+  const allowOptionalApprovers = approvalLevelsAllowOptional(approvalLevels.length);
 
   const completeById = useMemo(() => {
     const map: Partial<Record<WorkPlanSectionId, boolean>> = {};
@@ -548,8 +549,28 @@ export function TravelOrderRequestModal({
           approvalLevels: buildWorkPlanApprovalLevelsFromSeats(orgPath.seats),
         };
       }
-      const next = current.approvalLevels.filter((level) => keep.has(level.level));
-      if (next.length === current.approvalLevels.length) return current;
+      let next = current.approvalLevels.filter((level) => keep.has(level.level));
+      if (!approvalLevelsAllowOptional(next.length)) {
+        next = next.map((level) =>
+          level.optional ? { ...level, optional: false } : level,
+        );
+      } else {
+        // First and last seats stay required.
+        next = next.map((level) => {
+          const isEdge = level.level === 1 || level.level === next.length;
+          if (isEdge && level.optional) return { ...level, optional: false };
+          return level;
+        });
+      }
+      const same =
+        next.length === current.approvalLevels.length &&
+        next.every(
+          (level, i) =>
+            level.level === current.approvalLevels[i]?.level &&
+            level.optional === current.approvalLevels[i]?.optional &&
+            level.agentId === current.approvalLevels[i]?.agentId,
+        );
+      if (same) return current;
       return { ...current, approvalLevels: next };
     });
   }, [orgPath]);
@@ -697,6 +718,26 @@ export function TravelOrderRequestModal({
     }));
   }
 
+  function updateApprovalLevelOptional(level: number, optional: boolean) {
+    setDraft((prev) => {
+      if (!approvalLevelsAllowOptional(prev.approvalLevels.length)) {
+        return {
+          ...prev,
+          approvalLevels: prev.approvalLevels.map((lvl) => ({
+            ...lvl,
+            optional: false,
+          })),
+        };
+      }
+      return {
+        ...prev,
+        approvalLevels: prev.approvalLevels.map((lvl) =>
+          lvl.level === level ? { ...lvl, optional } : lvl,
+        ),
+      };
+    });
+  }
+
   function requestClose() {
     if (
       offlineDraftHasContent({
@@ -826,24 +867,58 @@ export function TravelOrderRequestModal({
               onApply={applyOrgChartRecommendations}
             />
             {approvalLevels.map((lvl) => {
-              const label = "Approved by";
+              const label = lvl.optional ? "Approved by (optional)" : "Approved by";
               const excluded = draft.approvalLevels
                 .filter((other) => other.level !== lvl.level && other.agentId.trim())
                 .map((other) => other.agentId.trim());
+              const isEdgeSeat =
+                lvl.level === 1 || lvl.level === approvalLevels.length;
+              const canToggleOptional = allowOptionalApprovers && !isEdgeSeat;
               return (
-                <CompanyUserSearchField
-                  key={`wp-appr-${lvl.level}`}
-                  label={label}
-                  users={approvalAgents}
-                  value={lvl.agentId}
-                  disabled={busy}
-                  required={!lvl.optional}
-                  excludedIds={excluded}
-                  selectedFooter="subtitle"
-                  onChange={(agentId) => updateApprovalLevel(lvl.level, agentId)}
-                />
+                <div key={`wp-appr-${lvl.level}`} className="space-y-1.5">
+                  <CompanyUserSearchField
+                    label={label}
+                    users={approvalAgents}
+                    value={lvl.agentId}
+                    disabled={busy}
+                    required={!lvl.optional}
+                    excludedIds={excluded}
+                    selectedFooter="subtitle"
+                    onChange={(agentId) => updateApprovalLevel(lvl.level, agentId)}
+                  />
+                  {allowOptionalApprovers ? (
+                    <label
+                      className={`flex items-center gap-2 text-xs ${
+                        canToggleOptional
+                          ? "cursor-pointer text-zinc-600 dark:text-zinc-400"
+                          : "cursor-not-allowed text-zinc-400 dark:text-zinc-600"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-3.5 rounded border-zinc-300 text-orange-600 focus:ring-orange-500 disabled:opacity-50 dark:border-zinc-600"
+                        checked={lvl.optional === true}
+                        disabled={busy || !canToggleOptional}
+                        onChange={(e) =>
+                          updateApprovalLevelOptional(lvl.level, e.target.checked)
+                        }
+                      />
+                      <span>
+                        Optional approver
+                        {!canToggleOptional
+                          ? " (first and last seats stay required)"
+                          : " — does not block the required chain"}
+                      </span>
+                    </label>
+                  ) : null}
+                </div>
               );
             })}
+            {!allowOptionalApprovers && approvalLevels.length > 0 ? (
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                Optional approvers unlock when the chain has 3 or more seats.
+              </p>
+            ) : null}
             <CompanyUserSearchField
               label="To be Confirmed by"
               users={approvalAgents}
@@ -857,8 +932,9 @@ export function TravelOrderRequestModal({
             />
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               Approvals are sequential along the org chart from your manager up. The top of
-              the chart is excluded. After every approver signs, the confirmer closes the
-              travel order. You can override any recommended seat.
+              the chart is excluded. After every required approver signs, the confirmer
+              closes the travel order. With 3+ seats, middle approvers can be marked
+              optional via the checkbox. You can override any recommended seat.
             </p>
           </div>
         ) : null}

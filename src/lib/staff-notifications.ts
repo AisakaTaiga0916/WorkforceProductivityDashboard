@@ -15,6 +15,10 @@ import { prisma } from "@/lib/prisma";
 import { personnelRequestBoardWhere } from "@/lib/rfp-request-board";
 import { findSessionAgentId } from "@/lib/session-agent";
 import {
+  formatTicketActivityNotificationTitle,
+  isNotifiableTicketActivity,
+} from "@/lib/staff-notification-copy";
+import {
   getOperatorActionableApprovalLevel,
   hasHierarchicalApprovals,
 } from "@/lib/travel-order";
@@ -22,10 +26,7 @@ import {
   listPendingTravelApprovalsForAgent,
   listPendingTravelConfirmationsForAgent,
 } from "@/lib/travel-order-db";
-
-import {
-  listPendingVerificationKpiIdsForOrgChartHead,
-} from "@/lib/task-completion-verification-access";
+import { listPendingVerificationKpiIdsForOrgChartHead } from "@/lib/task-completion-verification-access";
 
 export type StaffNotifKind =
   | "ticket"
@@ -44,6 +45,8 @@ export type StaffNotificationFeedItem = {
   title: string;
   subtitle: string;
   meta: string;
+  /** True when newer than the viewer’s notificationsLastReadAt. */
+  unread?: boolean;
   href?: string;
   ticketId?: string;
   travelOrderId?: string;
@@ -59,6 +62,8 @@ export type StaffNotificationFeedResult = {
   page: number;
   pageSize: number;
   hasMore: boolean;
+  unreadCount: number;
+  lastReadAt: string | null;
 };
 
 function toIso(value: Date | string | null | undefined): string {
@@ -66,6 +71,43 @@ function toIso(value: Date | string | null | undefined): string {
   if (value instanceof Date) return value.toISOString();
   const d = new Date(value);
   return Number.isFinite(d.getTime()) ? d.toISOString() : new Date(0).toISOString();
+}
+
+function isUnread(atIso: string, lastReadAt: Date | null): boolean {
+  if (!lastReadAt) return true;
+  const t = new Date(atIso).getTime();
+  if (!Number.isFinite(t)) return false;
+  return t > lastReadAt.getTime();
+}
+
+function withUnread(
+  item: StaffNotificationFeedItem,
+  lastReadAt: Date | null,
+): StaffNotificationFeedItem {
+  return { ...item, unread: isUnread(item.at, lastReadAt) };
+}
+
+export async function getStaffNotificationsLastReadAt(email: string): Promise<Date | null> {
+  const key = email.trim();
+  if (!key) return null;
+  const rows = await prisma.$queryRaw<Array<{ notifications_last_read_at: Date | null }>>`
+    SELECT notifications_last_read_at
+    FROM portal_accounts
+    WHERE LOWER(email) = LOWER(${key})
+    LIMIT 1
+  `;
+  return rows[0]?.notifications_last_read_at ?? null;
+}
+
+export async function markStaffNotificationsRead(email: string, at = new Date()): Promise<Date> {
+  const key = email.trim();
+  if (!key) return at;
+  await prisma.$executeRaw`
+    UPDATE portal_accounts
+    SET notifications_last_read_at = ${at}
+    WHERE LOWER(email) = LOWER(${key})
+  `;
+  return at;
 }
 
 async function loadPhaseDelayItems(args: {
@@ -102,13 +144,14 @@ async function loadPhaseDelayItems(args: {
       if (!agentId && !isMonitor) continue;
       const target = resolvePhaseEffectiveTargetDate(phase, mainDue);
       if (!target) continue;
+      const label = (row.mainTask?.trim() || row.title).trim();
       items.push({
         key: `phase-delay-${row.id}-${phase.id}`,
         kind: "phase_delay",
         at: toIso(row.updatedAt),
-        title: (row.mainTask?.trim() || row.title).trim(),
-        subtitle: `${phase.name} delayed — target ${target}`,
-        meta: "Delayed project phase",
+        title: `${phase.name} is delayed`,
+        subtitle: label,
+        meta: `Target ${target}`,
         href: `/agent/tasks?task=${encodeURIComponent(row.id)}`,
         kpiMaintenanceId: row.id,
       });
@@ -156,11 +199,11 @@ async function loadTaskVerificationItems(args: {
         key: `task-verify-${row.id}`,
         kind: "task_verification",
         at: toIso(row.pendingVerificationAt ?? row.updatedAt),
-        title: label,
-        subtitle: `Awaiting department head verification${
-          row.assignedAgent?.name ? ` · ${row.assignedAgent.name}` : ""
-        }`,
-        meta: "For verification",
+        title: "Verification needed",
+        subtitle: label,
+        meta: row.assignedAgent?.name
+          ? `Assignee · ${row.assignedAgent.name}`
+          : "Department head review",
         href: `/agent/tasks?task=${encodeURIComponent(row.id)}`,
         kpiMaintenanceId: row.id,
       });
@@ -193,11 +236,11 @@ async function loadTaskVerificationItems(args: {
         key: `task-verify-result-${act.id}`,
         kind: "task_verification_result",
         at: toIso(act.createdAt),
-        title: label,
-        subtitle: rejected
-          ? act.detail?.trim() || "Completion returned — continue work"
-          : "Completion verified — task is Done",
-        meta: rejected ? "Rejected" : "Verified",
+        title: rejected ? "Completion returned" : "Completion verified",
+        subtitle: label,
+        meta: rejected
+          ? act.detail?.trim() || "Continue work"
+          : "Task marked Done",
         href: `/agent/tasks?task=${encodeURIComponent(act.kpiMaintenanceId)}`,
         kpiMaintenanceId: act.kpiMaintenanceId,
       });
@@ -207,19 +250,65 @@ async function loadTaskVerificationItems(args: {
   return items;
 }
 
+async function loadTicketActivityItems(args: {
+  ticketWhere: Prisma.TicketWhereInput | null;
+  cap: number;
+}): Promise<StaffNotificationFeedItem[]> {
+  if (!args.ticketWhere) return [];
+
+  const activities = await prisma.ticketActivity.findMany({
+    where: { ticket: args.ticketWhere },
+    orderBy: { createdAt: "desc" },
+    take: Math.min(Math.max(args.cap * 3, 60), 800),
+    select: {
+      id: true,
+      summary: true,
+      detail: true,
+      createdAt: true,
+      ticketId: true,
+      ticket: {
+        select: {
+          id: true,
+          ticketNumber: true,
+          title: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  const items: StaffNotificationFeedItem[] = [];
+  for (const a of activities) {
+    if (!isNotifiableTicketActivity(a.summary)) continue;
+    items.push({
+      key: `activity-${a.id}`,
+      kind: "ticket",
+      at: toIso(a.createdAt),
+      title: formatTicketActivityNotificationTitle(a.summary, a.detail),
+      subtitle: a.ticket.title.trim() || a.ticket.ticketNumber,
+      meta: `${a.ticket.ticketNumber} · ${a.ticket.status.replaceAll("_", " ")}`,
+      ticketId: a.ticketId,
+      href: `/agent?ticket=${encodeURIComponent(a.ticketId)}`,
+    });
+    if (items.length >= args.cap) break;
+  }
+  return items;
+}
+
 /**
- * Unified staff notification feed (tickets + travel + phase delays + account requests).
+ * Unified staff notification feed (request events + travel + delays + account requests).
  * Sorted newest-first; paginated after a capped source load.
  */
 export async function loadStaffNotificationFeed(args: {
   session: Session;
   page?: number;
   pageSize?: number;
-  ticketCap?: number;
+  /** Cap on notifiable ticket activities included before pagination. */
+  activityCap?: number;
 }): Promise<StaffNotificationFeedResult> {
   const page = Math.max(1, args.page ?? 1);
   const pageSize = Math.min(Math.max(args.pageSize ?? 20, 1), 50);
-  const ticketCap = Math.min(Math.max(args.ticketCap ?? 200, 20), 500);
+  const activityCap = Math.min(Math.max(args.activityCap ?? 120, 20), 400);
   const role = args.session.user?.role ?? "Customer";
   const email = args.session.user?.email ?? "";
   const name = args.session.user?.name ?? null;
@@ -241,67 +330,58 @@ export async function loadStaffNotificationFeed(args: {
     });
   }
 
-  const [tickets, travelApprovals, travelConfirmations, phaseDelayItems, accountRows, taskVerificationItems] =
-    await Promise.all([
-      prisma.ticket.findMany({
-        where: {
-          ...(sectionBoardWhere ?? {}),
-          ...(sectionBoardWhere ? {} : personnelWhere ?? {}),
-          ...(role === "Customer" ? customerTicketWhereBySessionEmail(email) : {}),
-        },
-        orderBy: { updatedAt: "desc" },
-        take: ticketCap,
-        select: {
-          id: true,
-          ticketNumber: true,
-          title: true,
-          status: true,
-          updatedAt: true,
-        },
-      }),
-      operator?.id
-        ? listPendingTravelApprovalsForAgent(operator.id).catch(() => [])
-        : Promise.resolve([]),
-      operator?.id
-        ? listPendingTravelConfirmationsForAgent(operator.id).catch(() => [])
-        : Promise.resolve([]),
-      loadPhaseDelayItems({
-        agentId: operator?.id ?? null,
-        isMonitor: isAdminRole,
-      }).catch(() => []),
-      isAdminRole
-        ? prisma.accountActionRequest.findMany({
-            where: { status: "PENDING" },
-            orderBy: { createdAt: "desc" },
-            take: 50,
-            select: {
-              id: true,
-              requestType: true,
-              createdAt: true,
-              portalAccount: { select: { name: true, email: true } },
-            },
-          })
-        : Promise.resolve([]),
-      loadTaskVerificationItems({
-        session: args.session,
-        agentId: operator?.id ?? null,
-      }).catch(() => []),
-    ]);
+  const ticketWhere: Prisma.TicketWhereInput | null =
+    role === "Customer"
+      ? customerTicketWhereBySessionEmail(email)
+      : sectionBoardWhere
+        ? sectionBoardWhere
+        : personnelWhere
+          ? personnelWhere
+          : isElevatedUserRole(role) || role === "Admin"
+            ? {}
+            : null;
 
-  const items: StaffNotificationFeedItem[] = [];
+  const [
+    lastReadAt,
+    ticketActivityItems,
+    travelApprovals,
+    travelConfirmations,
+    phaseDelayItems,
+    accountRows,
+    taskVerificationItems,
+  ] = await Promise.all([
+    getStaffNotificationsLastReadAt(email),
+    loadTicketActivityItems({ ticketWhere, cap: activityCap }).catch(() => []),
+    operator?.id
+      ? listPendingTravelApprovalsForAgent(operator.id).catch(() => [])
+      : Promise.resolve([]),
+    operator?.id
+      ? listPendingTravelConfirmationsForAgent(operator.id).catch(() => [])
+      : Promise.resolve([]),
+    loadPhaseDelayItems({
+      agentId: operator?.id ?? null,
+      isMonitor: isAdminRole,
+    }).catch(() => []),
+    isAdminRole
+      ? prisma.accountActionRequest.findMany({
+          where: { status: "PENDING" },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+          select: {
+            id: true,
+            requestType: true,
+            createdAt: true,
+            portalAccount: { select: { name: true, email: true } },
+          },
+        })
+      : Promise.resolve([]),
+    loadTaskVerificationItems({
+      session: args.session,
+      agentId: operator?.id ?? null,
+    }).catch(() => []),
+  ]);
 
-  for (const t of tickets) {
-    items.push({
-      key: `ticket-${t.id}`,
-      kind: "ticket",
-      at: toIso(t.updatedAt),
-      title: t.ticketNumber,
-      subtitle: t.title,
-      meta: t.status.replaceAll("_", " "),
-      ticketId: t.id,
-      href: `/agent?ticket=${encodeURIComponent(t.id)}`,
-    });
-  }
+  const items: StaffNotificationFeedItem[] = [...ticketActivityItems];
 
   for (const n of travelApprovals) {
     const label = n.kpiMainTask || n.kpiTitle || "Travel Order";
@@ -314,12 +394,12 @@ export async function loadStaffNotificationFeed(args: {
       key: `to-approve-${n.id}`,
       kind: "travel_approval",
       at: toIso(n.updatedAt),
-      title: label,
-      subtitle: n.orderRequest?.trim() || "Travel order approval",
-      meta:
+      title:
         pending?.level != null
-          ? `Pending L${pending.level}${pending.optional ? " (optional)" : ""} approval`
-          : "Travel order approval",
+          ? `Travel approval needed (L${pending.level}${pending.optional ? ", optional" : ""})`
+          : "Travel approval needed",
+      subtitle: label,
+      meta: n.orderRequest?.trim() || "Work plan / travel order",
       travelOrderId: n.id,
       kpiMaintenanceId: n.kpiMaintenanceId,
       pendingLevel: pending?.level ?? null,
@@ -334,9 +414,9 @@ export async function loadStaffNotificationFeed(args: {
       key: `to-confirm-${n.id}`,
       kind: "travel_confirmation",
       at: toIso(n.updatedAt),
-      title: label,
-      subtitle: n.orderRequest?.trim() || "Travel order confirmation",
-      meta: "Awaiting confirmation",
+      title: "Travel confirmation needed",
+      subtitle: label,
+      meta: n.orderRequest?.trim() || "Confirm travel order",
       travelOrderId: n.id,
       kpiMaintenanceId: n.kpiMaintenanceId,
       href: `/agent/tasks?task=${encodeURIComponent(n.kpiMaintenanceId)}&travelOrder=${encodeURIComponent(n.id)}`,
@@ -349,26 +429,28 @@ export async function loadStaffNotificationFeed(args: {
   for (const n of accountRows) {
     const typeLabel =
       n.requestType === "DELETION"
-        ? "Deletion request"
+        ? "Account deletion request"
         : n.requestType === "PASSWORD_RESET"
           ? "Password reset request"
-          : "Suspension request";
+          : "Account suspension request";
     items.push({
       key: `account-${n.id}`,
       kind: "account_request",
       at: toIso(n.createdAt),
       title: typeLabel,
       subtitle: `${n.portalAccount.name} · ${n.portalAccount.email}`,
-      meta: "Pending",
+      meta: "Pending review",
       href: "/admin/account",
       accountRequestType: n.requestType,
     });
   }
 
   items.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-  const total = items.length;
+  const withFlags = items.map((item) => withUnread(item, lastReadAt));
+  const unreadCount = withFlags.reduce((n, item) => n + (item.unread ? 1 : 0), 0);
+  const total = withFlags.length;
   const start = (page - 1) * pageSize;
-  const pageItems = items.slice(start, start + pageSize);
+  const pageItems = withFlags.slice(start, start + pageSize);
 
   return {
     items: pageItems,
@@ -376,5 +458,24 @@ export async function loadStaffNotificationFeed(args: {
     page,
     pageSize,
     hasMore: start + pageSize < total,
+    unreadCount,
+    lastReadAt: lastReadAt ? lastReadAt.toISOString() : null,
+  };
+}
+
+/** Badge count for the nav bell (unread feed items, capped for polling cost). */
+export async function loadStaffNotificationUnreadCount(session: Session): Promise<{
+  total: number;
+  lastReadAt: string | null;
+}> {
+  const feed = await loadStaffNotificationFeed({
+    session,
+    page: 1,
+    pageSize: 1,
+    activityCap: 80,
+  });
+  return {
+    total: feed.unreadCount,
+    lastReadAt: feed.lastReadAt,
   };
 }

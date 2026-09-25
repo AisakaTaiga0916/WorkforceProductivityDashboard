@@ -525,10 +525,7 @@ export function deriveWorkPlanOrderRequest(meta: WorkPlanMeta): string {
 export function buildWorkPlanApprovalLevelsFromSeats(
   seats: readonly TravelOrderOrgChartPathSeat[],
 ): TravelOrderApprovalLevelDraft[] {
-  return buildApprovalLevelsFromOrgChartPath(seats).map((level) => ({
-    ...level,
-    optional: false,
-  }));
+  return buildApprovalLevelsFromOrgChartPath(seats);
 }
 
 /** Build store-ready levels with Layer labels from recommended seats. */
@@ -540,7 +537,7 @@ export function buildWorkPlanApprovalLevelsForStore(
   return seats.map((seat) => ({
     level: seat.sequenceLevel,
     agentId: seat.agentId?.trim() || "",
-    optional: false,
+    optional: seat.recommendedOptional === true,
     alternateAgentIds: seat.alternateAgents
       .map((a) => a.agentId?.trim() || "")
       .filter(Boolean)

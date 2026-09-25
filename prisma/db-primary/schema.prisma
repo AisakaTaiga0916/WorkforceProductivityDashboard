@@ -105,6 +105,8 @@ model PortalAccount {
   reportsToPortalAccount    PortalAccount?         @relation("PortalReportsTo", fields: [reportsToPortalAccountId], references: [id], onDelete: SetNull)
   directReports             PortalAccount[]        @relation("PortalReportsTo")
   createdAt                 DateTime               @default(now()) @map("created_at")
+  /// Staff notifications bell: items with `at` after this timestamp count as unread.
+  notificationsLastReadAt   DateTime?              @map("notifications_last_read_at")
   actionRequests            AccountActionRequest[]
   usernameAliases           PortalUsernameAlias[]
   mergeMapping              PortalMergeMapping?

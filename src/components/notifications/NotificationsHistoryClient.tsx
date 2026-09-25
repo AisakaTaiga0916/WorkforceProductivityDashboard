@@ -9,29 +9,11 @@ import type { StaffNotificationFeedItem } from "@/lib/staff-notifications";
 
 const PAGE_SIZE = 20;
 
-function notifTravelSeenIdsKey(email: string) {
-  return `notif-travel-seen-ids:${email}`;
-}
-
-function readTravelSeenIds(email: string): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(notifTravelSeenIdsKey(email));
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((id): id is string => typeof id === "string" && id.trim().length > 0));
-  } catch {
-    return new Set();
-  }
-}
-
-export function NotificationsHistoryClient({ userEmail }: { userEmail: string }) {
+export function NotificationsHistoryClient({}: { userEmail: string }) {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<StaffNotificationFeedItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [seenTravelIds, setSeenTravelIds] = useState<Set<string>>(() => new Set());
   const [travelApprovalModal, setTravelApprovalModal] = useState<{
     taskId: string;
     travelOrderId: string;
@@ -68,11 +50,14 @@ export function NotificationsHistoryClient({ userEmail }: { userEmail: string })
   }, []);
 
   useEffect(() => {
-    setSeenTravelIds(readTravelSeenIds(userEmail));
-  }, [userEmail]);
-
-  useEffect(() => {
-    void load(page);
+    let ignore = false;
+    queueMicrotask(() => {
+      if (ignore) return;
+      void load(page);
+    });
+    return () => {
+      ignore = true;
+    };
   }, [load, page]);
 
   return (
@@ -89,7 +74,7 @@ export function NotificationsHistoryClient({ userEmail }: { userEmail: string })
           Notification history
         </h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Full list of request, travel, and account alerts for your workspace.
+          Request events, travel approvals, and account alerts for your workspace.
         </p>
       </div>
 
@@ -104,19 +89,19 @@ export function NotificationsHistoryClient({ userEmail }: { userEmail: string })
               <StaffNotificationFeedItemView
                 key={item.key}
                 item={item}
-                seenTravelIds={seenTravelIds}
                 onOpenTravel={(args) => setTravelApprovalModal(args)}
               />
             ))
           )}
         </div>
-        <SimplePaginationBar
-          page={page}
-          pageSize={PAGE_SIZE}
-          total={total}
-          onPageChange={setPage}
-          itemLabel="notifications"
-        />
+        <div className="border-t border-border px-3 py-2">
+          <SimplePaginationBar
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onPageChange={setPage}
+          />
+        </div>
       </div>
 
       <TravelOrderApprovalModal
@@ -125,7 +110,6 @@ export function NotificationsHistoryClient({ userEmail }: { userEmail: string })
         travelOrderId={travelApprovalModal?.travelOrderId ?? null}
         title={travelApprovalModal?.title}
         onClose={() => setTravelApprovalModal(null)}
-        onUpdated={() => void load(page)}
       />
     </div>
   );

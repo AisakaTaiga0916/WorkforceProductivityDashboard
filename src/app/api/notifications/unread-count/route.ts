@@ -1,21 +1,11 @@
-import { isElevatedUserRole } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
-import { findSessionAgentId } from "@/lib/session-agent";
+import { loadStaffNotificationUnreadCount } from "@/lib/staff-notifications";
 import { runForConfirmationReminderSweep } from "@/lib/confirmation-reminders";
-import { listPendingTravelApprovalsForAgent, listPendingTravelConfirmationsForAgent } from "@/lib/travel-order-db";
 
 export const dynamic = "force-dynamic";
 
-function parseLastSeenMs(raw: string | null): Date | null {
-  const ms = Number(raw ?? "0");
-  if (!Number.isFinite(ms) || ms <= 0) return null;
-  const date = new Date(ms);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-export async function GET(req: Request) {
+export async function GET() {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
 
@@ -23,59 +13,19 @@ export async function GET(req: Request) {
     console.error("Confirmation reminder sweep failed", error);
   });
 
-  const { searchParams } = new URL(req.url);
-  const lastSeenAt = parseLastSeenMs(searchParams.get("lastSeenMs"));
-  const operator = await findSessionAgentId({
-    email: session.user.email,
-    name: session.user.name,
-  });
-  const operatorId = operator?.id ?? null;
-
-  const [ticketCount, accountRequestCount, pendingTravelApprovals, pendingTravelConfirmations] = await Promise.all([
-    prisma.ticket.count({
-      where: {
-        status: "OPEN",
-        ...(lastSeenAt ? { createdAt: { gt: lastSeenAt } } : {}),
-        ...(session.user.role === "Personnel" ? { assignedAgentId: operatorId ?? "__none__" } : {}),
-      },
-    }),
-    session.user.role === "Admin" || isElevatedUserRole(session.user.role)
-      ? prisma.accountActionRequest.count({
-          where: {
-            status: "PENDING",
-            ...(lastSeenAt ? { createdAt: { gt: lastSeenAt } } : {}),
-          },
-        })
-      : 0,
-    operatorId
-      ? listPendingTravelApprovalsForAgent(operatorId).catch((error) => {
-          console.warn("[unread-count] travel approval lookup failed", error);
-          return [];
-        })
-      : Promise.resolve([]),
-    operatorId
-      ? listPendingTravelConfirmationsForAgent(operatorId).catch((error) => {
-          console.warn("[unread-count] travel confirmation lookup failed", error);
-          return [];
-        })
-      : Promise.resolve([]),
-  ]);
-
-  const travelOrderApprovalIds = pendingTravelApprovals.map((row) => row.id);
-  const travelOrderApprovalCount = travelOrderApprovalIds.length;
-  const travelOrderConfirmationIds = pendingTravelConfirmations.map((row) => row.id);
-  const travelOrderConfirmationCount = travelOrderConfirmationIds.length;
+  const { total, lastReadAt } = await loadStaffNotificationUnreadCount(session);
 
   return NextResponse.json(
     {
-      ticketCount,
-      accountRequestCount,
-      travelOrderApprovalCount,
-      travelOrderApprovalIds,
-      travelOrderConfirmationCount,
-      travelOrderConfirmationIds,
-      total:
-        ticketCount + accountRequestCount + travelOrderApprovalCount + travelOrderConfirmationCount,
+      total,
+      lastReadAt,
+      // Backward-compatible aliases used by older clients.
+      ticketCount: 0,
+      accountRequestCount: 0,
+      travelOrderApprovalCount: 0,
+      travelOrderApprovalIds: [] as string[],
+      travelOrderConfirmationCount: 0,
+      travelOrderConfirmationIds: [] as string[],
     },
     {
       headers: { "cache-control": "private, no-store" },

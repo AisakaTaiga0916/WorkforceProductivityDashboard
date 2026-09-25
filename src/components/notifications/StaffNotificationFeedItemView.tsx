@@ -8,7 +8,6 @@ import type { StaffNotificationFeedItem } from "@/lib/staff-notifications";
 
 type Props = {
   item: StaffNotificationFeedItem;
-  seenTravelIds?: Set<string>;
   onNavigate?: () => void;
   onOpenTravel?: (args: {
     taskId: string;
@@ -41,31 +40,49 @@ function shellClass(kind: StaffNotificationFeedItem["kind"], unread: boolean) {
   if (kind === "task_verification_result") {
     return "border-emerald-400/50 bg-emerald-500/10 hover:bg-emerald-500/15 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/15";
   }
+  if (unread) {
+    return "border-orange-500/35 bg-orange-500/[0.07] hover:bg-orange-500/10 dark:border-orange-500/25 dark:bg-orange-500/10 dark:hover:bg-orange-500/15";
+  }
   return "border-zinc-200 bg-zinc-50 hover:bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-950/60 dark:hover:bg-zinc-800/70";
 }
 
 export function StaffNotificationFeedItemView({
   item,
-  seenTravelIds,
   onNavigate,
   onOpenTravel,
   className,
 }: Props) {
-  const unread =
-    (item.kind === "travel_approval" || item.kind === "travel_confirmation") &&
-    Boolean(item.travelOrderId) &&
-    !(seenTravelIds?.has(item.travelOrderId!) ?? false);
+  const unread = Boolean(item.unread);
 
   const body = (
-    <>
-      <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{item.title}</p>
-      {item.subtitle ? (
-        <p className="mt-0.5 line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400">{item.subtitle}</p>
-      ) : null}
-      <p className="mt-1 text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500">
-        {item.meta} · <ElapsedFromIso iso={item.at} className="inline" />
-      </p>
-    </>
+    <div className="flex items-start gap-2">
+      {unread ? (
+        <span
+          className="mt-1.5 size-1.5 shrink-0 rounded-full bg-orange-500"
+          aria-hidden
+        />
+      ) : (
+        <span className="mt-1.5 size-1.5 shrink-0" aria-hidden />
+      )}
+      <div className="min-w-0 flex-1">
+        <p
+          className={cn(
+            "truncate text-sm text-zinc-900 dark:text-zinc-100",
+            unread ? "font-semibold" : "font-medium",
+          )}
+        >
+          {item.title}
+        </p>
+        {item.subtitle ? (
+          <p className="mt-0.5 line-clamp-2 text-xs text-zinc-600 dark:text-zinc-400">
+            {item.subtitle}
+          </p>
+        ) : null}
+        <p className="mt-1 text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-500">
+          {item.meta} · <ElapsedFromIso iso={item.at} className="inline" />
+        </p>
+      </div>
+    </div>
   );
 
   const base = cn(
