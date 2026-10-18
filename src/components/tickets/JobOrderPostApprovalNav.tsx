@@ -8,7 +8,7 @@ import {
   resolveJobOrderSectionFromHash,
   scrollToJobOrderSection,
   type JobOrderScrollSection,
-} from "@/lib/job-order-section-ids";
+} from "@/modules/requests/job-order-section-ids";
 
 type Props = {
   showTaskBoard?: boolean;

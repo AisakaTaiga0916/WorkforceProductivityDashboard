@@ -1,5 +1,5 @@
-import { prisma } from "../../src/lib/prisma";
-import { getDailyPeriodKey } from "../../src/lib/kpi-recurrence";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { getDailyPeriodKey } from "../../src/modules/tasks/kpi-recurrence";
 import { DateTime } from "luxon";
 
 async function main() {

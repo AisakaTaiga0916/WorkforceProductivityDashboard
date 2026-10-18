@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client/primary";
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 import { PATCH_NOTE_SEEDS } from "../src/lib/patch-notes-seed";
 
 async function ensureTables() {

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it } from "vitest";
 import {
   buildTravelOrderRecommendedPath,
   isApprovalHierarchySatisfied,
   isTravelOrderConfirmReady,
   normalizeApprovalLevelsForStore,
-} from "../../src/lib/travel-order";
+} from "../../src/modules/work-plans/travel-order";
 import {
   buildWorkPlanApprovalLevelsForStore,
   deriveWorkPlanOrderRequest,
@@ -23,7 +23,7 @@ import {
   WORK_PLAN_FORMAT_VERSION,
   WORK_PLAN_WIZARD_STEPS,
   workPlanVenueLabels,
-} from "../../src/lib/work-plan";
+} from "../../src/modules/work-plans/work-plan";
 
 function completeMeta() {
   return emptyWorkPlanMeta({
@@ -43,6 +43,7 @@ function completeMeta() {
         name: "Jane Doe",
         positionDepartment: "IT / Ops",
         responsibilityRole: "Lead",
+        isDriver: false,
       },
     ],
     budgetLines: [{ particulars: "Switches", basisQuantity: "2 units", amount: "50,000.00" }],
@@ -348,7 +349,7 @@ describe("work plan approval seats", () => {
         venues: [
           { label: "HQ", startAt: "2026-10-01", endAt: "2026-10-02" },
           { label: "Plant 2", startAt: "2026-10-03", endAt: "2026-10-04" },
-          { label: "" },
+          { label: "", startAt: "", endAt: "" },
         ],
       }),
     );

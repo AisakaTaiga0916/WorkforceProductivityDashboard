@@ -10,9 +10,9 @@
 import {
   canonicalProfileFromMerged,
   syncPortalProfile,
-} from "../src/lib/auth/sync-portal-profile";
+} from "../src/modules/platform/auth/sync-portal-profile";
 import { resolveHrisSourceTags } from "../src/lib/merged-database-sources";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 type MergedRow = {
   source_user_id: bigint;
@@ -77,7 +77,6 @@ async function main() {
   let synced = 0;
   let conflictsCleared = 0;
   let legacyMarked = 0;
-  let passwordsCleared = 0;
   const claimedPortalIds = new Set<string>();
 
   for (const row of mergedRows) {
@@ -144,19 +143,7 @@ async function main() {
     if (linked) claimedPortalIds.add(linked.id);
   }
 
-  // HRIS-linked portal rows: keep portal password_hash when PORTAL_CREDENTIALS_SOURCE=portal
-  const portalCredentialSource =
-    process.env.PORTAL_CREDENTIALS_SOURCE?.trim().toLowerCase() === "portal";
-  if (!portalCredentialSource) {
-    const cleared = await prismaPrimary.portalAccount.updateMany({
-      where: {
-        mergedSourceUserId: { not: null },
-        passwordHash: { not: null },
-      },
-      data: { passwordHash: null },
-    });
-    passwordsCleared = cleared.count;
-  }
+  // portal_accounts.password_hash is the only credential store; never cleared here.
 
   const unlinkedPortals = await prismaPrimary.portalAccount.findMany({
     where: {
@@ -184,7 +171,6 @@ async function main() {
   console.log(`  portal profiles synced: ${synced}`);
   console.log(`  username conflicts cleared: ${conflictsCleared}`);
   console.log(`  portal-only rows marked LEGACY_CONFLICT: ${legacyMarked}`);
-  console.log(`  portal password_hash cleared (HRIS-linked): ${passwordsCleared}`);
 }
 
 main()

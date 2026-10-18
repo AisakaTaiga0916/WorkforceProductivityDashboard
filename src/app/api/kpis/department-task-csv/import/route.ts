@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { importDepartmentTasksFromCsv } from "@/lib/department-task-csv-import";
-import { normalizeTimeZone } from "@/lib/kpi-recurrence";
+import { importDepartmentTasksFromCsv } from "@/modules/tasks/department-task-csv-import";
+import { normalizeTimeZone } from "@/modules/tasks/kpi-recurrence";
 
 /**
  * POST /api/kpis/department-task-csv/import
@@ -20,6 +21,9 @@ export async function POST(req: Request) {
   if (!perms.canAssignWork) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const denied = await permissionDenied(session, "tasks.create");
+  if (denied) return denied;
 
   const contentType = req.headers.get("content-type") ?? "";
   let csv = "";

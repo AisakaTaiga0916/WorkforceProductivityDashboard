@@ -7,17 +7,17 @@ import {
   normalizeItProjectPriority,
   normalizeItProjectStatus,
   parseItProjectSubKpis,
-} from "@/lib/it-project-subkpis";
-import { collectAllSubKpiItems, getTaskPriority, normalizeSubKpis, type SubKpiItem } from "@/lib/kpi-subkpis";
-import { getPeriodStartInclusive } from "@/lib/kpi-period-window";
+} from "@/modules/tasks/it-project-subkpis";
+import { collectAllSubKpiItems, getTaskPriority, normalizeSubKpis, type SubKpiItem } from "@/modules/tasks/kpi-subkpis";
+import { getPeriodStartInclusive } from "@/modules/tasks/kpi-period-window";
 import {
   DEFAULT_TIME_ZONE,
   getPeriodEndExclusiveFromCycleStart,
   type KpiFrequencyCode,
-} from "@/lib/kpi-recurrence";
-import { IT_PROJECT_IMPLEMENTATION_TITLE } from "@/lib/it-task-pillar-titles";
-import { prisma } from "@/lib/prisma";
-import { loadEffectiveCompaniesByPortalEmail, resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
+} from "@/modules/tasks/kpi-recurrence";
+import { IT_PROJECT_IMPLEMENTATION_TITLE } from "@/modules/tasks/it-task-pillar-titles";
+import { prisma } from "@/modules/platform/db/prisma";
+import { loadEffectiveCompaniesByPortalEmail, resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
 import { isStaffPortalRole } from "@/lib/staff-role";
 import { TaskStatus } from "@prisma/client/primary";
 

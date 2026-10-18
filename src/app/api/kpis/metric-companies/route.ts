@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import { rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
-import { prisma } from "@/lib/prisma";
-import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
+import { prisma } from "@/modules/platform/db/prisma";
+import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
 
 /** Lightweight company list for Request / Task metrics filters (avoids heavy tracker queries). */
 export async function GET() {

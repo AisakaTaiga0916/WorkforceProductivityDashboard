@@ -1,9 +1,10 @@
 import type { ActivityActor } from "@prisma/client/primary";
 import { NextResponse } from "next/server";
 import { customerCanAccessTicket, ensureTicketOwnership, requireSession } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
+import { prisma } from "@/modules/platform/db/prisma";
 import { findSessionAgentId } from "@/lib/session-agent";
-import { logActivity, touchFirstResponse } from "@/lib/ticket-actions";
+import { logActivity, touchFirstResponse } from "@/modules/requests/ticket-actions";
 
 export async function POST(
   req: Request,
@@ -12,6 +13,10 @@ export async function POST(
   const session = await requireSession();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (session.user.role !== "Customer") {
+    const moduleOff = await moduleDisabledResponse("requests");
+    if (moduleOff) return moduleOff;
   }
 
   const { id } = await ctx.params;

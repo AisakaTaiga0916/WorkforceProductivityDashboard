@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/portal-staff", () => ({
   portalCompanyAdminPrivilegesForEmail: vi.fn(),
 }));
-vi.mock("@/lib/staff-company-scope", () => ({
+vi.mock("@/modules/platform/scope/staff-company-scope", () => ({
   resolveStaffCompanyTeamId: vi.fn(),
 }));
 
@@ -12,9 +12,9 @@ import {
   isCurrentPaymentStepAssignee,
   isTicketAssignee,
   personnelForbiddenForTicket,
-} from "@/lib/ticket-staff-access";
+} from "@/modules/requests/ticket-staff-access";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
-import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
+import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
 
 const portalCompanyAdminPrivilegesForEmailMock = vi.mocked(
   portalCompanyAdminPrivilegesForEmail,

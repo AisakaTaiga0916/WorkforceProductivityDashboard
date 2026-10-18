@@ -8,9 +8,9 @@ import {
   canonicalProfileFromMerged,
   canonicalProfileFromOAuth,
   syncPortalProfile,
-} from "../src/lib/auth/sync-portal-profile";
-import { findMergedUserByEmail } from "../src/lib/auth/merged-credentials";
-import { prismaAuth, prismaPrimary } from "../src/lib/prisma";
+} from "../src/modules/platform/auth/sync-portal-profile";
+import { findMergedUserByEmail } from "../src/modules/platform/auth/merged-credentials";
+import { prismaAuth, prismaPrimary } from "../src/modules/platform/db/prisma";
 import { normalizePortalRole } from "../src/lib/staff-role";
 
 async function main() {

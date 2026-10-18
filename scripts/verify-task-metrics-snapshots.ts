@@ -9,7 +9,7 @@
  *
  * Safe: only SELECT / count / aggregate queries — no writes.
  */
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 /** Map a periodKey to its YYYY-MM bucket (e.g. "DAILY:Asia/Taipei:2026-07-15" → "2026-07"). */
 function monthOfPeriodKey(key: string): string {

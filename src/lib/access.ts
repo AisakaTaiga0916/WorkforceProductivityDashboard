@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import type { UserRole } from "./auth";
+import type { UserRole } from "@/modules/platform/auth";
 import { safeGetServerSession } from "./server-session";
 
 export async function requireSession() {

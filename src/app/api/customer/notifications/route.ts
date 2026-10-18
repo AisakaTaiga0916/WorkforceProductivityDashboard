@@ -7,9 +7,9 @@ import {
   requestorHasIntakeBlockingTicket,
   requestorIdentityWhereForEmails,
   resolveCustomerIntakeIdentityEmails,
-} from "@/lib/customer-pending-resolution";
+} from "@/modules/requests/customer-pending-resolution";
 import { createEmailVerificationToken } from "@/lib/email-verification-token";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 export type CustomerNotification = {
   id: string;

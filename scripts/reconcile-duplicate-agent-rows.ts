@@ -34,6 +34,6 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    const { prisma } = await import("../src/lib/prisma");
+    const { prisma } = await import("../src/modules/platform/db/prisma");
     await prisma.$disconnect();
   });

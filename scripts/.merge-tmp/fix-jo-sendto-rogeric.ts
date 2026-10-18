@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 const ROGERIC_SECTION_ID = "cmth0lmbu000l57c9prlu07ho";
 const ROGERIC_SECTION_NAME =

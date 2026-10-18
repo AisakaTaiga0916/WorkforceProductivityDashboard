@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isTravelOrderTraveler } from "@/lib/travel-order";
-import { hasSubKpiAssignedTo } from "@/lib/kpi-subkpis";
+import { isTravelOrderTraveler } from "@/modules/work-plans/travel-order";
+import { hasSubKpiAssignedTo } from "@/modules/tasks/kpi-subkpis";
 
 /** Mirrors board filter: assignee / sub-assignee / traveler kpi ids. */
 function filterKpiRowsForViewer<T extends { id: string; assignedAgentId: string | null; subKpis: unknown }>(
@@ -18,16 +18,24 @@ function filterKpiRowsForViewer<T extends { id: string; assignedAgentId: string 
 }
 
 describe("isTravelOrderTraveler", () => {
-  it("includes creator and listed travelers", () => {
+  it("uses the stored traveler list and excludes a creator who is not on it", () => {
     const order = {
       createdByAgentId: "creator-1",
       travelerAgentIds: ["traveler-a", "traveler-b"],
     };
-    expect(isTravelOrderTraveler("creator-1", order)).toBe(true);
+    expect(isTravelOrderTraveler("creator-1", order)).toBe(false);
     expect(isTravelOrderTraveler("traveler-a", order)).toBe(true);
     expect(isTravelOrderTraveler("traveler-b", order)).toBe(true);
     expect(isTravelOrderTraveler("outsider", order)).toBe(false);
     expect(isTravelOrderTraveler(null, order)).toBe(false);
+  });
+
+  it("treats the creator as a traveler when they are on the stored list", () => {
+    const order = {
+      createdByAgentId: "creator-1",
+      travelerAgentIds: ["creator-1", "traveler-a"],
+    };
+    expect(isTravelOrderTraveler("creator-1", order)).toBe(true);
   });
 
   it("treats missing traveler list as creator-only", () => {

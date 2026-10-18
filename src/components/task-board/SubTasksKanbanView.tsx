@@ -9,7 +9,7 @@ import {
   type SubKpiSegment,
   UNSEGMENTED_SEGMENT_ID,
   UNSEGMENTED_SEGMENT_LABEL,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 import { PointerDragGhostLayer, usePointerColumnDrag } from "@/lib/pointer-column-drag";
 import { DatePickerField } from "@/components/ui/DatePickerField";
 

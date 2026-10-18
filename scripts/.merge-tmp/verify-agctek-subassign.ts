@@ -1,11 +1,11 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   isTimelineProjectKpi,
   itProjectAllItems,
   parseItProjectSubKpis,
   setItProjectSubKpiAssignee,
-} from "@/lib/it-project-subkpis";
-import { collectChecklistProgressItems } from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/it-project-subkpis";
+import { collectChecklistProgressItems } from "@/modules/tasks/kpi-subkpis";
 
 async function main() {
   const row = await prisma.kpiMaintenance.findFirst({

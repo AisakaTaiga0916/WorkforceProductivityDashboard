@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { ensureAgentRowForPortalStaff } from "@/lib/admin-roster";
 import { requireRole } from "@/lib/access";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
 import {
   canonicalProfileFromMerged,
   syncPortalProfile,
-} from "@/lib/auth/sync-portal-profile";
-import {
-  resolveHrisSourceTags,
-  resolveSecondaryDatabaseName,
-} from "@/lib/merged-database-sources";
+} from "@/modules/platform/auth/sync-portal-profile";
+import { resolveHrisSourceTags } from "@/lib/merged-database-sources";
 import {
   normalizePersonnelAssignmentColor,
 } from "@/lib/personnel-assignment-colors";
@@ -21,9 +19,9 @@ import {
   getPortalStaffAssignmentColor,
   setPortalStaffAssignmentColor,
 } from "@/lib/portal-staff-assignment-color-sql";
-import { prismaPrimary, prismaSecondary } from "@/lib/prisma";
+import { prismaPrimary } from "@/modules/platform/db/prisma";
 import { isStaffPortalRole } from "@/lib/staff-role";
-import { Prisma } from "@prisma/client/secondary";
+import { Prisma } from "@prisma/client/primary";
 
 /**
  * PATCH /api/admin/personnel/color
@@ -33,8 +31,10 @@ import { Prisma } from "@prisma/client/secondary";
  * Body: { mergedSourceUserId: string, staffAssignmentColor: string | null }
  */
 export async function PATCH(req: Request) {
-  const { unauthorized } = await requireRole(["Admin"]);
-  if (unauthorized) return unauthorized;
+  const { session, unauthorized } = await requireRole(["Admin"]);
+  if (unauthorized || !session) return unauthorized;
+  const denied = await permissionDenied(session, "users.update");
+  if (denied) return denied;
 
   const body = (await req.json().catch(() => ({}))) as {
     mergedSourceUserId?: string;
@@ -60,7 +60,7 @@ export async function PATCH(req: Request) {
     colorNext = normalized;
   }
 
-  const mergedRows = await prismaSecondary.$queryRaw<
+  const mergedRows = await prismaPrimary.$queryRaw<
     Array<{
       source_user_id: bigint;
       name: string;
@@ -73,16 +73,16 @@ export async function PATCH(req: Request) {
     }>
   >`
     SELECT source_user_id, name, username, email, role, company_name, position, department
-    FROM merged_users
+    FROM hris_users
     WHERE source_user_id = ${mergedSourceUserId}
       AND source_database IN (${Prisma.join(sourceTags)})
-      AND is_active = 1
+      AND is_active = true
     LIMIT 1
   `;
   const merged = mergedRows[0];
   if (!merged) {
     return NextResponse.json(
-      { error: `HRIS user not found in ${resolveSecondaryDatabaseName()}.` },
+      { error: "HRIS user not found. Re-run the merged-dump import if they were added recently." },
       { status: 404 },
     );
   }
@@ -219,12 +219,12 @@ export async function PATCH(req: Request) {
    * resolve colors by portal email, so all of the person's rows must agree.
    */
   try {
-    const identityRows = await prismaSecondary.$queryRaw<
+    const identityRows = await prismaPrimary.$queryRaw<
       Array<{ source_user_id: bigint; name: string; email: string | null }>
     >`
       SELECT source_user_id, name, email
-      FROM merged_users
-      WHERE is_active = 1
+      FROM hris_users
+      WHERE is_active = true
     `;
     const canonicalMap = buildCanonicalMergedIdMap(
       identityRows.map(

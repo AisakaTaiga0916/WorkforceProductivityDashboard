@@ -1,5 +1,5 @@
-import { samePersonName } from "../src/lib/auth/person-match";
-import { prismaPrimary } from "../src/lib/prisma";
+import { samePersonName } from "../src/modules/platform/auth/person-match";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const pgOnly = await prismaPrimary.portalAccount.findMany({

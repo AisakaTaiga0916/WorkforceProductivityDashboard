@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { normalizePersonName } from "../src/lib/person-name";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 const DEFAULT_CSVS = [
   "c:/Users/tkdemo/Documents/htdocs/USERS WORKSPACE - MCHISI.csv",

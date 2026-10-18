@@ -2,7 +2,7 @@
  * One-off health check: counts + samples + public table list (both databases).
  * Usage: npx tsx scripts/db-runcheck.ts
  */
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   await Promise.all([prismaPrimary.$connect(), prismaSecondary.$connect()]);

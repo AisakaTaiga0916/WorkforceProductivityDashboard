@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { findSessionAgentWithTeam } from "@/lib/session-agent";
-import { loadAgentIdsForCompanyTeam } from "@/lib/staff-company-scope";
+import { loadAgentIdsForCompanyTeam } from "@/modules/platform/scope/staff-company-scope";
 
 /**
  * GET /api/tickets/[id]/transfer-recipients

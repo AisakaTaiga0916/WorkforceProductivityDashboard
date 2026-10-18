@@ -1,15 +1,15 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import {
   computeTaskMetrics,
   parseHelpdeskCadence,
   parseKpiRangeFromQuery,
-} from "@/lib/kpis";
-import { normalizeTimeZone } from "@/lib/kpi-recurrence";
+} from "@/modules/tasks/kpis";
+import { normalizeTimeZone } from "@/modules/tasks/kpi-recurrence";
 import { findSessionAgentId } from "@/lib/session-agent";
-import { loadAgentIdsForCompanyTeam, resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
-import { parseTaskMetricsTaskTypeFilter } from "@/lib/task-metrics-task-type";
+import { loadAgentIdsForCompanyTeam, resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { parseTaskMetricsTaskTypeFilter } from "@/modules/tasks/task-metrics-task-type";
 
 export async function GET(req: Request) {
   const startedAt = Date.now();

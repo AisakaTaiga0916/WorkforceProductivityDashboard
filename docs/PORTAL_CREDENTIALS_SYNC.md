@@ -1,5 +1,8 @@
 # PortalAccount Credential Sync
 
+> **Superseded.** `portal_accounts.password_hash` is now the only credential store and
+> `PORTAL_CREDENTIALS_SOURCE` was removed. See [`iam/single-db-auth.md`](./iam/single-db-auth.md).
+
 PortalAccount (`portal_accounts`) is the **source of truth for ticketing credentials** when `PORTAL_CREDENTIALS_SOURCE=portal`.
 
 ## Architecture
@@ -41,9 +44,9 @@ WHERE pa.account_status <> 'LEGACY_CONFLICT'
 LIMIT 1;
 ```
 
-Application code: `findPortalAccountByLogin()` in `src/lib/auth/portal-credentials.ts`.
+Application code: `findPortalAccountByLogin()` in `src/modules/platform/auth/portal-credentials.ts`.
 
-Auth order in `src/lib/auth.ts`:
+Auth order in `src/modules/platform/auth/index.ts`:
 
 1. PortalAccount + `password_hash` (including aliases)
 2. `merged_users` fallback when portal has no password (OAuth-only rows)
@@ -56,7 +59,7 @@ Auth order in `src/lib/auth.ts`:
 | Admin | `admin` |
 | Personnel / Customer | `employee` |
 
-Code: `mapPortalRoleToMergedHrisRole()` in `src/lib/auth/portal-to-merged-role.ts`.
+Code: `mapPortalRoleToMergedHrisRole()` in `src/modules/platform/auth/portal-to-merged-role.ts`.
 
 Ticketing KPI head/leader titles still use `mapHrisToPortalRole()` when syncing **from** HRIS position fields.
 

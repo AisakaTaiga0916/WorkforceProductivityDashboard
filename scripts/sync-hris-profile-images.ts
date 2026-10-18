@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { PrismaClient as PrismaClientSecondary } from "@prisma/client/secondary";
 import { ensureMergedConsolidationSchema } from "./ensure-merged-consolidation-schema";
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 import { MAX_PROFILE_IMAGE_DATA_URL_CHARS } from "../src/lib/profile-image-limits";
 
 const PROFILE_DIRS = [

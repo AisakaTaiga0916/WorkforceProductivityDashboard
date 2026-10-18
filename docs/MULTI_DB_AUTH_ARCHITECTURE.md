@@ -1,5 +1,9 @@
 # Multi-Database Auth Architecture
 
+> **Superseded.** Identity now lives on the main database only; the Auth DB is not
+> used at runtime and the merged DB is a one-way import source. See
+> [`iam/single-db-auth.md`](./iam/single-db-auth.md). Kept for historical context.
+
 This document describes how **Auth DB**, **Primary DB**, and **Secondary (Merged) DB** divide responsibility, how users are matched, and how to migrate existing data.
 
 ## Database roles
@@ -78,9 +82,9 @@ Head titles in `position`/`department` (e.g. "IT Support Head") elevate `employe
 
 Override per HRIS role in `auth_role_mappings` without code changes.
 
-Code: `src/lib/auth/role-mapping.ts`
+Code: `src/modules/platform/auth/role-mapping.ts`
 
-Permission helpers: `src/lib/auth/portal-permissions.ts`
+Permission helpers: `src/modules/platform/auth/portal-permissions.ts`
 
 ## Step-by-step migration
 
@@ -145,10 +149,10 @@ Once all accounts have `authUserId` and OAuth/credentials flow through Auth DB:
 
 | File | Role |
 |------|------|
-| `src/lib/auth/sync-portal-profile.ts` | Unified sync service |
-| `src/lib/auth/role-mapping.ts` | HRIS → portal role logic |
-| `src/lib/auth/sync-oauth-user.ts` | OAuth adapter |
-| `src/lib/auth/ensure-portal-from-merged.ts` | HRIS credentials adapter |
-| `src/lib/auth/portal-permissions.ts` | Permission check examples |
+| `src/modules/platform/auth/sync-portal-profile.ts` | Unified sync service |
+| `src/modules/platform/auth/role-mapping.ts` | HRIS → portal role logic |
+| `src/modules/platform/auth/sync-oauth-user.ts` | OAuth adapter |
+| `src/modules/platform/auth/ensure-portal-from-merged.ts` | HRIS credentials adapter |
+| `src/modules/platform/auth/portal-permissions.ts` | Permission check examples |
 | `scripts/sync-hris-portal-profiles.ts` | Scheduled batch sync |
 | `scripts/migrate-portal-to-auth-db.ts` | One-time backfill |

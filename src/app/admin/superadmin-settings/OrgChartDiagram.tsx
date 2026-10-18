@@ -30,7 +30,7 @@ import {
   type BulkReportsToOptions,
 } from "./OrgChartBulkReportsBar";
 import type { OrgChartSectionRow } from "./OrgChartSectionsPanel";
-import { resolveExecutiveTitle } from "@/lib/org-chart-executive-titles";
+import { resolveExecutiveTitle } from "@/modules/hierarchy/org-chart-executive-titles";
 import {
   eitherOrLinkLabel,
   encodeReportsToValue,

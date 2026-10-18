@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeHelpdeskTaskMetricCounts } from "@/lib/helpdesk-csv";
+import { mergeHelpdeskTaskMetricCounts } from "@/modules/requests/helpdesk-csv";
 
 describe("mergeHelpdeskTaskMetricCounts", () => {
   const csv = {

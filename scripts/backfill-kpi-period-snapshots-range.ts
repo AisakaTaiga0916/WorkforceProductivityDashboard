@@ -8,9 +8,9 @@
  *   npx tsx scripts/backfill-kpi-period-snapshots-range.ts --force
  */
 import { DateTime } from "luxon";
-import { backfillKpiPeriodSnapshotsForRange } from "../src/lib/kpi-period-snapshots";
-import { normalizeTimeZone } from "../src/lib/kpi-recurrence";
-import { prisma } from "../src/lib/prisma";
+import { backfillKpiPeriodSnapshotsForRange } from "../src/modules/tasks/kpi-period-snapshots";
+import { normalizeTimeZone } from "../src/modules/tasks/kpi-recurrence";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 function parseArg(name: string): string | undefined {
   const prefix = `--${name}=`;

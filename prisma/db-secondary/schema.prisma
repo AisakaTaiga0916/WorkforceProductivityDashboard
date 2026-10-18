@@ -240,7 +240,7 @@ model MergedKpiUserAverage {
 }
 
 /// Persistent per-user Task KPI overall-efficiency rollups (period x frequency).
-/// Calculation in src/lib/efficiency/user-efficiency-breakdown.ts:
+/// Calculation in src/modules/tasks/efficiency/user-efficiency-breakdown.ts:
 /// - Board TaskItem counts -> total/completed/delayed + on-time rate + avg hours
 /// - Task efficiency: DONE / (DONE + CURRENT) x 100 (DELAYED excluded from denom)
 /// - Ticket efficiency: closed / (open + closed) for the period window

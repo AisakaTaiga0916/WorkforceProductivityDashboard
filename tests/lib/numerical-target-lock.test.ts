@@ -5,7 +5,7 @@ import {
   normalizeSubKpis,
   resetAllSubKpiDone,
   wrapForPersist,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 
 describe("numerical target while task is running", () => {
   const flatWithTarget = wrapForPersist({

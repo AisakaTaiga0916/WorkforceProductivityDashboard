@@ -3,7 +3,7 @@ import {
   isNonRecurringSubKpiDelayed,
   nonRecurringDelayStartExclusive,
   taskKanbanDerivedStatus,
-} from "@/lib/kpi-cycle-state";
+} from "@/modules/tasks/kpi-cycle-state";
 
 const TZ = "Asia/Manila";
 

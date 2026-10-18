@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { wrapItProjectSubKpis, type ItProjectData } from "@/lib/it-project-subkpis";
-import { setTaskDailyPenaltyAmount, setTaskDelayPenaltyFrequency } from "@/lib/kpi-subkpis";
+import { wrapItProjectSubKpis, type ItProjectData } from "@/modules/tasks/it-project-subkpis";
+import { setTaskDailyPenaltyAmount, setTaskDelayPenaltyFrequency } from "@/modules/tasks/kpi-subkpis";
 import {
   penaltyAccrualUnits,
   penaltyDeductionsForKpi,
   subKpiAccruedPenalty,
-} from "@/lib/task-delay-penalty";
+} from "@/modules/tasks/task-delay-penalty";
 
 describe("penaltyAccrualUnits", () => {
   it("uses calendar days for DAILY", () => {

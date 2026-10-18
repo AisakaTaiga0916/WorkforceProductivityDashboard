@@ -1,8 +1,8 @@
-import { prisma } from "../../src/lib/prisma.ts";
+import { prisma } from "../../src/modules/platform/db/prisma.ts";
 import {
   enumeratePeriodKeysForKpiInRange,
   periodKeysWithGmt8Aliases,
-} from "../../src/lib/kpi-period-snapshots.ts";
+} from "../../src/modules/tasks/kpi-period-snapshots.ts";
 
 void (async () => {
   const monthly = await prisma.kpiMaintenance.findMany({

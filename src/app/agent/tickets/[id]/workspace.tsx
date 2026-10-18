@@ -12,14 +12,16 @@ import {
   MAX_SCREENSHOT_BYTES,
   MAX_SCREENSHOT_COUNT,
   isAllowedIntakeAttachment,
-} from "@/lib/ticket-intake-screenshots-constants";
-import { ACTIVE_REQUEST_STATUSES } from "@/lib/active-request-statuses";
-import { formatTicketPriorityLabel } from "@/lib/ticket-priority-label";
-import { formatTicketStatusLabel } from "@/lib/ticket-status-label";
-import { formatTicketActivityDetail } from "@/lib/ticket-activity-display";
-import { requestTypeLabel, requestTypeSupportsTransfer } from "@/lib/request-types";
-import type { TicketPrintField, TicketPrintModel } from "@/lib/ticket-details-print";
-import { parsePaymentRequestDescription, formatPaymentPeso, formatPaymentRequestTitle, MODE_OF_PAYMENT_CHECK, MODE_OF_PAYMENT_OPTIONS, DELIVERY_OF_CHECK_OPTIONS, paymentModeRequiresBankDetails, paymentModeShowsBankDetails } from "@/lib/request-for-payment";
+} from "@/modules/requests/ticket-intake-screenshots-constants";
+import { ACTIVE_REQUEST_STATUSES } from "@/modules/requests/active-request-statuses";
+import { permissionAllows, usePermissions } from "@/modules/platform/rbac/permissions-client";
+import { formatTicketPriorityLabel } from "@/modules/requests/ticket-priority-label";
+import { formatTicketStatusLabel } from "@/modules/requests/ticket-status-label";
+import { formatTicketActivityDetail } from "@/modules/requests/ticket-activity-display";
+import { requestTypeLabel, requestTypeSupportsTransfer } from "@/modules/requests/request-types";
+import { transferApprovalUiSteps } from "@/modules/requests/ticket-transfer-ui";
+import type { TicketPrintField, TicketPrintModel } from "@/modules/requests/ticket-details-print";
+import { parsePaymentRequestDescription, formatPaymentPeso, formatPaymentRequestTitle, MODE_OF_PAYMENT_CHECK, MODE_OF_PAYMENT_OPTIONS, DELIVERY_OF_CHECK_OPTIONS, paymentModeRequiresBankDetails, paymentModeShowsBankDetails } from "@/modules/requests/request-for-payment";
 import {
   parseItemRequisitionDescription,
   computeRequisitionPriceQuotation,
@@ -29,7 +31,7 @@ import {
   sumRequisitionListedItemsTotal,
   formatRequisitionPeso,
   normalizeRequisitionMoneyInput,
-} from "@/lib/item-requisition";
+} from "@/modules/requests/item-requisition";
 import {
   assigneeIdForStep,
   canEditDeferredPaymentMode,
@@ -46,7 +48,9 @@ import {
   type PaymentApprovalAssignees,
   type PaymentApprovalMeta,
   type PaymentApprovalStep,
-} from "@/lib/request-for-payment-approval";
+} from "@/modules/requests/request-for-payment-approval";
+import type { ApprovalUi } from "@/modules/requests/payment-approval-ui";
+import { ApprovalStepper } from "@/components/ui/approval-stepper";
 import {
   itemRequisitionAssigneeIdForStep,
   ITEM_REQUISITION_APPROVAL_STEPS,
@@ -55,7 +59,7 @@ import {
   type ItemRequisitionApprovalAssignees,
   type ItemRequisitionApprovalMeta,
   type ItemRequisitionApprovalStep,
-} from "@/lib/item-requisition-approval";
+} from "@/modules/requests/item-requisition-approval";
 import {
   fundTransferAssigneeIdForStep,
   FUND_TRANSFER_APPROVAL_STEPS,
@@ -64,8 +68,8 @@ import {
   type FundTransferApprovalAssignees,
   type FundTransferApprovalMeta,
   type FundTransferApprovalStep,
-} from "@/lib/fund-transfer-approval";
-import { parseFundTransferRequestDescription, formatFundTransferPeso } from "@/lib/fund-transfer-request";
+} from "@/modules/requests/fund-transfer-approval";
+import { parseFundTransferRequestDescription, formatFundTransferPeso } from "@/modules/requests/fund-transfer-request";
 import {
   JOB_ORDER_APPROVAL_STEP_LABELS,
   isJobOrderAssistanceMember,
@@ -79,39 +83,28 @@ import {
   type JobOrderApprovalAssignees,
   type JobOrderApprovalMeta,
   type JobOrderApprovalStep,
-} from "@/lib/job-order-approval";
-import { isJobOrderExecutionOutsideSendToDepartment } from "@/lib/job-order-assistance-scope";
+} from "@/modules/requests/job-order-approval";
+import { isJobOrderExecutionOutsideSendToDepartment } from "@/modules/requests/job-order-assistance-scope";
 import {
   hasJobOrderJobOutputUploaded,
   JOB_ORDER_ATTACHMENT_SECTION_LABELS,
   partitionJobOrderAttachments,
   type JobOrderAttachmentSection,
-} from "@/lib/job-order-attachments";
-import { isJobOrderExecutionMember } from "@/lib/job-order-workers";
-import { parseJobOrderDescription } from "@/lib/job-order";
-import { parseAcaRequestDescription, formatAcaPeso } from "@/lib/authority-to-conduct-activity";
-import {
-  acaHorizontalApprovalLabel,
-  acaLevelRequiresFeedback,
-  acaLevelShowsInExeComTable,
-  acaLevelShowsInHorizontalApproval,
-  acaProceduralStatusLabel,
-  currentAcaLevel,
-  isAcaProcedureGreenLit,
-  type AcaApprovalMeta,
-} from "@/lib/aca-approval";
+} from "@/modules/requests/job-order-attachments";
+import { isJobOrderExecutionMember } from "@/modules/requests/job-order-workers";
+import { parseJobOrderDescription } from "@/modules/requests/job-order";
 import {
   isIntakeAttachmentImage,
   parseIntakeScreenshotMeta,
   type IntakeScreenshotMetaItem,
-} from "@/lib/ticket-intake-screenshots-meta";
-import { parseTransferRequestDetail } from "@/lib/ticket-transfer-request";
+} from "@/modules/requests/ticket-intake-screenshots-meta";
+import { parseTransferRequestDetail } from "@/modules/requests/ticket-transfer-request";
 import { JobOrderPostApprovalNav } from "@/components/tickets/JobOrderPostApprovalNav";
 import { JobOrderProjectLinkPanel } from "@/components/tickets/JobOrderProjectLinkPanel";
 import { JobOrderWorkersPanel } from "@/components/tickets/JobOrderWorkersPanel";
 import { JobOrderAssistanceTeamPanel } from "@/components/tickets/JobOrderAssistanceTeamPanel";
 import { RequestChatPanel } from "@/components/tickets/RequestChatPanel";
-import type { JobOrderScrollSection } from "@/lib/job-order-section-ids";
+import type { JobOrderScrollSection } from "@/modules/requests/job-order-section-ids";
 
 type TransferRecipient = { id: string; name: string; email: string };
 
@@ -137,21 +130,22 @@ export function AgentWorkspace({
   transferPending,
   isPaymentRequest = false,
   paymentApprovalMeta = null,
+  paymentApprovalUi = null,
   paymentApprovalAgentNames = {},
   linkedTravelOrderRef = null,
   requestBudgetFromCompanyName = null,
   isRequisitionRequest = false,
   itemRequisitionApprovalMeta = null,
+  itemRequisitionApprovalUi = null,
   itemRequisitionApprovalAgentNames = {},
   isFundTransferRequest = false,
   fundTransferApprovalMeta = null,
+  fundTransferApprovalUi = null,
   fundTransferApprovalAgentNames = {},
   isJobOrderApprovalRequest = false,
   jobOrderApprovalMeta = null,
+  jobOrderApprovalUi = null,
   jobOrderApprovalAgentNames = {},
-  isAcaRequest = false,
-  acaApprovalMeta = null,
-  acaApprovalAgentNames = {},
   sessionAgentId = null,
   sessionEmail = null,
   isSuperAdmin = false,
@@ -176,6 +170,8 @@ export function AgentWorkspace({
   transferPending: boolean;
   isPaymentRequest?: boolean;
   paymentApprovalMeta?: PaymentApprovalMeta | null;
+  /** Server-computed approval chrome (permission ∧ eligibility). */
+  paymentApprovalUi?: ApprovalUi | null;
   /** Agent id → display name for payment approval roles. */
   paymentApprovalAgentNames?: Record<string, string>;
   /** When this RFP was created from a Work Plan. */
@@ -184,17 +180,20 @@ export function AgentWorkspace({
   requestBudgetFromCompanyName?: string | null;
   isRequisitionRequest?: boolean;
   itemRequisitionApprovalMeta?: ItemRequisitionApprovalMeta | null;
+  /** Server-computed approval chrome (permission ∧ eligibility). */
+  itemRequisitionApprovalUi?: ApprovalUi | null;
   itemRequisitionApprovalAgentNames?: Record<string, string>;
   isFundTransferRequest?: boolean;
   fundTransferApprovalMeta?: FundTransferApprovalMeta | null;
+  /** Server-computed approval chrome (permission ∧ eligibility). */
+  fundTransferApprovalUi?: ApprovalUi | null;
   fundTransferApprovalAgentNames?: Record<string, string>;
   /** Procedural approval workflow for Job Order (distinct from display-only `isJobOrderRequest`). */
   isJobOrderApprovalRequest?: boolean;
   jobOrderApprovalMeta?: JobOrderApprovalMeta | null;
+  /** Server-computed approval chrome (permission ∧ eligibility). */
+  jobOrderApprovalUi?: ApprovalUi | null;
   jobOrderApprovalAgentNames?: Record<string, string>;
-  isAcaRequest?: boolean;
-  acaApprovalMeta?: AcaApprovalMeta | null;
-  acaApprovalAgentNames?: Record<string, string>;
   sessionAgentId?: string | null;
   /** Session email — matches execution assignee across duplicate Agent rows. */
   sessionEmail?: string | null;
@@ -227,6 +226,9 @@ export function AgentWorkspace({
 }) {
   const isAgentViewer = viewerMode === "agent";
   const router = useRouter();
+  const clientPermissions = usePermissions();
+  /** Hide approve/complete-step controls the API would reject (requests.approve). */
+  const requestsApproveAllowed = permissionAllows(clientPermissions, "requests.approve");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
@@ -247,7 +249,6 @@ export function AgentWorkspace({
   }, [ticket.id, ticket.remarks]);
   const [transferRecipients, setTransferRecipients] = useState<TransferRecipient[]>([]);
   const [transferRecipientId, setTransferRecipientId] = useState("");
-  const [acaDoneComment, setAcaDoneComment] = useState("");
   const [approvalAgents, setApprovalAgents] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [requestorApprovalAgents, setRequestorApprovalAgents] = useState<
     Array<{ id: string; name: string; email: string }>
@@ -438,20 +439,12 @@ export function AgentWorkspace({
     [ticket.description],
   );
 
-  const acaDetails = useMemo(() => {
-    // Never treat Job Order descriptions as ACA (layout collision).
-    if (ticket.requestType === "JOB_ORDER") return null;
-    return parseAcaRequestDescription(ticket.description);
-  }, [ticket.description, ticket.requestType]);
-
   const jobOrderDetails = useMemo(
     () => parseJobOrderDescription(ticket.description),
     [ticket.description],
   );
   const isJobOrderRequest =
     ticket.requestType === "JOB_ORDER" || Boolean(jobOrderDetails);
-  const showAcaLayout =
-    Boolean(isAcaRequest) || (Boolean(acaDetails) && !isJobOrderRequest);
 
   const canEditRequisitionPricing = Boolean(
     isAgentViewer &&
@@ -768,7 +761,8 @@ export function AgentWorkspace({
   );
 
   const canCompleteCurrentPaymentStep = Boolean(
-    currentPaymentStep &&
+    requestsApproveAllowed &&
+      currentPaymentStep &&
       sessionAgentId &&
       ticket.assignedAgentId === sessionAgentId &&
       (!sessionAlreadyApprovedThisRequest || currentPaymentStepAllowsRepeatSigner),
@@ -831,28 +825,10 @@ export function AgentWorkspace({
     currentPaymentStep && (isPersonnel || isTicketAssignee || canSetApprovalAssignees),
   );
 
-  const acaProceduralLabelText = acaApprovalMeta
-    ? acaProceduralStatusLabel(acaApprovalMeta)
-    : null;
-  const currentAcaStep = acaApprovalMeta ? currentAcaLevel(acaApprovalMeta) : null;
-  const canCompleteCurrentAcaStep = Boolean(
-    isAcaRequest &&
-      acaApprovalMeta &&
-      currentAcaStep &&
-      sessionAgentId &&
-      ticket.assignedAgentId === sessionAgentId &&
-      acaApprovalMeta.proceduralStep !== "DONE",
-  );
-  const acaRequiresFeedback = acaLevelRequiresFeedback(currentAcaStep?.roleCode);
-  /** Hide transfer for procedural types (RFP, FTR, JO) and while ACA is not green-lit. */
-  const acaTransferBlocked = Boolean(
-    isAcaRequest && acaApprovalMeta && acaApprovalMeta.proceduralStep !== "DONE",
-  );
   const showRequestTransfer = Boolean(
     canRequestTransfer &&
       requestTypeSupportsTransfer(ticket.requestType) &&
-      !transferPending &&
-      !acaTransferBlocked,
+      !transferPending,
   );
   /**
    * Assignee must mark Done on the current step; handoff goes to the next
@@ -867,7 +843,8 @@ export function AgentWorkspace({
       ? (itemRequisitionApprovalMeta.proceduralStep as ItemRequisitionApprovalStep)
       : null;
   const canCompleteCurrentRequisitionStep = Boolean(
-    currentRequisitionStep &&
+    requestsApproveAllowed &&
+      currentRequisitionStep &&
       currentRequisitionStep !== "CANVASSED_BY" &&
       sessionAgentId &&
       ticket.assignedAgentId === sessionAgentId,
@@ -896,7 +873,10 @@ export function AgentWorkspace({
       ? (fundTransferApprovalMeta.proceduralStep as FundTransferApprovalStep)
       : null;
   const canCompleteCurrentFundTransferStep = Boolean(
-    currentFundTransferStep && sessionAgentId && ticket.assignedAgentId === sessionAgentId,
+    requestsApproveAllowed &&
+      currentFundTransferStep &&
+      sessionAgentId &&
+      ticket.assignedAgentId === sessionAgentId,
   );
   const canRequestFundTransferApproval = Boolean(
     currentFundTransferStep && (isPersonnel || isTicketAssignee || canSetApprovalAssignees),
@@ -913,7 +893,10 @@ export function AgentWorkspace({
       ? (jobOrderApprovalMeta.proceduralStep as JobOrderApprovalStep)
       : null;
   const canCompleteCurrentJobOrderStep = Boolean(
-    currentJobOrderStep && sessionAgentId && ticket.assignedAgentId === sessionAgentId,
+    requestsApproveAllowed &&
+      currentJobOrderStep &&
+      sessionAgentId &&
+      ticket.assignedAgentId === sessionAgentId,
   );
   const jobOrderLastStepNeedsJobOutput = Boolean(
     jobOrderApprovalMeta &&
@@ -977,9 +960,6 @@ export function AgentWorkspace({
       setError(data.error ?? "Request failed");
       return;
     }
-    if (body.action === "complete_aca_approval_step") {
-      setAcaDoneComment("");
-    }
     router.refresh();
   }
 
@@ -1036,9 +1016,7 @@ export function AgentWorkspace({
               ? requestTypeLabel("FUND_TRANSFER_REQUEST")
               : isJobOrderRequest
                 ? requestTypeLabel("JOB_ORDER")
-                : showAcaLayout
-                  ? requestTypeLabel("AUTHORITY_TO_CONDUCT_ACTIVITY")
-                  : requestTypeLabel("ISSUE_CONCERN_TICKET");
+                : requestTypeLabel("ISSUE_CONCERN_TICKET");
 
     const title = paymentDetails
       ? formatPaymentRequestTitle({
@@ -1053,7 +1031,6 @@ export function AgentWorkspace({
       requisitionProceduralLabel ??
       fundTransferProceduralLabel ??
       jobOrderProceduralLabel ??
-      acaProceduralLabelText ??
       null;
 
     const fields: TicketPrintField[] = [];
@@ -1219,54 +1196,6 @@ export function AgentWorkspace({
           });
         }
       }
-    } else if (showAcaLayout) {
-      fields.push(
-        {
-          label: "Department / Store",
-          value: acaDetails?.departmentStore || acaApprovalMeta?.departmentStore || "—",
-        },
-        {
-          label: "Nature of request",
-          value: acaDetails?.natureOfRequest || acaApprovalMeta?.natureOfRequest || "—",
-        },
-        {
-          label: "Estimated cost",
-          value:
-            formatAcaPeso(acaDetails?.estimatedCost) ||
-            formatAcaPeso(acaApprovalMeta?.estimatedCost) ||
-            "—",
-        },
-        {
-          label: "Budget amount",
-          value:
-            formatAcaPeso(acaDetails?.budgetAmount) ||
-            formatAcaPeso(acaApprovalMeta?.budgetAmount) ||
-            "—",
-        },
-        { label: "Date submitted", value: acaDetails?.dateSubmitted || "—" },
-        {
-          label: "Implementation date",
-          value: acaDetails?.implementationDate || acaApprovalMeta?.implementationDate || "—",
-        },
-      );
-      const desc = acaDetails?.description || acaApprovalMeta?.description || "";
-      const objective = acaDetails?.objective || acaApprovalMeta?.objective || "";
-      notes = [desc && `Description:\n${desc}`, objective && `Objective:\n${objective}`]
-        .filter(Boolean)
-        .join("\n\n");
-      if (acaApprovalMeta) {
-        for (const level of acaApprovalMeta.levels) {
-          if (level.key === "SUBMITTED_BY") continue;
-          if (!acaLevelShowsInExeComTable(level.roleCode)) continue;
-          approvals.push({
-            label: level.label,
-            name: level.agentId
-              ? acaApprovalAgentNames[level.agentId]?.trim() || "Unknown"
-              : "—",
-            done: Boolean(level.approvedAt),
-          });
-        }
-      }
     } else {
       notes = cleanedDescription || ticket.description || null;
     }
@@ -1284,7 +1213,7 @@ export function AgentWorkspace({
       notes,
       approvals,
       meta: [
-        { label: isAcaRequest ? "Submitted By" : "Requestor", value: ticket.contactName?.trim() || "—" },
+        { label: "Requestor", value: ticket.contactName?.trim() || "—" },
         { label: "Company", value: ticket.team?.name?.trim() || "—" },
         {
           label: "Assignee",
@@ -1297,16 +1226,13 @@ export function AgentWorkspace({
     paymentDetails,
     requisitionDetails,
     fundTransferDetails,
-    acaDetails,
     jobOrderDetails,
     isJobOrderRequest,
-    isAcaRequest,
     cleanedDescription,
     paymentProceduralLabel,
     requisitionProceduralLabel,
     fundTransferProceduralLabel,
     jobOrderProceduralLabel,
-    acaProceduralLabelText,
     paymentApprovalMeta,
     paymentApprovalAgentNames,
     itemRequisitionApprovalMeta,
@@ -1315,11 +1241,8 @@ export function AgentWorkspace({
     fundTransferApprovalAgentNames,
     jobOrderApprovalMeta,
     jobOrderApprovalAgentNames,
-    acaApprovalMeta,
-    acaApprovalAgentNames,
     isRequisitionRequest,
     isJobOrderRequest,
-    showAcaLayout,
     requisitionListedItemsTotal,
     createdAtLabel,
   ]);
@@ -1379,10 +1302,6 @@ export function AgentWorkspace({
           ) : jobOrderProceduralLabel ? (
             <p className="mt-2 inline-flex rounded-full border border-amber-400/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-200">
               {jobOrderProceduralLabel}
-            </p>
-          ) : acaProceduralLabelText ? (
-            <p className="mt-2 inline-flex rounded-full border border-amber-400/40 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-amber-800 dark:text-amber-200">
-              {acaProceduralLabelText}
             </p>
           ) : null}
           {paymentDetails && linkedTravelOrderRef ? (
@@ -1978,86 +1897,32 @@ export function AgentWorkspace({
                 </div>
               ) : null}
             </div>
-          ) : showAcaLayout ? (
-            <div className="mt-3 grid grid-cols-1 gap-4 border border-zinc-300 bg-white p-3 text-sm dark:border-zinc-700 dark:bg-zinc-950/40 sm:grid-cols-2 sm:gap-6 sm:p-4">
-              <dl className="space-y-2">
-                <div>
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-                    Department / Store
-                  </dt>
-                  <dd className="mt-0.5 font-medium text-zinc-800 dark:text-zinc-200">
-                    {acaDetails?.departmentStore || acaApprovalMeta?.departmentStore || "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-                    Nature of Request
-                  </dt>
-                  <dd className="mt-0.5 font-medium text-zinc-800 dark:text-zinc-200">
-                    {acaDetails?.natureOfRequest || acaApprovalMeta?.natureOfRequest || "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-                    Estimated Cost
-                  </dt>
-                  <dd className="mt-0.5 font-medium text-zinc-800 dark:text-zinc-200">
-                    {formatAcaPeso(acaDetails?.estimatedCost) ||
-                      formatAcaPeso(acaApprovalMeta?.estimatedCost) ||
-                      "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-                    Budget Amount
-                  </dt>
-                  <dd className="mt-0.5 font-medium text-zinc-800 dark:text-zinc-200">
-                    {formatAcaPeso(acaDetails?.budgetAmount) ||
-                      formatAcaPeso(acaApprovalMeta?.budgetAmount) ||
-                      "—"}
-                  </dd>
-                </div>
-              </dl>
-              <dl className="space-y-2">
-                <div>
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-                    Date Submitted
-                  </dt>
-                  <dd className="mt-0.5 font-medium text-zinc-800 dark:text-zinc-200">
-                    {acaDetails?.dateSubmitted || "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-                    Implementation Date
-                  </dt>
-                  <dd className="mt-0.5 font-medium text-zinc-800 dark:text-zinc-200">
-                    {acaDetails?.implementationDate || acaApprovalMeta?.implementationDate || "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-                    Description
-                  </dt>
-                  <dd className="mt-0.5 whitespace-pre-wrap font-medium text-zinc-800 dark:text-zinc-200">
-                    {acaDetails?.description || acaApprovalMeta?.description || "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500">
-                    Objective
-                  </dt>
-                  <dd className="mt-0.5 whitespace-pre-wrap font-medium text-zinc-800 dark:text-zinc-200">
-                    {acaDetails?.objective || acaApprovalMeta?.objective || "—"}
-                  </dd>
-                </div>
-              </dl>
-            </div>
           ) : (
             <p className="mt-2 max-w-4xl whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-700 sm:text-base dark:text-zinc-300">
               {cleanedDescription}
             </p>
           )}
+          {paymentDetails && paymentApprovalMeta && paymentApprovalUi ? (
+            <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800/80">
+              <ApprovalStepper
+                steps={paymentApprovalUi.steps}
+                canAct={
+                  isAgentViewer &&
+                  paymentApprovalUi.canAct &&
+                  canMarkCurrentPaymentDone
+                }
+                busy={busy}
+                approveLabel={
+                  currentStepNeedsApprovedAck
+                    ? "Done"
+                    : currentPaymentStep
+                      ? `Complete ${PAYMENT_APPROVAL_STEP_LABELS[currentPaymentStep]}`
+                      : "Approve"
+                }
+                onApprove={() => patch({ action: "complete_payment_approval_step" })}
+              />
+            </div>
+          ) : null}
           {paymentDetails && paymentApprovalMeta ? (
             <div
               className={`mt-4 grid grid-cols-1 items-start gap-x-4 gap-y-3 border-t border-zinc-200 pt-4 sm:grid-cols-2 dark:border-zinc-800/80 ${
@@ -2117,21 +1982,43 @@ export function AgentWorkspace({
                             Approved recorded. Click Done to hand off to the next role.
                           </p>
                         ) : null}
-                        <button
-                          type="button"
-                          disabled={busy || !canMarkCurrentPaymentDone}
-                          onClick={() => patch({ action: "complete_payment_approval_step" })}
-                          className="min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
-                        >
-                          {currentStepNeedsApprovedAck
-                            ? "Done"
-                            : `Complete ${PAYMENT_APPROVAL_STEP_LABELS[currentPaymentStep]}`}
-                        </button>
+                        {paymentApprovalUi ? null : (
+                          <button
+                            type="button"
+                            disabled={busy || !canMarkCurrentPaymentDone}
+                            onClick={() => patch({ action: "complete_payment_approval_step" })}
+                            className="min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+                          >
+                            {currentStepNeedsApprovedAck
+                              ? "Done"
+                              : `Complete ${PAYMENT_APPROVAL_STEP_LABELS[currentPaymentStep]}`}
+                          </button>
+                        )}
                       </div>
                     ) : null}
                   </div>
                 );
               })}
+            </div>
+          ) : null}
+          {requisitionDetails && itemRequisitionApprovalMeta && itemRequisitionApprovalUi ? (
+            <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800/80">
+              <ApprovalStepper
+                steps={itemRequisitionApprovalUi.steps}
+                canAct={isAgentViewer && itemRequisitionApprovalUi.canAct}
+                busy={busy}
+                approveLabel={
+                  currentRequisitionStep
+                    ? `Complete ${ITEM_REQUISITION_APPROVAL_STEP_LABELS[currentRequisitionStep]}`
+                    : "Approve"
+                }
+                onApprove={() =>
+                  patch({
+                    action: "complete_item_requisition_approval_step",
+                    items: pricingDraft,
+                  })
+                }
+              />
             </div>
           ) : null}
           {requisitionDetails && itemRequisitionApprovalMeta ? (
@@ -2159,23 +2046,40 @@ export function AgentWorkspace({
                       {name ?? "—"}
                     </p>
                     {step === currentRequisitionStep && canCompleteCurrentRequisitionStep ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          patch({
-                            action: "complete_item_requisition_approval_step",
-                            items: pricingDraft,
-                          })
-                        }
-                        className="mt-2 min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
-                      >
-                        Complete {ITEM_REQUISITION_APPROVAL_STEP_LABELS[currentRequisitionStep]}
-                      </button>
+                      itemRequisitionApprovalUi ? null : (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            patch({
+                              action: "complete_item_requisition_approval_step",
+                              items: pricingDraft,
+                            })
+                          }
+                          className="mt-2 min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+                        >
+                          Complete {ITEM_REQUISITION_APPROVAL_STEP_LABELS[currentRequisitionStep]}
+                        </button>
+                      )
                     ) : null}
                   </div>
                 );
               })}
+            </div>
+          ) : null}
+          {fundTransferDetails && fundTransferApprovalMeta && fundTransferApprovalUi ? (
+            <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800/80">
+              <ApprovalStepper
+                steps={fundTransferApprovalUi.steps}
+                canAct={isAgentViewer && fundTransferApprovalUi.canAct}
+                busy={busy}
+                approveLabel={
+                  currentFundTransferStep
+                    ? `Complete ${FUND_TRANSFER_APPROVAL_STEP_LABELS[currentFundTransferStep]}`
+                    : "Approve"
+                }
+                onApprove={() => patch({ action: "complete_fund_transfer_approval_step" })}
+              />
             </div>
           ) : null}
           {fundTransferDetails && fundTransferApprovalMeta ? (
@@ -2204,18 +2108,38 @@ export function AgentWorkspace({
                       {name ?? "—"}
                     </p>
                     {step === currentFundTransferStep && canCompleteCurrentFundTransferStep ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => patch({ action: "complete_fund_transfer_approval_step" })}
-                        className="mt-2 min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
-                      >
-                        Complete {FUND_TRANSFER_APPROVAL_STEP_LABELS[currentFundTransferStep]}
-                      </button>
+                      fundTransferApprovalUi ? null : (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => patch({ action: "complete_fund_transfer_approval_step" })}
+                          className="mt-2 min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+                        >
+                          Complete {FUND_TRANSFER_APPROVAL_STEP_LABELS[currentFundTransferStep]}
+                        </button>
+                      )
                     ) : null}
                   </div>
                 );
               })}
+            </div>
+          ) : null}
+          {isJobOrderRequest && jobOrderApprovalMeta && jobOrderApprovalUi ? (
+            <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800/80">
+              <ApprovalStepper
+                steps={jobOrderApprovalUi.steps}
+                canAct={isAgentViewer && jobOrderApprovalUi.canAct}
+                busy={busy}
+                approveLabel="Done"
+                blockedHint={
+                  canCompleteCurrentJobOrderStep && jobOrderLastStepNeedsJobDone
+                    ? "Mark Job Done before completing the final Approved By."
+                    : canCompleteCurrentJobOrderStep && jobOrderLastStepNeedsJobOutput
+                      ? "Upload Job Output before completing the final approval."
+                      : null
+                }
+                onApprove={() => patch({ action: "complete_job_order_approval_step" })}
+              />
             </div>
           ) : null}
           {isJobOrderRequest && jobOrderApprovalMeta ? (
@@ -2248,237 +2172,34 @@ export function AgentWorkspace({
                       {name ?? "—"}
                     </p>
                     {step === currentJobOrderStep && canCompleteCurrentJobOrderStep ? (
-                      <div className="mt-2 space-y-1">
-                        {jobOrderLastStepNeedsJobDone ? (
-                          <p className="text-[10px] font-medium text-amber-800 dark:text-amber-200">
-                            Mark Job Done before completing the final Approved By.
-                          </p>
-                        ) : null}
-                        {jobOrderLastStepNeedsJobOutput ? (
-                          <p className="text-[10px] font-medium text-amber-800 dark:text-amber-200">
-                            Upload Job Output before completing the final approval.
-                          </p>
-                        ) : null}
-                        <button
-                          type="button"
-                          disabled={
-                            busy || jobOrderLastStepNeedsJobOutput || jobOrderLastStepNeedsJobDone
-                          }
-                          onClick={() => patch({ action: "complete_job_order_approval_step" })}
-                          className="min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
-                        >
-                          Done
-                        </button>
-                      </div>
+                      jobOrderApprovalUi ? null : (
+                        <div className="mt-2 space-y-1">
+                          {jobOrderLastStepNeedsJobDone ? (
+                            <p className="text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                              Mark Job Done before completing the final Approved By.
+                            </p>
+                          ) : null}
+                          {jobOrderLastStepNeedsJobOutput ? (
+                            <p className="text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                              Upload Job Output before completing the final approval.
+                            </p>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={
+                              busy || jobOrderLastStepNeedsJobOutput || jobOrderLastStepNeedsJobDone
+                            }
+                            onClick={() => patch({ action: "complete_job_order_approval_step" })}
+                            className="min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      )
                     ) : null}
                   </div>
                 );
               })}
-            </div>
-          ) : null}
-          {acaApprovalMeta ? (
-            <div className="mt-4 space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-800/80">
-              {(() => {
-                const proceduralLevels = acaApprovalMeta.levels.filter((level) =>
-                  acaLevelShowsInHorizontalApproval(level.roleCode, level.key),
-                );
-                const tableLevels = acaApprovalMeta.levels.filter((level) =>
-                  acaLevelShowsInExeComTable(level.roleCode),
-                );
-                return (
-                  <>
-                    {proceduralLevels.length > 0 ? (
-                      <div className="grid grid-cols-1 items-start gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {proceduralLevels.map((level) => {
-                          const name = level.agentId
-                            ? acaApprovalAgentNames[level.agentId]?.trim() || "Unknown"
-                            : "—";
-                          const done = Boolean(level.approvedAt);
-                          const current = acaApprovalMeta.proceduralStep === level.key;
-                          return (
-                            <div key={level.key} className="min-w-0 self-start">
-                              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-500">
-                                {acaHorizontalApprovalLabel(level)}
-                              </p>
-                              <p
-                                className={`mt-1 break-words text-sm font-medium leading-snug ${
-                                  done
-                                    ? "text-emerald-800 dark:text-emerald-300"
-                                    : current
-                                      ? "text-amber-800 dark:text-amber-300"
-                                      : name !== "—"
-                                        ? "text-zinc-800 dark:text-zinc-200"
-                                        : "text-zinc-400 dark:text-zinc-600"
-                                }`}
-                              >
-                                {name}
-                              </p>
-                              {done && level.approvedAt ? (
-                                <p className="mt-0.5 text-[10px] text-zinc-500 dark:text-zinc-500">
-                                  {new Date(level.approvedAt).toLocaleString(undefined, {
-                                    dateStyle: "medium",
-                                    timeStyle: "short",
-                                  })}
-                                </p>
-                              ) : current ? (
-                                <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-amber-700 dark:text-amber-400">
-                                  Current
-                                </p>
-                              ) : null}
-                              {current && canCompleteCurrentAcaStep && !acaRequiresFeedback ? (
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() => patch({ action: "complete_aca_approval_step" })}
-                                  className="mt-2 min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
-                                >
-                                  Done
-                                </button>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-
-                    {tableLevels.length > 0 ? (
-                      <div className="overflow-x-auto rounded-lg border border-zinc-300 dark:border-zinc-700">
-                        <table className="min-w-full text-left text-sm">
-                          <thead className="bg-zinc-100 text-[10px] font-bold uppercase tracking-[0.12em] text-zinc-500 dark:bg-zinc-900/60 dark:text-zinc-400">
-                            <tr>
-                              <th className="border-b border-zinc-300 px-3 py-2 dark:border-zinc-700">
-                                Role
-                              </th>
-                              <th className="border-b border-zinc-300 px-3 py-2 dark:border-zinc-700">
-                                Name
-                              </th>
-                              <th className="border-b border-zinc-300 px-3 py-2 dark:border-zinc-700">
-                                Comment
-                              </th>
-                              <th className="border-b border-zinc-300 px-3 py-2 dark:border-zinc-700">
-                                Action / Date
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                            {tableLevels.map((level) => {
-                              const name = level.agentId
-                                ? acaApprovalAgentNames[level.agentId]?.trim() || "Unknown"
-                                : "—";
-                              const done = Boolean(level.approvedAt);
-                              const current = acaApprovalMeta.proceduralStep === level.key;
-                              return (
-                                <tr
-                                  key={level.key}
-                                  className={
-                                    current ? "bg-amber-50/80 dark:bg-amber-950/20" : undefined
-                                  }
-                                >
-                                  <td className="px-3 py-2 font-medium text-zinc-800 dark:text-zinc-200">
-                                    {level.label}
-                                  </td>
-                                  <td
-                                    className={`px-3 py-2 ${
-                                      done
-                                        ? "text-emerald-800 dark:text-emerald-300"
-                                        : "text-zinc-800 dark:text-zinc-200"
-                                    }`}
-                                  >
-                                    {name}
-                                  </td>
-                                  <td className="px-3 py-2 text-zinc-700 dark:text-zinc-300">
-                                    {level.comment?.trim() || "—"}
-                                  </td>
-                                  <td className="px-3 py-2 text-zinc-700 dark:text-zinc-300">
-                                    {level.approvedAt
-                                      ? new Date(level.approvedAt).toLocaleString(undefined, {
-                                          dateStyle: "medium",
-                                          timeStyle: "short",
-                                        })
-                                      : current
-                                        ? "Current"
-                                        : "—"}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : null}
-                  </>
-                );
-              })()}
-              {isAcaProcedureGreenLit(acaApprovalMeta) ? (
-                <div className="space-y-1">
-                  <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-                    Procedural flow complete — request is green-lit
-                  </p>
-                  <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
-                    Valid only for this activity, amount, and implementation period
-                    {acaApprovalMeta.implementationDate
-                      ? ` (${acaApprovalMeta.implementationDate})`
-                      : ""}
-                    {acaApprovalMeta.estimatedCost
-                      ? ` · ${formatAcaPeso(acaApprovalMeta.estimatedCost)}`
-                      : ""}
-                    .
-                  </p>
-                  {(acaApprovalMeta.relatedTicketIds?.length ?? 0) > 0 ||
-                  intakeScreenshots.length > 0 ? (
-                    <div className="space-y-1">
-                      {(acaApprovalMeta.relatedTicketIds?.length ?? 0) > 0 ? (
-                        <p className="text-[11px] text-zinc-600 dark:text-zinc-400">
-                          Related ticket refs: {acaApprovalMeta.relatedTicketIds!.join(", ")}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                  Not green-lit until Recommended By, Finance Manager, and all approving seats are
-                  Done
-                  {acaApprovalMeta.matrixSnapshot?.guidance
-                    ? ` · ${acaApprovalMeta.matrixSnapshot.guidance}`
-                    : ""}
-                </p>
-              )}
-              {canCompleteCurrentAcaStep && acaRequiresFeedback ? (
-                <div className="mt-4 space-y-2 rounded-lg border border-orange-300/50 bg-orange-50/80 p-3 dark:border-orange-800/60 dark:bg-orange-950/20">
-                  <p className="text-xs font-semibold text-orange-900 dark:text-orange-200">
-                    Feedback required before approval
-                  </p>
-                  <p className="text-[11px] text-orange-800/90 dark:text-orange-300/90">
-                    AP 4 / 4 ExeComs / All ExeCom seats must leave feedback before marking Done.
-                    Current seat: {currentAcaStep?.label}
-                  </p>
-                  <label className="block text-[11px] font-semibold text-zinc-600 dark:text-zinc-400">
-                    Feedback
-                    <textarea
-                      value={acaDoneComment}
-                      onChange={(e) => setAcaDoneComment(e.target.value)}
-                      rows={3}
-                      required
-                      className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-orange-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-                      placeholder="Enter your feedback / comments for this approval"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    disabled={busy || !acaDoneComment.trim()}
-                    onClick={() =>
-                      patch({
-                        action: "complete_aca_approval_step",
-                        comment: acaDoneComment.trim(),
-                      })
-                    }
-                    className="min-h-9 w-full rounded-lg border border-emerald-500/50 bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
-                  >
-                    Done
-                  </button>
-                </div>
-              ) : null}
             </div>
           ) : null}
           {intakeScreenshots.length > 0 || canAddAttachments || (isJobOrderApprovalRequest && !isJobOrderExecutionOpen) ? (
@@ -2608,13 +2329,8 @@ export function AgentWorkspace({
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-500">
-                        {isAcaRequest ? "Related documents" : "Attachments"}
+                        Attachments
                       </p>
-                      {(acaApprovalMeta?.relatedTicketIds?.length ?? 0) > 0 && isAcaRequest ? (
-                        <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                          Ticket refs: {acaApprovalMeta!.relatedTicketIds!.join(", ")}
-                        </p>
-                      ) : null}
                       {canAddAttachments ? (
                         <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
                           {`Add images or documents while this request is open (${intakeScreenshots.length}/${MAX_SCREENSHOT_COUNT}).`}
@@ -2697,15 +2413,6 @@ export function AgentWorkspace({
                   ) : null}
                 </>
               )}
-            </div>
-          ) : isAcaRequest && (acaApprovalMeta?.relatedTicketIds?.length ?? 0) > 0 ? (
-            <div className="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800/80">
-              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-500">
-                Related documents
-              </p>
-              <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                Ticket refs: {acaApprovalMeta!.relatedTicketIds!.join(", ")}
-              </p>
             </div>
           ) : null}
         </div>
@@ -2859,34 +2566,29 @@ export function AgentWorkspace({
                   </p>
                 ) : null}
                 {canApproveTransfer ? (
-                  <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                        patch({
-                          action: "approve_transfer",
-                          note: "Transfer accepted — assigned to preferred recipient.",
-                        })
-                }
-                      className="min-h-10 w-full rounded-lg border border-emerald-500/70 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
-              >
-                      Assign to preferred recipient
-              </button>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        patch({
-                          action: "reject_transfer",
-                          note: "Transfer declined — returned to requester.",
-                        })
-                      }
-                      className="min-h-10 w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:bg-zinc-900"
-                    >
-                      Return to requester
-                    </button>
-                  </div>
+                  <ApprovalStepper
+                    steps={transferApprovalUiSteps({
+                      fromAgentName: pendingTransfer?.fromAgentName,
+                      recipientAgentName: pendingTransfer?.recipientAgentName,
+                    })}
+                    canAct={isAgentViewer}
+                    busy={busy}
+                    compact
+                    approveLabel="Assign to preferred recipient"
+                    returnLabel="Return to requester"
+                    onApprove={() =>
+                      patch({
+                        action: "approve_transfer",
+                        note: "Transfer accepted — assigned to preferred recipient.",
+                      })
+                    }
+                    onReturn={() =>
+                      patch({
+                        action: "reject_transfer",
+                        note: "Transfer declined — returned to requester.",
+                      })
+                    }
+                  />
                 ) : (
                   <p className="text-[11px] text-rose-700 dark:text-rose-200/80">
                     An admin can reassign this from Assign Requests, or return it to the original
@@ -3117,21 +2819,6 @@ export function AgentWorkspace({
                   : paymentApprovalMeta?.skipNotedBy
                     ? " Approved By uses Approve beside their name."
                     : " Noted By and Approved By use Approve beside their name."}
-              </p>
-            ) : null}
-
-            {isAcaRequest && canCompleteCurrentAcaStep ? (
-              <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300">
-                {acaRequiresFeedback
-                  ? "This seat needs your feedback before approval — use the feedback box and Done button under your name in the approvals above."
-                  : "Use the Done button under your name in the approvals above to complete this seat."}
-              </p>
-            ) : null}
-
-            {isAcaRequest && !canCompleteCurrentAcaStep && acaProceduralLabelText ? (
-              <p className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-[11px] font-medium text-amber-800 dark:text-amber-200">
-                {acaProceduralLabelText} — not green-lit yet. Waiting on the current ACA assignee to
-                mark Done.
               </p>
             ) : null}
 

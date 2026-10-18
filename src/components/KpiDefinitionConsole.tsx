@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DatePickerField } from "@/components/ui/DatePickerField";
 import { cn } from "@/lib/cn";
-import { JOB_ORDER_REQUEST_PILLAR_TITLE, isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
-import { DEFAULT_TIME_ZONE, type KpiFrequencyCode } from "@/lib/kpi-recurrence";
+import { JOB_ORDER_REQUEST_PILLAR_TITLE, isItProjectImplementationPillar } from "@/modules/tasks/it-task-pillar-titles";
+import { DEFAULT_TIME_ZONE, type KpiFrequencyCode } from "@/modules/tasks/kpi-recurrence";
 import {
   MIN_SEGMENTED_SUBKPIS_FOR_CREATE,
   ensureUnsegmentedSegment,
@@ -14,8 +14,8 @@ import {
   UNSEGMENTED_SEGMENT_ID,
   UNSEGMENTED_SEGMENT_LABEL,
   type SubKpiItem as SubKpi,
-} from "@/lib/kpi-subkpis";
-import type { SubKpiCompletionRequirements } from "@/lib/sub-kpi-completion-mode";
+} from "@/modules/tasks/kpi-subkpis";
+import type { SubKpiCompletionRequirements } from "@/modules/tasks/sub-kpi-completion-mode";
 import { DraftSubTasksPopup } from "@/components/task-board/DraftSubTasksPopup";
 import { ListChecks } from "lucide-react";
 

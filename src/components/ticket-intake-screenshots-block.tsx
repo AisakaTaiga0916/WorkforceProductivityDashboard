@@ -2,7 +2,7 @@ import { FileText } from "lucide-react";
 import {
   isIntakeAttachmentImage,
   parseIntakeScreenshotMeta,
-} from "@/lib/ticket-intake-screenshots-meta";
+} from "@/modules/requests/ticket-intake-screenshots-meta";
 
 export function TicketIntakeScreenshotsBlock({
   ticketId,

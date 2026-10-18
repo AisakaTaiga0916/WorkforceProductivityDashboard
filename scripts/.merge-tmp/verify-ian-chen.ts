@@ -1,4 +1,4 @@
-import { prismaAuth, prismaPrimary, prismaSecondary } from "../../src/lib/prisma";
+import { prismaAuth, prismaPrimary, prismaSecondary } from "../../src/modules/platform/db/prisma";
 
 async function main() {
   const merged = await prismaSecondary.$queryRaw<

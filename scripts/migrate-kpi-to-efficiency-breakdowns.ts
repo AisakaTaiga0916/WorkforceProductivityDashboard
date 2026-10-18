@@ -7,8 +7,8 @@
  *   npx tsx scripts/migrate-kpi-to-efficiency-breakdowns.ts           # dry-run
  *   npx tsx scripts/migrate-kpi-to-efficiency-breakdowns.ts --apply
  */
-import { runMigrateKpiToEfficiencyBreakdowns } from "../src/lib/efficiency/migrate-kpi-to-efficiency";
-import { prismaPrimary } from "../src/lib/prisma";
+import { runMigrateKpiToEfficiencyBreakdowns } from "../src/modules/tasks/efficiency/migrate-kpi-to-efficiency";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const apply = process.argv.includes("--apply");

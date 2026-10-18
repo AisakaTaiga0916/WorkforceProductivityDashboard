@@ -1,4 +1,4 @@
-import { prismaPrimary, prismaAuth } from "../../src/lib/prisma";
+import { prismaPrimary, prismaAuth } from "../../src/modules/platform/db/prisma";
 
 async function main() {
   const agents = await prismaPrimary.agent.findMany({

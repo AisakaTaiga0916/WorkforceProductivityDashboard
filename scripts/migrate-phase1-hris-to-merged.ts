@@ -13,7 +13,7 @@
  *   HRIS_MERGE_SOURCE_TAG=hrisdemo
  */
 import { runPhase1HrisToMerged } from "../src/lib/sync/phase1-hris-to-merged";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const apply = process.argv.includes("--apply");

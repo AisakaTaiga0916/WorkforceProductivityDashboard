@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isHrSectionName } from "@/lib/hr-section-name";
+import { isHrSectionName } from "@/modules/hierarchy/hr-section-name";
 
 describe("isHrSectionName", () => {
   it("matches exact allowlist names", () => {

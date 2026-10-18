@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { prisma } from "@/lib/prisma";
-import { isTravelOrderRunning, isTravelOrderTraveler } from "@/lib/travel-order";
-import { findTravelOrderById, serializeTravelOrder } from "@/lib/travel-order-db";
-import { finalizeFieldAssignmentKpiFromTravelOrder } from "@/lib/travel-order-kpi-finalize";
-import { isWorkPlanOrder } from "@/lib/work-plan";
+import { prisma } from "@/modules/platform/db/prisma";
+import { isTravelOrderRunning, isTravelOrderTraveler } from "@/modules/work-plans/travel-order";
+import { findTravelOrderById, serializeTravelOrder } from "@/modules/work-plans/travel-order-db";
+import { finalizeFieldAssignmentKpiFromTravelOrder } from "@/modules/work-plans/travel-order-kpi-finalize";
+import { isWorkPlanOrder } from "@/modules/work-plans/work-plan";
 
 /**
  * POST /api/kpi-maintenance/:id/travel-orders/:travelOrderId/submit-done
@@ -17,6 +18,8 @@ export async function POST(
 ) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("work_plans");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   const { id, travelOrderId } = await ctx.params;
 

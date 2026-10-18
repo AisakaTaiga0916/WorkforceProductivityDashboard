@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import type { EfficiencyFrequency } from "@/lib/efficiency/user-efficiency-breakdown";
+import type { EfficiencyFrequency } from "@/modules/tasks/efficiency/user-efficiency-breakdown";
 import {
   createEfficiencyQueryClient,
   getEfficiencyLeaderboard,
   getUserEfficiencyForPeriod,
   getUserEfficiencyTaskBreakdown,
-} from "@/lib/efficiency/user-efficiency-queries";
+} from "@/modules/tasks/efficiency/user-efficiency-queries";
 import { resolveHrisSourceTags } from "@/lib/merged-database-sources";
-import { prismaPrimary } from "@/lib/prisma";
+import { prismaPrimary } from "@/modules/platform/db/prisma";
 
 const FREQ = new Set(["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "LIFETIME"]);
 

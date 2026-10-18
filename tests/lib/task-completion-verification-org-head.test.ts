@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 
 /**
  * Lightweight contract checks for the org-chart head verification policy.

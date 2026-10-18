@@ -10,7 +10,7 @@ import {
   parseAcceptStatuses,
   requestBoardOwnerKey,
   updateRequestBoardColumn,
-} from "@/lib/request-board-columns";
+} from "@/modules/requests/request-board-columns";
 
 type Params = { params: Promise<{ id: string }> };
 

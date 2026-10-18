@@ -24,7 +24,7 @@ import {
   emptyTravelOrderDraft,
   emptyTravelLocation,
   type TravelOrderApprovalLevelStored,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 
 function lvl(
   partial: Partial<TravelOrderApprovalLevelStored> & { level: number; agentId: string },
@@ -193,8 +193,8 @@ describe("inverted approval layer display", () => {
       { level: 2 },
     ]);
     expect(sorted.map((l) => l.level)).toEqual([2, 1]);
-    expect(travelOrderApprovedByLabel(false, 1, 2)).toMatch(/^Layer 3/);
-    expect(travelOrderApprovedByLabel(false, 2, 2)).toMatch(/^Layer 2/);
+    expect(travelOrderApprovedByLabel(false, 1, 2)).toMatch(/^Level 3/);
+    expect(travelOrderApprovedByLabel(false, 2, 2)).toMatch(/^Level 2/);
   });
 
   it("sizes the chain from the layer above the requestor up to Layer 2", () => {

@@ -4,9 +4,9 @@ import {
   expandOrgChartSectionsWithAncestors,
   orderOrgChartSectionsTree,
   resolveOrgChartSectionIdsForMergedUser,
-} from "@/lib/org-chart-section-roster";
-import { resolveMergedSourceUserIdForSessionEmail } from "@/lib/approval-position-resolver";
-import { prisma } from "@/lib/prisma";
+} from "@/modules/hierarchy/org-chart-section-roster";
+import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/hierarchy/approval-position-resolver";
+import { prisma } from "@/modules/platform/db/prisma";
 
 /** Org-chart sections the signed-in user belongs to (for RFP requestor section). */
 export async function GET() {

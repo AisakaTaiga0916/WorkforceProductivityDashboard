@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import {
   setLinkedAccountPassword,
   verifyLinkedAccountPassword,
-} from "@/lib/auth/linked-account-password";
-import { prisma } from "@/lib/prisma";
+} from "@/modules/platform/auth/linked-account-password";
+import { prisma } from "@/modules/platform/db/prisma";
 import { safeGetServerSession } from "@/lib/server-session";
 
 export async function PATCH(req: Request) {

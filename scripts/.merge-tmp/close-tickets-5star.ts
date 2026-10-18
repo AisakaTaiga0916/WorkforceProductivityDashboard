@@ -1,5 +1,5 @@
-import { prisma } from "../../src/lib/prisma";
-import { logActivity } from "../../src/lib/ticket-actions";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { logActivity } from "../../src/modules/requests/ticket-actions";
 
 const numbers = [
   "REQ-2026-00003",

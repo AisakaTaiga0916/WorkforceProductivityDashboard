@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { listKpiActivities } from "@/lib/kpi-activity";
+import { listKpiActivities } from "@/modules/tasks/kpi-activity";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   collectChecklistProgressItems,
   subKpiAssignedAgentId,
-} from "@/lib/kpi-subkpis";
-import { kpiMainTaskLabel } from "@/lib/kpi-main-task";
-import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
-import { itProjectAllItems, parseItProjectSubKpis } from "@/lib/it-project-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
+import { kpiMainTaskLabel } from "@/modules/tasks/kpi-main-task";
+import { isItProjectImplementationPillar } from "@/modules/tasks/it-task-pillar-titles";
+import { itProjectAllItems, parseItProjectSubKpis } from "@/modules/tasks/it-project-subkpis";
 
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);

@@ -11,7 +11,7 @@ import {
 } from "react";
 import { PanelsTopLeft } from "lucide-react";
 import { cn } from "@/lib/cn";
-import type { RequestBoardColumnDto } from "@/lib/request-board-columns-shared";
+import type { RequestBoardColumnDto } from "@/modules/requests/request-board-columns-shared";
 import { RequestBoardColumnManager } from "./request-board-column-manager";
 
 type RequestBoardEditModeContextValue = {

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 async function main() {
   const nodes = await prisma.orgChartNode.findMany({

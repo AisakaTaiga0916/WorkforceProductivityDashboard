@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { customerCanAccessTicket, requireSession } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { TicketRatingForm } from "./ui";
 
 export const dynamic = "force-dynamic";

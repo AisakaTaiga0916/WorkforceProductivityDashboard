@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 const GENERIC_OK = {

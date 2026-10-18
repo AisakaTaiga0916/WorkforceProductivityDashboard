@@ -8,8 +8,8 @@ import {
   setItProjectSubKpiLifecycle,
   setItProjectSubKpiTitle,
   wrapItProjectSubKpis,
-} from "@/lib/it-project-subkpis";
-import { setTaskCount, ensureEnvelope } from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/it-project-subkpis";
+import { setTaskCount, ensureEnvelope } from "@/modules/tasks/kpi-subkpis";
 
 describe("IT project create persistence", () => {
   it("preserves phases through setTaskCount / ensureEnvelope", () => {

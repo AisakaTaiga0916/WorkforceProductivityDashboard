@@ -1,4 +1,4 @@
-import { prismaSecondary } from "../../src/lib/prisma.ts";
+import { prismaSecondary } from "../../src/modules/platform/db/prisma.ts";
 
 void (async () => {
   const freqs = await prismaSecondary.$queryRawUnsafe<

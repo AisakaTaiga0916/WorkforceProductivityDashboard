@@ -12,9 +12,9 @@ import { PrismaClient as PrismaClientSecondary } from "@prisma/client/secondary"
 import {
   canonicalProfileFromMerged,
   syncPortalProfile,
-} from "../src/lib/auth/sync-portal-profile";
-import { mapHrisToPortalRole } from "../src/lib/auth/role-mapping";
-import { prismaAuth, prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+} from "../src/modules/platform/auth/sync-portal-profile";
+import { mapHrisToPortalRole } from "../src/modules/platform/auth/role-mapping";
+import { prismaAuth, prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 import { normalizePortalRole } from "../src/lib/staff-role";
 import {
   bootstrapMysqlUrl,

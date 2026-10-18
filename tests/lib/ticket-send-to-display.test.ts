@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveTicketSendRequestToDisplay } from "@/lib/ticket-send-to-display";
+import { resolveTicketSendRequestToDisplay } from "@/modules/requests/ticket-send-to-display";
 
 describe("resolveTicketSendRequestToDisplay", () => {
   it("uses company activity and label when send-to is company", () => {

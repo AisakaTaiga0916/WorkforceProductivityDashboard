@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { resolveAgentDesignatedCompanyId } from "@/lib/staff-company-scope";
-import { prisma } from "@/lib/prisma";
+import { resolveAgentDesignatedCompanyId } from "@/modules/platform/scope/staff-company-scope";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   agentIdsFromApprovalLevels,
   isDesignatedApprover,
   isTravelOrderTraveler,
   isValidLatLng,
   normalizeApprovalLevelsForStore,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 import {
   createTravelOrderWithLocations,
   findTravelOrderById,
@@ -17,12 +18,12 @@ import {
   serializeTravelOrder,
   updateTravelOrderAttachments,
   updateTravelOrderLocationAttachments,
-} from "@/lib/travel-order-db";
+} from "@/modules/work-plans/travel-order-db";
 import {
   MAX_TRAVEL_ORDER_ATTACHMENTS,
   persistTravelOrderAttachment,
   persistTravelOrderImage,
-} from "@/lib/travel-order-uploads";
+} from "@/modules/work-plans/travel-order-uploads";
 
 /** GET /api/kpi-maintenance/:id/travel-orders — list travel orders for a task. */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -77,6 +78,8 @@ type LocationBody = {
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("work_plans");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   if (!perms.isAdminRole && !perms.canAssignWork) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

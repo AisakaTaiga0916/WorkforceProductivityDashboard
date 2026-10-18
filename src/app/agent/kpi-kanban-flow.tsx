@@ -15,14 +15,14 @@ import {
   recurringIncompleteRolloverEligibleAt,
   recurringIncompleteRolloverHoldDays,
   taskKanbanDerivedStatus,
-} from "@/lib/kpi-cycle-state";
-import { DEFAULT_TIME_ZONE, type KpiFrequencyCode } from "@/lib/kpi-recurrence";
+} from "@/modules/tasks/kpi-cycle-state";
+import { DEFAULT_TIME_ZONE, type KpiFrequencyCode } from "@/modules/tasks/kpi-recurrence";
 import {
   donutKeyForTaskMetricsRow,
   FIELD_ASSIGNMENT_DONUT_KEY,
   PROJECTS_DONUT_KEY,
   TASK_FREQUENCY_DONUT_KEYS,
-} from "@/lib/task-metrics-task-type";
+} from "@/modules/tasks/task-metrics-task-type";
 import {
   IT_PROJECT_PRIORITY_OPTIONS,
   IT_PROJECT_STATUS_OPTIONS,
@@ -36,10 +36,10 @@ import {
   setItProjectSubKpiLifecycle,
   usesProjectTimelineTracker,
   type ItProjectPhase,
-} from "@/lib/it-project-subkpis";
+} from "@/modules/tasks/it-project-subkpis";
 import { ProjectTimelineKanban } from "@/components/task-board/ProjectTimelineKanban";
-import { kpiHasDistinctMainTask, kpiMainTaskLabel } from "@/lib/kpi-main-task";
-import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
+import { kpiHasDistinctMainTask, kpiMainTaskLabel } from "@/modules/tasks/kpi-main-task";
+import { isItProjectImplementationPillar } from "@/modules/tasks/it-task-pillar-titles";
 import {
   kpiChecklistMetricView,
   kpiChecklistProgress,
@@ -77,19 +77,19 @@ import {
   UNSEGMENTED_SEGMENT_LABEL,
   isUnsegmentedSegmentId,
   type SubKpiItem,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 import {
   subKpiAccruedPenalty,
   subKpiPenaltyDays,
   resolveSubKpiDailyPenaltyAmount,
   resolveSubKpiDelayPenaltyFrequency,
   type SubKpiPenaltyContext,
-} from "@/lib/task-delay-penalty";
+} from "@/modules/tasks/task-delay-penalty";
 import {
   DELAY_PENALTY_FREQUENCIES,
   delayPenaltyFrequencyLabel,
   type DelayPenaltyFrequency,
-} from "@/lib/delay-penalty-frequency";
+} from "@/modules/tasks/delay-penalty-frequency";
 import {
   hasBeforeAndAfterScreenshots,
   hasNumericalRecord,
@@ -103,15 +103,15 @@ import {
   subKpiRequirementsMet,
   type SubKpiCompletionMode,
   type SubKpiCompletionRequirements,
-} from "@/lib/sub-kpi-completion-mode";
+} from "@/modules/tasks/sub-kpi-completion-mode";
 import { hasValidActualDate } from "@/lib/us-date-format";
 import {
   MAX_TASK_SCREENSHOT_BYTES,
   MAX_TASK_SCREENSHOTS_PER_SLOT,
   TASK_SCREENSHOT_ACCEPT,
-} from "@/lib/task-screenshot-constants";
-import type { TaskScreenshotSlot } from "@/lib/task-screenshot-meta";
-import { parseTaskScreenshotMetaList } from "@/lib/task-screenshot-meta";
+} from "@/modules/tasks/task-screenshot-constants";
+import type { TaskScreenshotSlot } from "@/modules/tasks/task-screenshot-meta";
+import { parseTaskScreenshotMetaList } from "@/modules/tasks/task-screenshot-meta";
 import { KpiDefinitionConsole } from "@/components/KpiDefinitionConsole";
 import { SeekAssistanceModal } from "@/components/task-board/SeekAssistanceModal";
 import { SubTasksManagerPopup } from "@/components/task-board/SubTasksManagerPopup";
@@ -121,8 +121,8 @@ import { TravelOrderApprovalModal } from "@/components/task-board/TravelOrderApp
 import { TravelOrderRfpEditModal } from "@/components/task-board/TravelOrderRfpEditModal";
 import { TravelOrderOfflineBanner } from "@/components/offline/TravelOrderOfflineBanner";
 import { TaskBoardPopup } from "@/components/task-board/TaskBoardPopup";
-import type { TravelOrderDto } from "@/lib/travel-order";
-import { isWorkPlanOrder } from "@/lib/work-plan";
+import type { TravelOrderDto } from "@/modules/work-plans/travel-order";
+import { isWorkPlanOrder } from "@/modules/work-plans/work-plan";
 import {
   cacheTravelOrders,
   deleteOfflineDraft,
@@ -133,6 +133,8 @@ import {
 import { isElevatedPlatformRole, isPlatformSuperAdminPortalRole } from "@/lib/staff-role";
 import { isBrowserOnline, fetchTravelOrderWithTimeout, isTravelOrderNetworkFailure, flushTravelOrderPendingQueue, subscribeTravelOrderConnectivity } from "@/lib/offline/travel-order-sync";
 import { DatePickerField } from "@/components/ui/DatePickerField";
+import { ApprovalStepper } from "@/components/ui/approval-stepper";
+import { taskCompletionVerificationUiSteps } from "@/modules/tasks/task-completion-verification-ui";
 import {
   COMPLETION_VERIFICATION,
   isCompletionEffectivelyVerified,
@@ -141,7 +143,7 @@ import {
   isSubKpiVerificationRejected,
   laneStatusLabel,
   type KpiBoardLaneStatus,
-} from "@/lib/task-completion-verification";
+} from "@/modules/tasks/task-completion-verification";
 
 type KpiBoardStatus = KpiBoardLaneStatus;
 
@@ -558,6 +560,8 @@ export function AgentKpiKanbanFlow({
   const [canEditRunningTasks, setCanEditRunningTasks] = useState(false);
   const [operatorAgentId, setOperatorAgentId] = useState<string | null>(null);
   const [operatorAgentName, setOperatorAgentName] = useState<string | null>(null);
+  /** RBAC permissions from /api/me/permissions; null = not loaded yet (treated as allow). */
+  const [rbacPermissions, setRbacPermissions] = useState<ReadonlySet<string> | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   /** Screenshot up/down only — must not freeze board drag or unrelated controls. */
   const [mediaBusyId, setMediaBusyId] = useState<string | null>(null);
@@ -579,10 +583,6 @@ export function AgentKpiKanbanFlow({
     Array<{ id: string; author: string; summary: string; detail: string | null; createdAt: string }>
   >([]);
   const [taskAuditLoading, setTaskAuditLoading] = useState(false);
-  const [verificationRejectComment, setVerificationRejectComment] = useState("");
-  const [verificationRejectOpen, setVerificationRejectOpen] = useState(false);
-  /** Task id whose reject form is open inside the For My Approval modal. */
-  const [approvalRejectTaskId, setApprovalRejectTaskId] = useState<string | null>(null);
   const [subTasksManagerTaskId, setSubTasksManagerTaskId] = useState<string | null>(null);
   const [seekAssistModal, setSeekAssistModal] = useState<{
     kpiId: string;
@@ -752,12 +752,18 @@ export function AgentKpiKanbanFlow({
         const p = (await permRes.json()) as {
           operatorAgentId?: string | null;
           operatorAgentName?: string | null;
+          permissions?: unknown;
         };
         if (typeof p.operatorAgentId === "string" && p.operatorAgentId.trim()) {
           setOperatorAgentId(p.operatorAgentId);
         }
         if (typeof p.operatorAgentName === "string" && p.operatorAgentName.trim()) {
           setOperatorAgentName(p.operatorAgentName);
+        }
+        if (Array.isArray(p.permissions)) {
+          setRbacPermissions(
+            new Set(p.permissions.filter((key): key is string => typeof key === "string")),
+          );
         }
       }
       if (agentsRes.ok) {
@@ -1005,8 +1011,6 @@ export function AgentKpiKanbanFlow({
   function closeActiveTask() {
     setActiveTaskId(null);
     activeTaskSnapshotRef.current = null;
-    setVerificationRejectOpen(false);
-    setVerificationRejectComment("");
     setDetailSegmentFilter("ALL");
     setScheduleDraft(null);
     setTaskAuditLog([]);
@@ -1365,9 +1369,6 @@ export function AgentKpiKanbanFlow({
         setError(body.error ?? "Could not update verification.");
         return;
       }
-      setVerificationRejectOpen(false);
-      setVerificationRejectComment("");
-      setApprovalRejectTaskId(null);
       await load();
     } finally {
       setBusyId(null);
@@ -1376,6 +1377,8 @@ export function AgentKpiKanbanFlow({
 
   function canVerifyCompletion(r: KpiRecord): boolean {
     if (!taskVerificationEnabled) return false;
+    // Hide Verify controls when the RBAC permission is known to be missing (API enforces too).
+    if (rbacPermissions && !rbacPermissions.has("tasks.verify")) return false;
     // Server marks cards the viewer may approve (incl. pending sub-tasks under their department).
     if (r.viewerCanVerifyCompletion === true) return true;
     if (r.completionVerificationStatus !== COMPLETION_VERIFICATION.PENDING) return false;
@@ -2229,7 +2232,7 @@ export function AgentKpiKanbanFlow({
   const forMyApprovalTasks = useMemo(
     () => rows.filter((row) => canVerifyCompletion(row)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, isElevatedAssign],
+    [rows, isElevatedAssign, rbacPermissions],
   );
 
   const approvalOperatorKey = operatorAgentId?.trim() || "unknown";
@@ -5013,62 +5016,21 @@ export function AgentKpiKanbanFlow({
                   <p className="text-xs text-zinc-700 dark:text-zinc-300">
                     Checklist is complete. As the department head, verify to mark Done, or reject with a comment to return the task to Current.
                   </p>
-                  {!verificationRejectOpen ? (
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={busyId === activeTask.id}
-                        onClick={() => void submitCompletionVerification(activeTask.id, "approve")}
-                        className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-                      >
-                        Verify
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busyId === activeTask.id}
-                        onClick={() => setVerificationRejectOpen(true)}
-                        className="rounded-lg border border-rose-400/60 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-800 hover:bg-rose-500/15 dark:text-rose-200"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <textarea
-                        value={verificationRejectComment}
-                        onChange={(e) => setVerificationRejectComment(e.target.value)}
-                        rows={3}
-                        placeholder="Required: explain why this was returned…"
-                        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
-                      />
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={busyId === activeTask.id || !verificationRejectComment.trim()}
-                          onClick={() =>
-                            void submitCompletionVerification(
-                              activeTask.id,
-                              "reject",
-                              verificationRejectComment,
-                            )
-                          }
-                          className="rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
-                        >
-                          Confirm reject
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setVerificationRejectOpen(false);
-                            setVerificationRejectComment("");
-                          }}
-                          className="rounded-lg border border-zinc-300 px-3 py-2 text-xs font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  <ApprovalStepper
+                    steps={taskCompletionVerificationUiSteps({
+                      submittedAt: activeTask.pendingVerificationAt,
+                    })}
+                    canAct
+                    busy={busyId === activeTask.id}
+                    compact
+                    approveLabel="Verify"
+                    returnLabel="Reject"
+                    requireCommentOnReturn
+                    onApprove={() => void submitCompletionVerification(activeTask.id, "approve")}
+                    onReturn={(comment) =>
+                      void submitCompletionVerification(activeTask.id, "reject", comment)
+                    }
+                  />
                 </div>
               ) : null}
               {canResubmitCompletion(activeTask) ? (
@@ -5079,6 +5041,14 @@ export function AgentKpiKanbanFlow({
                   <p className="text-xs text-zinc-700 dark:text-zinc-300">
                     Address the rejection feedback, then re-submit for verification.
                   </p>
+                  <ApprovalStepper
+                    steps={taskCompletionVerificationUiSteps({
+                      submittedAt: activeTask.pendingVerificationAt,
+                      returned: true,
+                    })}
+                    canAct={false}
+                    compact
+                  />
                   <button
                     type="button"
                     disabled={busyId === activeTask.id}
@@ -5936,9 +5906,6 @@ export function AgentKpiKanbanFlow({
         description="Sub-tasks awaiting verification by the org-chart head of each assignee's department."
         onClose={() => {
           setForMyApprovalOpen(false);
-          setVerificationRejectOpen(false);
-          setVerificationRejectComment("");
-          setApprovalRejectTaskId(null);
         }}
         size="lg"
       >
@@ -5951,10 +5918,6 @@ export function AgentKpiKanbanFlow({
             {forMyApprovalTasks.map((r) => {
               const p = progress(r);
               const pendingSubs = pendingApprovalSubtasks(r);
-              const rejectOpen = approvalRejectTaskId?.startsWith(`${r.id}::`) ?? false;
-              const rejectSubId = approvalRejectTaskId?.startsWith(`${r.id}::`)
-                ? approvalRejectTaskId.slice(`${r.id}::`.length)
-                : "";
               return (
                 <li
                   key={r.id}
@@ -5983,7 +5946,6 @@ export function AgentKpiKanbanFlow({
                       type="button"
                       onClick={() => {
                         setForMyApprovalOpen(false);
-                        setApprovalRejectTaskId(null);
                         openActiveTask(r.id);
                       }}
                       className="shrink-0 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
@@ -5994,7 +5956,6 @@ export function AgentKpiKanbanFlow({
                   {pendingSubs.length > 0 ? (
                     <ul className="mt-3 space-y-2 border-t border-orange-300/40 pt-3 dark:border-orange-500/25">
                       {pendingSubs.map((sub) => {
-                        const subRejectOpen = rejectOpen && rejectSubId === sub.id;
                         return (
                           <li
                             key={sub.id}
@@ -6009,135 +5970,57 @@ export function AgentKpiKanbanFlow({
                                   <p className="text-[11px] text-zinc-500">{sub.assignedAgentName}</p>
                                 ) : null}
                               </div>
-                              {!subRejectOpen ? (
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    disabled={busyId === r.id}
-                                    onClick={() =>
-                                      void submitCompletionVerification(r.id, "approve", undefined, sub.id)
-                                    }
-                                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-                                  >
-                                    Verify
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={busyId === r.id}
-                                    onClick={() => {
-                                      setApprovalRejectTaskId(`${r.id}::${sub.id}`);
-                                      setVerificationRejectComment("");
-                                    }}
-                                    className="rounded-lg border border-rose-400/60 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-500/15 dark:text-rose-200"
-                                  >
-                                    Reject
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-                            {subRejectOpen ? (
-                              <div className="mt-2 space-y-2">
-                                <textarea
-                                  value={verificationRejectComment}
-                                  onChange={(e) => setVerificationRejectComment(e.target.value)}
-                                  rows={3}
-                                  placeholder="Required: explain why this was returned…"
-                                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+                              <div className="w-full min-w-0 sm:max-w-xs">
+                                <ApprovalStepper
+                                  steps={taskCompletionVerificationUiSteps({
+                                    submittedAt: r.pendingVerificationAt,
+                                  })}
+                                  canAct
+                                  busy={busyId === r.id}
+                                  compact
+                                  approveLabel="Verify"
+                                  returnLabel="Reject"
+                                  requireCommentOnReturn
+                                  onApprove={() =>
+                                    void submitCompletionVerification(
+                                      r.id,
+                                      "approve",
+                                      undefined,
+                                      sub.id,
+                                    )
+                                  }
+                                  onReturn={(comment) =>
+                                    void submitCompletionVerification(
+                                      r.id,
+                                      "reject",
+                                      comment,
+                                      sub.id,
+                                    )
+                                  }
                                 />
-                                <div className="flex flex-wrap gap-2">
-                                  <button
-                                    type="button"
-                                    disabled={busyId === r.id || !verificationRejectComment.trim()}
-                                    onClick={() =>
-                                      void submitCompletionVerification(
-                                        r.id,
-                                        "reject",
-                                        verificationRejectComment,
-                                        sub.id,
-                                      )
-                                    }
-                                    className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
-                                  >
-                                    Confirm reject
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setApprovalRejectTaskId(null);
-                                      setVerificationRejectComment("");
-                                    }}
-                                    className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
                               </div>
-                            ) : null}
+                            </div>
                           </li>
                         );
                       })}
                     </ul>
                   ) : (
                     <div className="mt-3 space-y-2 border-t border-orange-300/40 pt-3 dark:border-orange-500/25">
-                      {!rejectOpen ? (
-                        <div className="flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            disabled={busyId === r.id}
-                            onClick={() => void submitCompletionVerification(r.id, "approve")}
-                            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-                          >
-                            Verify
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busyId === r.id}
-                            onClick={() => {
-                              setApprovalRejectTaskId(`${r.id}::`);
-                              setVerificationRejectComment("");
-                            }}
-                            className="rounded-lg border border-rose-400/60 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-800 hover:bg-rose-500/15 dark:text-rose-200"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <textarea
-                            value={verificationRejectComment}
-                            onChange={(e) => setVerificationRejectComment(e.target.value)}
-                            rows={3}
-                            placeholder="Required: explain why this was returned…"
-                            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs text-zinc-900 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
-                          />
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              disabled={busyId === r.id || !verificationRejectComment.trim()}
-                              onClick={() =>
-                                void submitCompletionVerification(
-                                  r.id,
-                                  "reject",
-                                  verificationRejectComment,
-                                )
-                              }
-                              className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
-                            >
-                              Confirm reject
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setApprovalRejectTaskId(null);
-                                setVerificationRejectComment("");
-                              }}
-                              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 dark:border-zinc-600 dark:text-zinc-200"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      <ApprovalStepper
+                        steps={taskCompletionVerificationUiSteps({
+                          submittedAt: r.pendingVerificationAt,
+                        })}
+                        canAct
+                        busy={busyId === r.id}
+                        compact
+                        approveLabel="Verify"
+                        returnLabel="Reject"
+                        requireCommentOnReturn
+                        onApprove={() => void submitCompletionVerification(r.id, "approve")}
+                        onReturn={(comment) =>
+                          void submitCompletionVerification(r.id, "reject", comment)
+                        }
+                      />
                     </div>
                   )}
                 </li>

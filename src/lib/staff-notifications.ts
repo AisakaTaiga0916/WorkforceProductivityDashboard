@@ -1,18 +1,18 @@
 import type { Session } from "next-auth";
 import type { Prisma } from "@prisma/client/primary";
-import { isElevatedUserRole } from "@/lib/auth";
-import { customerTicketWhereBySessionEmail } from "@/lib/customer-pending-resolution";
+import { isElevatedUserRole } from "@/modules/platform/auth";
+import { customerTicketWhereBySessionEmail } from "@/modules/requests/customer-pending-resolution";
 import {
   isItProjectEnvelope,
   isItProjectPhaseDelayed,
   parseItProjectSubKpis,
   phaseDelayNotifyAssignees,
   resolvePhaseEffectiveTargetDate,
-} from "@/lib/it-project-subkpis";
-import { getTaskTargetDueDate } from "@/lib/kpi-subkpis";
-import { DEFAULT_TIME_ZONE, normalizeTimeZone } from "@/lib/kpi-recurrence";
-import { prisma } from "@/lib/prisma";
-import { personnelRequestBoardWhere } from "@/lib/rfp-request-board";
+} from "@/modules/tasks/it-project-subkpis";
+import { getTaskTargetDueDate } from "@/modules/tasks/kpi-subkpis";
+import { DEFAULT_TIME_ZONE, normalizeTimeZone } from "@/modules/tasks/kpi-recurrence";
+import { prisma } from "@/modules/platform/db/prisma";
+import { personnelRequestBoardWhere } from "@/modules/requests/rfp-request-board";
 import { findSessionAgentId } from "@/lib/session-agent";
 import {
   formatTicketActivityNotificationTitle,
@@ -21,12 +21,12 @@ import {
 import {
   getOperatorActionableApprovalLevel,
   hasHierarchicalApprovals,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 import {
   listPendingTravelApprovalsForAgent,
   listPendingTravelConfirmationsForAgent,
-} from "@/lib/travel-order-db";
-import { listPendingVerificationKpiIdsForOrgChartHead } from "@/lib/task-completion-verification-access";
+} from "@/modules/work-plans/travel-order-db";
+import { listPendingVerificationKpiIdsForOrgChartHead } from "@/modules/tasks/task-completion-verification-access";
 
 export type StaffNotifKind =
   | "ticket"
@@ -323,7 +323,7 @@ export async function loadStaffNotificationFeed(args: {
 
   let sectionBoardWhere: Prisma.TicketWhereInput | null = null;
   if (role === "Personnel" || role === "Admin" || role === "HighAdmin") {
-    const { sectionScopedTicketWhere } = await import("@/lib/org-chart-section-scope");
+    const { sectionScopedTicketWhere } = await import("@/modules/platform/scope/org-chart-section-scope");
     sectionBoardWhere = await sectionScopedTicketWhere({
       email,
       agentId: operator?.id,

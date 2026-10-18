@@ -7,8 +7,8 @@ import {
   DEFAULT_REQUEST_TYPE,
   REQUEST_TYPES,
   type RequestTypeId,
-} from "@/lib/request-types";
-import { visibleIntakeRequestTypes } from "@/lib/intake-request-type-visibility";
+} from "@/modules/requests/request-types";
+import { visibleIntakeRequestTypes } from "@/modules/platform/settings/intake-request-type-visibility";
 
 type RequestTypeSelectionProps = {
   value?: RequestTypeId;
@@ -19,7 +19,7 @@ type RequestTypeSelectionProps = {
   disabledTypeIds?: readonly RequestTypeId[];
   /** Fallback hint when a locked type has no entry in `disabledTypeHints`. */
   disabledTypeHint?: string | null;
-  /** Per-type lock messages (e.g. ACA temporarily unavailable). */
+  /** Per-type lock messages. */
   disabledTypeHints?: Partial<Record<RequestTypeId, string>>;
   /** SuperAdmin-hidden types — omitted from the list entirely. */
   hiddenTypeIds?: readonly RequestTypeId[];

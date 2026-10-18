@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { DEFAULT_TIME_ZONE, normalizeTimeZone } from "@/lib/kpi-recurrence";
+import { DEFAULT_TIME_ZONE, normalizeTimeZone } from "@/modules/tasks/kpi-recurrence";
 
 /** @deprecated Idle timeout removed — all roles expire at local midnight. Kept for older imports/tests. */
 export const SESSION_IDLE_MAX_AGE_SECONDS = 30 * 60;

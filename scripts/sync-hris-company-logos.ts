@@ -22,9 +22,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PrismaClient as PrismaClientSecondary } from "@prisma/client/secondary";
-import { resolveRosterCompanyName } from "../src/lib/hris-company-aliases";
+import { resolveRosterCompanyName } from "../src/modules/hierarchy/hris-company-aliases";
 import { MAX_PROFILE_IMAGE_DATA_URL_CHARS } from "../src/lib/profile-image-limits";
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 import { ensureMergedCompaniesSchema } from "./ensure-merged-companies-schema";
 
 const DEFAULT_LOGO_DIRS = [

@@ -5,16 +5,16 @@ import {
   kpiChecklistProgress,
   progressWithInvertedRecording,
   taskUsesInvertedRecording,
-} from "@/lib/kpi-subkpis";
-import { kpiMainTaskLabel } from "@/lib/kpi-main-task";
-import { totalRecordedDataPercent } from "@/lib/sub-kpi-completion-mode";
+} from "@/modules/tasks/kpi-subkpis";
+import { kpiMainTaskLabel } from "@/modules/tasks/kpi-main-task";
+import { totalRecordedDataPercent } from "@/modules/tasks/sub-kpi-completion-mode";
 import {
   alternateGmt8PeriodKey,
   enumeratePeriodKeysForKpiInRange,
   indexSnapshotsByKpiPeriod,
   periodKeysWithGmt8Aliases,
   resolvePeriodKeyForKpi,
-} from "@/lib/kpi-period-snapshots";
+} from "@/modules/tasks/kpi-period-snapshots";
 
 const prisma = new PrismaClient();
 

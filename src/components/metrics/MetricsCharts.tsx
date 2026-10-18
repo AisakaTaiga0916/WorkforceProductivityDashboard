@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { KINETIC_PALETTE, ticketStatusChartColor, TICKET_STATUS_CHART_COLORS } from "@/lib/kinetic-palette";
-import { formatTicketStatusLabel } from "@/lib/ticket-status-label";
+import { formatTicketStatusLabel } from "@/modules/requests/ticket-status-label";
 
 const ORANGE = KINETIC_PALETTE.brand;
 const ZINC_LINE = KINETIC_PALETTE.mutedSubtle;

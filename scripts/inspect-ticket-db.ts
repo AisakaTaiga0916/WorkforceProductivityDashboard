@@ -1,4 +1,4 @@
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const total = await prismaPrimary.ticket.count();

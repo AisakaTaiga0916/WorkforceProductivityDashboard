@@ -11,11 +11,11 @@
  */
 import { DateTime } from "luxon";
 import { PrismaClient as PrismaClientSecondary } from "@prisma/client/secondary";
-import { prisma } from "../../src/lib/prisma";
-import { resolveSecondaryWriteUrl } from "../../src/lib/prisma-secondary-write";
-import { computeTaskMetrics, parseKpiRangeFromQuery } from "../../src/lib/kpis";
-import { loadAgentIdsForCompanyTeam } from "../../src/lib/staff-company-scope";
-import { resolveRosterCompanyName } from "../../src/lib/hris-company-aliases";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { resolveSecondaryWriteUrl } from "../../src/modules/platform/db/prisma-secondary-write";
+import { computeTaskMetrics, parseKpiRangeFromQuery } from "../../src/modules/tasks/kpis";
+import { loadAgentIdsForCompanyTeam } from "../../src/modules/platform/scope/staff-company-scope";
+import { resolveRosterCompanyName } from "../../src/modules/hierarchy/hris-company-aliases";
 import { normalizePersonName } from "../../src/lib/person-name";
 import {
   aggregatePersonnelTaskMetrics,
@@ -24,7 +24,7 @@ import {
   mergePersonnelMetricCards,
   mergePersonnelRequestMetrics,
   combinedPersonnelEfficiency,
-} from "../../src/lib/task-personnel-metrics";
+} from "../../src/modules/tasks/task-personnel-metrics";
 
 async function main() {
   const aciTeam = await prisma.team.findFirst({

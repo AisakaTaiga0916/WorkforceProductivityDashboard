@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 const TICKET = "REQ-2026-00264";
 const FROM_ID = "cmrbdhqpo011011jos69ve29s"; // Lynneth Bautista Mangolayon

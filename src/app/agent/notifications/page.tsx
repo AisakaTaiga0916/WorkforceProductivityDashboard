@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/access";
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { NotificationsHistoryClient } from "@/components/notifications/NotificationsHistoryClient";
 
 export const dynamic = "force-dynamic";

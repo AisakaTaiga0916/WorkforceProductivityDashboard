@@ -1,28 +1,34 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { customerCanAccessTicket, requireSession } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
-import { formatTicketStatusLabel } from "@/lib/ticket-status-label";
-import { requestTypeLabel } from "@/lib/request-types";
-import { paymentProceduralStatusLabel } from "@/lib/request-for-payment-approval";
-import { initPaymentApprovalMetaIfNeeded, loadPaymentApprovalMeta } from "@/lib/payment-approval-db";
-import { itemRequisitionProceduralStatusLabel } from "@/lib/item-requisition-approval";
+import { prisma } from "@/modules/platform/db/prisma";
+import { formatTicketStatusLabel } from "@/modules/requests/ticket-status-label";
+import { requestTypeLabel } from "@/modules/requests/request-types";
+import { paymentProceduralStatusLabel } from "@/modules/requests/request-for-payment-approval";
+import { initPaymentApprovalMetaIfNeeded, loadPaymentApprovalMeta } from "@/modules/requests/payment-approval-db";
+import { itemRequisitionProceduralStatusLabel } from "@/modules/requests/item-requisition-approval";
 import {
   initItemRequisitionApprovalMetaIfNeeded,
   loadItemRequisitionApprovalMeta,
-} from "@/lib/item-requisition-approval-db";
-import { fundTransferProceduralStatusLabel } from "@/lib/fund-transfer-approval";
-import { stampFundTransferCreatorOnCreate } from "@/lib/fund-transfer-approval-db";
-import { jobOrderProceduralStatusLabel } from "@/lib/job-order-approval";
-import { stampJobOrderCreatorOnCreate } from "@/lib/job-order-approval-db";
+} from "@/modules/requests/item-requisition-approval-db";
+import { fundTransferProceduralStatusLabel } from "@/modules/requests/fund-transfer-approval";
+import { stampFundTransferCreatorOnCreate } from "@/modules/requests/fund-transfer-approval-db";
+import { jobOrderProceduralStatusLabel } from "@/modules/requests/job-order-approval";
+import { stampJobOrderCreatorOnCreate } from "@/modules/requests/job-order-approval-db";
 import { AgentWorkspace } from "@/app/agent/tickets/[id]/workspace";
 import { AgentTicketModalShell } from "@/components/ticket/AgentTicketModalShell";
 import { TicketRequestMetaDetails } from "@/components/ticket/TicketRequestMetaDetails";
-import { resolveTicketSendRequestToDisplay } from "@/lib/ticket-send-to-display";
+import { resolveTicketSendRequestToDisplay } from "@/modules/requests/ticket-send-to-display";
 import { CustomerTicketPanel } from "./ui";
 import { ensureTicketLinkedTravelOrderColumn } from "@/lib/ensure-ticket-linked-travel-order-column";
-import { findTravelOrderById } from "@/lib/travel-order-db";
-import { ensureLinkedRfpAccountingDefaults } from "@/lib/travel-order-rfp";
+import { findTravelOrderById } from "@/modules/work-plans/travel-order-db";
+import { ensureLinkedRfpAccountingDefaults } from "@/modules/work-plans/travel-order-rfp";
+import { buildPaymentApprovalUi } from "@/modules/requests/payment-approval-ui-server";
+import { buildItemRequisitionApprovalUi } from "@/modules/requests/item-requisition-ui-server";
+import { buildFundTransferApprovalUi } from "@/modules/requests/fund-transfer-ui-server";
+import { buildJobOrderApprovalUi } from "@/modules/requests/job-order-ui-server";
+import { hasJobOrderJobOutputUploaded } from "@/modules/requests/job-order-attachments";
+import { parseIntakeScreenshotMeta } from "@/modules/requests/ticket-intake-screenshots-meta";
 
 export const dynamic = "force-dynamic";
 
@@ -115,9 +121,6 @@ export default async function TicketPage({
     "requestType" in ticket && typeof (ticket as { requestType?: string }).requestType === "string"
       ? (ticket as { requestType: string }).requestType
       : null;
-  const isAcaRequest =
-    requestTypeId === "AUTHORITY_TO_CONDUCT_ACTIVITY" ||
-    (requestTypeActivity?.detail?.trim().toUpperCase() ?? "").includes("AUTHORITY TO CONDUCT");
   const isPaymentRequest =
     requestTypeId === "REQUEST_FOR_PAYMENT" ||
     (requestTypeActivity?.detail?.trim().toUpperCase() ?? "").includes("REQUEST FOR PAYMENT");
@@ -297,6 +300,50 @@ export default async function TicketPage({
   const requestTypeLabelText =
     requestTypeActivity?.detail?.trim() || requestTypeLabel(requestTypeId ?? "");
 
+  const paymentApprovalUi = paymentApprovalMeta
+    ? await buildPaymentApprovalUi({
+        meta: paymentApprovalMeta,
+        agentNameById: (agentId) =>
+          agentId ? paymentApprovalAgentNames[agentId]?.trim() || null : null,
+        session,
+        operatorAgentId: null,
+        ticketAssignedAgentId: ticket.assignedAgentId,
+      })
+    : null;
+  const itemRequisitionApprovalUi = itemRequisitionApprovalMeta
+    ? await buildItemRequisitionApprovalUi({
+        meta: itemRequisitionApprovalMeta,
+        agentNameById: (agentId) =>
+          agentId ? itemRequisitionApprovalAgentNames[agentId]?.trim() || null : null,
+        session,
+        operatorAgentId: null,
+        ticketAssignedAgentId: ticket.assignedAgentId,
+      })
+    : null;
+  const fundTransferApprovalUi = fundTransferApprovalMeta
+    ? await buildFundTransferApprovalUi({
+        meta: fundTransferApprovalMeta,
+        agentNameById: (agentId) =>
+          agentId ? fundTransferApprovalAgentNames[agentId]?.trim() || null : null,
+        session,
+        operatorAgentId: null,
+        ticketAssignedAgentId: ticket.assignedAgentId,
+      })
+    : null;
+  const jobOrderApprovalUi = jobOrderApprovalMeta
+    ? await buildJobOrderApprovalUi({
+        meta: jobOrderApprovalMeta,
+        agentNameById: (agentId) =>
+          agentId ? jobOrderApprovalAgentNames[agentId]?.trim() || null : null,
+        session,
+        operatorAgentId: null,
+        ticketAssignedAgentId: ticket.assignedAgentId,
+        hasJobOutput: hasJobOrderJobOutputUploaded(
+          parseIntakeScreenshotMeta(ticket.intakeScreenshotMeta),
+        ),
+      })
+    : null;
+
   const isRequestorSession = customerCanAccessTicket(
     { contactEmail: ticket.contactEmail, requestorEmail: ticket.requestorEmail },
     session.user.email,
@@ -354,9 +401,7 @@ export default async function TicketPage({
                 ? "Requested By"
                 : isFundTransferRequest
                   ? "Prepared By"
-                  : isAcaRequest
-                    ? "Submitted By"
-                    : "Requestor"
+                  : "Requestor"
             }
             contactName={ticket.contactName}
             email={ticket.requestorEmail ?? ticket.contactEmail ?? "—"}
@@ -384,6 +429,7 @@ export default async function TicketPage({
             isPaymentRequest={isPaymentRequest}
             paymentApprovalMeta={paymentApprovalMeta}
             paymentApprovalAgentNames={paymentApprovalAgentNames}
+            paymentApprovalUi={paymentApprovalUi}
             linkedTravelOrderRef={linkedTravelOrderRef}
             requestBudgetFromCompanyName={
               isPaymentRequest && linkedTravelOrderRef ? requestingCompany : null
@@ -391,12 +437,15 @@ export default async function TicketPage({
             isRequisitionRequest={isRequisitionRequest}
             itemRequisitionApprovalMeta={itemRequisitionApprovalMeta}
             itemRequisitionApprovalAgentNames={itemRequisitionApprovalAgentNames}
+            itemRequisitionApprovalUi={itemRequisitionApprovalUi}
             isFundTransferRequest={isFundTransferRequest}
             fundTransferApprovalMeta={fundTransferApprovalMeta}
             fundTransferApprovalAgentNames={fundTransferApprovalAgentNames}
+            fundTransferApprovalUi={fundTransferApprovalUi}
             isJobOrderApprovalRequest={isJobOrderRequest}
             jobOrderApprovalMeta={jobOrderApprovalMeta}
             jobOrderApprovalAgentNames={jobOrderApprovalAgentNames}
+            jobOrderApprovalUi={jobOrderApprovalUi}
             viewerMode="requestor"
             requestorAside={
               <CustomerTicketPanel ticket={ticket} canCancelRequest={canCancelRequest} />

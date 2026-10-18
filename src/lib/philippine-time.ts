@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { DEFAULT_TIME_ZONE } from "@/lib/kpi-recurrence";
+import { DEFAULT_TIME_ZONE } from "@/modules/tasks/kpi-recurrence";
 
 /** App display timezone (GMT+8 Taiwan via DEFAULT_TIME_ZONE / env). */
 export const PHILIPPINE_TIME_ZONE = DEFAULT_TIME_ZONE;

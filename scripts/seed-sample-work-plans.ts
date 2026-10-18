@@ -15,14 +15,14 @@ import {
   markFieldAssignmentTask,
   setTaskCount,
   wrapForPersist,
-} from "../src/lib/kpi-subkpis";
-import { prismaPrimary } from "../src/lib/prisma";
+} from "../src/modules/tasks/kpi-subkpis";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 import {
   agentIdsFromApprovalLevels,
   normalizeApprovalLevelsForStore,
   type TravelOrderApprovalLevelDraft,
-} from "../src/lib/travel-order";
-import { createTravelOrderWithLocations } from "../src/lib/travel-order-db";
+} from "../src/modules/work-plans/travel-order";
+import { createTravelOrderWithLocations } from "../src/modules/work-plans/travel-order-db";
 import {
   deriveWorkPlanOrderRequest,
   emptyPersonnelRow,
@@ -31,7 +31,7 @@ import {
   parseWorkPlanMeta,
   validateWorkPlanDraft,
   type WorkPlanMeta,
-} from "../src/lib/work-plan";
+} from "../src/modules/work-plans/work-plan";
 
 const CREATED_BY = "seed-work-plan";
 const CREATED_BY_ROLE = "Admin";

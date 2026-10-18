@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   accumulateAssigneeProgressAcrossPeriods,
   personnelAssigneeProgressAcrossPeriods,
-} from "@/lib/kpi-period-snapshots";
+} from "@/modules/tasks/kpi-period-snapshots";
 import {
   aggregatePersonnelTaskMetrics,
   combinedPersonnelEfficiency,
   mergePersonnelMetricCards,
   normalizePersonnelTaskTotals,
   personnelEfficiencyBracket,
-} from "@/lib/task-personnel-metrics";
-import type { TaskChecklistPillarMetrics } from "@/lib/kpis";
+} from "@/modules/tasks/task-personnel-metrics";
+import type { TaskChecklistPillarMetrics } from "@/modules/tasks/kpis";
 
 describe("accumulateAssigneeProgressAcrossPeriods", () => {
   it("sums contributor totals across Mon–Sat periods instead of averaging", () => {
@@ -198,7 +198,6 @@ describe("combinedPersonnelEfficiency", () => {
         rfpFinance: null,
         irsCanvass: null,
         ftrPrepared: null,
-        acaSubmitted: null,
         tasks: { closed: 3, pending: 1, efficiency: 100, pillarsContributed: 1 },
       }),
     ).toBe(86);
@@ -216,7 +215,6 @@ describe("combinedPersonnelEfficiency", () => {
         rfpFinance: null,
         irsCanvass: null,
         ftrPrepared: null,
-        acaSubmitted: null,
         tasks: { closed: 0, pending: 5, efficiency: 0, pillarsContributed: 1 },
       }),
     ).toBe(50);
@@ -235,7 +233,6 @@ describe("combinedPersonnelEfficiency", () => {
         rfpFinance: null,
         irsCanvass: null,
         ftrPrepared: null,
-        acaSubmitted: null,
         tasks: { closed: 2, pending: 0, efficiency: 100, pillarsContributed: 1 },
       }),
     ).toBe(84);

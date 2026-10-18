@@ -3,7 +3,7 @@
  * portals and duplicate agents onto the HRIS-linked ACTIVE accounts.
  */
 import { mergeAgentOwnership } from "../../src/lib/reconcile-duplicate-agents";
-import { prismaAuth, prismaPrimary, prismaSecondary } from "../../src/lib/prisma";
+import { prismaAuth, prismaPrimary, prismaSecondary } from "../../src/modules/platform/db/prisma";
 
 const TARGETS = [
   {

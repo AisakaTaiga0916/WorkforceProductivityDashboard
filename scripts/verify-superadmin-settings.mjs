@@ -15,6 +15,7 @@ import { encode } from "next-auth/jwt";
 import puppeteer from "puppeteer";
 import { readFileSync } from "node:fs";
 import { PrismaClient as SecondaryClient } from "@prisma/client/secondary";
+import { PrismaClient as PrimaryClient } from "@prisma/client/primary";
 
 const BASE = "http://localhost:3000";
 const SCREENSHOT = "scripts/verify-superadmin-settings.png";
@@ -24,12 +25,12 @@ const secretMatch = env.match(/^NEXTAUTH_SECRET\s*=\s*"?([^"\r\n]+)"?/m);
 if (!secretMatch) throw new Error("NEXTAUTH_SECRET not found in .env");
 const secret = secretMatch[1].trim();
 
-async function forgeSession(email, name, role) {
+async function forgeSession(email, name, role, id) {
   return encode({
     secret,
     maxAge: 8 * 3600,
     token: {
-      sub: email,
+      sub: id ?? email,
       name,
       email,
       role,
@@ -44,7 +45,21 @@ function results(ok, message) {
 }
 
 // --- 1. Sessions ------------------------------------------------------------
-const superAdminJwt = await forgeSession("verify.superadmin@local.invalid", "Verify SuperAdmin", "SuperAdmin");
+// RBAC permission checks resolve the session against the primary DB, so the
+// SuperAdmin token must reference a real active SuperAdmin portal account.
+const primary = new PrimaryClient();
+await primary.$connect();
+const superAdminAccount = await primary.portalAccount.findFirst({
+  where: { accountStatus: "ACTIVE", rbacRole: { key: "super_admin" } },
+  orderBy: { email: "asc" },
+  select: { id: true, email: true, name: true },
+});
+await primary.$disconnect();
+if (!superAdminAccount) {
+  throw new Error("No active SuperAdmin portal account found in the primary DB.");
+}
+
+const superAdminJwt = await forgeSession(superAdminAccount.email, superAdminAccount.name, "SuperAdmin", superAdminAccount.id);
 const adminJwt = await forgeSession("verify.admin@local.invalid", "Verify Admin", "Admin");
 
 // --- 2. API CRUD smoke test -------------------------------------------------

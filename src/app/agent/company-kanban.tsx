@@ -18,7 +18,7 @@ import type {
   CompanyBucketId,
   CompanyTicketCard,
   DepartmentBoardBreadcrumb,
-} from "@/lib/company-board";
+} from "@/modules/requests/company-board";
 import { companyLogoApiPath } from "@/lib/company-logo-url";
 import { cn } from "@/lib/cn";
 import { PointerDragGhostLayer, usePointerColumnDrag } from "@/lib/pointer-column-drag";
@@ -27,9 +27,9 @@ import {
   REQUEST_KANBAN_FLOW_CHANGE_EVENT,
   REQUEST_KANBAN_FLOW_STORAGE_KEY,
   type RequestKanbanFlowMode,
-} from "@/lib/request-kanban-flow";
-import { priorityPillClass } from "@/lib/ticket-board-formatters";
-import { formatCompanyBoardStatusLabel } from "@/lib/ticket-status-label";
+} from "@/modules/requests/request-kanban-flow";
+import { priorityPillClass } from "@/modules/requests/ticket-board-formatters";
+import { formatCompanyBoardStatusLabel } from "@/modules/requests/ticket-status-label";
 
 const PRIORITY_ORDER: TicketPriority[] = ["URGENT", "HIGH", "MEDIUM", "LOW", "UNSET"];
 

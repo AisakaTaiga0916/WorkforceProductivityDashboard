@@ -3,8 +3,8 @@
  * Run: npx tsx scripts/.merge-tmp/diag-rfp-approver-credit.ts
  */
 import { Prisma } from "@prisma/client/primary";
-import { prisma } from "../../src/lib/prisma";
-import { parsePaymentApprovalMeta } from "../../src/lib/request-for-payment-approval";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { parsePaymentApprovalMeta } from "../../src/modules/requests/request-for-payment-approval";
 
 async function main() {
   const agents = await prisma.agent.findMany({

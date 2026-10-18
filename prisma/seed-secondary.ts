@@ -2,7 +2,7 @@
  * Secondary DB is ETL-populated (mergeddatabase-dev). Run `npm run db:merge` to refresh data.
  * Usage: npx tsx prisma/seed-secondary.ts
  */
-import { prismaSecondary } from "../src/lib/prisma";
+import { prismaSecondary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   console.log("Secondary database (mergeddatabase-dev) — ETL read model.\n");

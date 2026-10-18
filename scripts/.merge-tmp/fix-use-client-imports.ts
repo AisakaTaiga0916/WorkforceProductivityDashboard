@@ -18,7 +18,7 @@ for (const f of files) {
     console.log("skip", f);
     continue;
   }
-  t = t.replace(re, '"use client";\n\nimport { isElevatedUserRole } from "@/lib/auth";\n');
+  t = t.replace(re, '"use client";\n\nimport { isElevatedUserRole } from "@/modules/platform/auth";\n');
   fs.writeFileSync(f, t);
   console.log("fixed", f);
 }

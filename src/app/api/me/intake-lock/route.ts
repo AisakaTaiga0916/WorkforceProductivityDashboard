@@ -4,8 +4,8 @@ import {
   customerHasPendingResolvedTicket,
   customerPendingTicketHref,
   issueConcernIntakeLockMessage,
-} from "@/lib/customer-pending-resolution";
-import { isTicketRequestorRole } from "@/lib/ticket-requestor";
+} from "@/modules/requests/customer-pending-resolution";
+import { isTicketRequestorRole } from "@/modules/requests/ticket-requestor";
 
 /**
  * Whether the signed-in user may open another **Issue/Concern** ticket as requestor.

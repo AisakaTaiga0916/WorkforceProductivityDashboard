@@ -5,8 +5,8 @@
  */
 
 import { pickCanonicalAgentForPortal } from "@/lib/admin-roster";
-import { mapHrisToPortalRole } from "@/lib/auth/role-mapping";
-import { resolveRosterCompanyName } from "@/lib/hris-company-aliases";
+import { mapHrisToPortalRole } from "@/modules/platform/auth/role-mapping";
+import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
 import {
   dutyStatusFromLatestClockIn,
   formatClockInLocalTime,
@@ -14,9 +14,9 @@ import {
   loadTodayClockInsBySourceUserId,
   type DutyStatus,
 } from "@/lib/merged-duty-status";
-import { DEFAULT_TIME_ZONE } from "@/lib/kpi-recurrence";
+import { DEFAULT_TIME_ZONE } from "@/modules/tasks/kpi-recurrence";
 import { resolveHrisSourceTags } from "@/lib/merged-database-sources";
-import { prisma, prismaSecondary } from "@/lib/prisma";
+import { prisma, prismaSecondary } from "@/modules/platform/db/prisma";
 import { isStaffPortalRole, normalizePortalRole } from "@/lib/staff-role";
 import {
   buildCanonicalMergedIdMap,

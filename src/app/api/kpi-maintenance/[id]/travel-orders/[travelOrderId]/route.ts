@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { isPersonnelGuardPortalRole } from "@/lib/staff-role";
 import {
   TRAVEL_ORDER_STATUS,
@@ -20,16 +22,16 @@ import {
   emptyGatePassDraft,
   gatePassDraftHasAnyData,
   type TravelOrderGatePassDraft,
-} from "@/lib/travel-order";
-import { isWorkPlanOrder, workPlanUsesGatePass } from "@/lib/work-plan";
+} from "@/modules/work-plans/travel-order";
+import { isWorkPlanOrder, workPlanUsesGatePass } from "@/modules/work-plans/work-plan";
 import {
   approveTravelOrderSequential,
   findTravelOrderById,
   serializeTravelOrder,
   updateTravelOrderGatePass,
   updateTravelOrderStatus,
-} from "@/lib/travel-order-db";
-import { releaseRfpAfterTravelOrderApproved } from "@/lib/travel-order-rfp";
+} from "@/modules/work-plans/travel-order-db";
+import { releaseRfpAfterTravelOrderApproved } from "@/modules/work-plans/travel-order-rfp";
 import { triggerTravelOrderConfirmedSideEffects } from "@/lib/sync/travel-order-confirm-side-effects";
 
 /**
@@ -46,6 +48,8 @@ export async function PATCH(
     "Personnel-Guard",
   ]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("work_plans");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   const { id, travelOrderId } = await ctx.params;
   const isGuard = isPersonnelGuardPortalRole(session.user.role);
@@ -241,6 +245,8 @@ export async function PATCH(
 
   // Sequential / flat approve via action or APPROVED status.
   if (action === "approve-level" || statusRaw === TRAVEL_ORDER_STATUS.APPROVED) {
+    const denied = await permissionDenied(session, "work_plans.approve");
+    if (denied) return denied;
     try {
       const updated = await approveTravelOrderSequential({
         travelOrderId,
@@ -282,6 +288,11 @@ export async function PATCH(
         },
         { status: 403 },
       );
+    }
+    // Declining as the confirmer is a confirmation-seat action, not an approval.
+    if (canRejectAsApprover && !canRejectAsConfirmer) {
+      const denied = await permissionDenied(session, "work_plans.approve");
+      if (denied) return denied;
     }
     const rejectionReason =
       typeof body.rejectionReason === "string" ? body.rejectionReason.trim() : "";

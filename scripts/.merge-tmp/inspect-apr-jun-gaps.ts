@@ -1,6 +1,6 @@
-import { prisma } from "../../src/lib/prisma";
+import { prisma } from "../../src/modules/platform/db/prisma";
 import { DateTime } from "luxon";
-import { isKpiMetricsWorkingDay } from "../../src/lib/kpi-recurrence";
+import { isKpiMetricsWorkingDay } from "../../src/modules/tasks/kpi-recurrence";
 
 async function main() {
   const titles = ["DATA BACKUP", "SYSTEM MAINTENANCE", "MONITORING", "IT TASKS"];

@@ -2,11 +2,11 @@
  * Diagnose org-chart designated departments for Admin/Personnel portals.
  * Usage: npx tsx scripts/.merge-tmp/diag-org-chart-departments.ts
  */
-import { prismaPrimary } from "../../src/lib/prisma";
-import { resolveMergedSourceUserIdForSessionEmail } from "../../src/lib/approval-position-resolver";
-import { resolveOrgChartSectionIdsForMergedUser } from "../../src/lib/org-chart-section-roster";
-import { resolveViewerDepartmentScopeLabel } from "../../src/lib/org-chart-section-scope";
-import { resolveStaffCompanyTeamId } from "../../src/lib/staff-company-scope";
+import { prismaPrimary } from "../../src/modules/platform/db/prisma";
+import { resolveMergedSourceUserIdForSessionEmail } from "../../src/modules/hierarchy/approval-position-resolver";
+import { resolveOrgChartSectionIdsForMergedUser } from "../../src/modules/hierarchy/org-chart-section-roster";
+import { resolveViewerDepartmentScopeLabel } from "../../src/modules/platform/scope/org-chart-section-scope";
+import { resolveStaffCompanyTeamId } from "../../src/modules/platform/scope/staff-company-scope";
 
 async function main() {
   const portals = await prismaPrimary.portalAccount.findMany({

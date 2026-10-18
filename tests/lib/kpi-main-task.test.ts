@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { kpiHasDistinctMainTask, kpiMainTaskLabel, kpiPillarLabel } from "@/lib/kpi-main-task";
+import { kpiHasDistinctMainTask, kpiMainTaskLabel, kpiPillarLabel } from "@/modules/tasks/kpi-main-task";
 
 describe("kpi main task labels", () => {
   it("uses mainTask when set", () => {

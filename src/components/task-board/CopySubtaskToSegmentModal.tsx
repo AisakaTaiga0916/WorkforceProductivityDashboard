@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Copy } from "lucide-react";
-import { isUnsegmentedSegmentId, UNSEGMENTED_SEGMENT_LABEL } from "@/lib/kpi-subkpis";
+import { isUnsegmentedSegmentId, UNSEGMENTED_SEGMENT_LABEL } from "@/modules/tasks/kpi-subkpis";
 import { TaskBoardPopup } from "@/components/task-board/TaskBoardPopup";
 
 export type CopySegmentOption = { id: string; label: string };

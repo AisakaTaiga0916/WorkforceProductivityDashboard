@@ -2,18 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Handshake, Loader2, UserPlus, X } from "lucide-react";
+import { Handshake, Loader2, UserPlus, X } from "lucide-react";
 import {
   CompanyUserSearchField,
   type CompanyUserOption,
 } from "@/components/tickets/CompanyUserSearchField";
+import { ApprovalStepper } from "@/components/ui/approval-stepper";
+import { jobOrderExecutionUiSteps } from "@/modules/requests/job-order-execution-ui";
 import {
   defaultJobOrderAssistanceTeam,
   type JobOrderApprovalMeta,
   type JobOrderAssistanceScopeMode,
   type JobOrderAssistanceTeam,
-} from "@/lib/job-order-approval";
-import { JOB_ORDER_ASSISTANCE_TEAM_SECTION_ID } from "@/lib/job-order-section-ids";
+} from "@/modules/requests/job-order-approval";
+import { JOB_ORDER_ASSISTANCE_TEAM_SECTION_ID } from "@/modules/requests/job-order-section-ids";
 
 type AgentOption = CompanyUserOption;
 type SectionOption = { id: string; name: string };
@@ -494,19 +496,17 @@ export function JobOrderAssistanceTeamPanel({
                 When assistance work is finished, mark Job Done. The final Approved By then sends
                 this request for confirmation.
               </p>
-              <button
-                type="button"
-                disabled={jobDoneBusy}
-                onClick={() => void markJobDone()}
-                className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
-              >
-                {jobDoneBusy ? (
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <CheckCircle2 className="size-3.5" aria-hidden />
-                )}
-                Job Done
-              </button>
+              <ApprovalStepper
+                steps={jobOrderExecutionUiSteps({
+                  meta: jobOrderApprovalMeta,
+                  ticketStatus,
+                })}
+                canAct
+                busy={jobDoneBusy}
+                compact
+                approveLabel="Job Done"
+                onApprove={() => void markJobDone()}
+              />
             </div>
           ) : (
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">

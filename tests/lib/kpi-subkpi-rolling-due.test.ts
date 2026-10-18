@@ -3,8 +3,8 @@ import { DateTime } from "luxon";
 import {
   advanceDueDateYmdForFrequency,
   countRecurrencePeriodsBetween,
-} from "@/lib/kpi-recurrence";
-import { collectAllSubKpiItems, normalizeSubKpis, resetAllSubKpiDone } from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-recurrence";
+import { collectAllSubKpiItems, normalizeSubKpis, resetAllSubKpiDone } from "@/modules/tasks/kpi-subkpis";
 
 const TZ = "Asia/Manila";
 

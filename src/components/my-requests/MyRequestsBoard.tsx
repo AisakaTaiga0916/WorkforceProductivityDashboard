@@ -10,14 +10,14 @@ import {
   customerHasPendingResolvedTicket,
   customerPendingTicketHref,
   isAwaitingCustomerConfirmation,
-} from "@/lib/customer-pending-resolution";
+} from "@/modules/requests/customer-pending-resolution";
 import { loadStaffAssignmentColorsForAgents } from "@/lib/assignee-assignment-color";
 import { BRAND_TITLE } from "@/lib/brand";
 import { cn } from "@/lib/cn";
-import { prisma } from "@/lib/prisma";
-import { isRequestTypeId } from "@/lib/request-types";
-import { visibleIntakeRequestTypes } from "@/lib/intake-request-type-visibility";
-import { getIntakeRequestTypeVisibility } from "@/lib/intake-request-type-visibility-db";
+import { prisma } from "@/modules/platform/db/prisma";
+import { isRequestTypeId } from "@/modules/requests/request-types";
+import { visibleIntakeRequestTypes } from "@/modules/platform/settings/intake-request-type-visibility";
+import { getIntakeRequestTypeVisibility } from "@/modules/platform/settings/intake-request-type-visibility-db";
 
 /** Canonical deep link for the My Requests swipe pane on Request Board. */
 export const MY_REQUESTS_HREF = "/agent?pane=mine";

@@ -2,9 +2,9 @@
  * Backfill period snapshots for all recurring KPIs (current checklist state).
  * Run after enabling snapshot metrics: npx tsx scripts/backfill-kpi-period-snapshots.ts
  */
-import { normalizeTimeZone } from "../src/lib/kpi-recurrence";
-import { upsertKpiPeriodSnapshot } from "../src/lib/kpi-period-snapshots";
-import { prisma } from "../src/lib/prisma";
+import { normalizeTimeZone } from "../src/modules/tasks/kpi-recurrence";
+import { upsertKpiPeriodSnapshot } from "../src/modules/tasks/kpi-period-snapshots";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 const timeZone = normalizeTimeZone(process.env.KPI_SNAPSHOT_TZ ?? "Asia/Manila");
 

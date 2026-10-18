@@ -4,9 +4,9 @@ import {
   kpiChecklistProgress,
   progressWithInvertedRecording,
   taskUsesInvertedRecording,
-} from "../src/lib/kpi-subkpis";
-import { kpiMainTaskLabel } from "../src/lib/kpi-main-task";
-import { totalRecordedDataPercent } from "../src/lib/sub-kpi-completion-mode";
+} from "../src/modules/tasks/kpi-subkpis";
+import { kpiMainTaskLabel } from "../src/modules/tasks/kpi-main-task";
+import { totalRecordedDataPercent } from "../src/modules/tasks/sub-kpi-completion-mode";
 import {
   alternateGmt8PeriodKey,
   enumeratePeriodKeysForKpiInRange,
@@ -14,7 +14,7 @@ import {
   periodKeysWithGmt8Aliases,
   resolvePeriodKeyForKpi,
   snapshotToProgress,
-} from "../src/lib/kpi-period-snapshots";
+} from "../src/modules/tasks/kpi-period-snapshots";
 import { DateTime } from "luxon";
 
 const prisma = new PrismaClient();

@@ -1,4 +1,4 @@
-import { computeTaskMetrics, parseKpiRangeFromQuery } from "../../src/lib/kpis.ts";
+import { computeTaskMetrics, parseKpiRangeFromQuery } from "../../src/modules/tasks/kpis.ts";
 
 void (async () => {
   for (const cadence of ["MONTHLY", "YEARLY"] as const) {

@@ -7,7 +7,7 @@ import {
   travelOrderLocationVisitStatusLabel,
   type TravelOrderDto,
   type TravelOrderLocationDto,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 
 const MAX_LOCATION_IMAGES = 5;
 

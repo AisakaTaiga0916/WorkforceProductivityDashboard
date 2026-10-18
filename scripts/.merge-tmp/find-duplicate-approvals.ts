@@ -1,9 +1,9 @@
-import { prisma } from "@/lib/prisma";
-import { parsePaymentApprovalMeta } from "@/lib/request-for-payment-approval";
-import { parseJobOrderApprovalMeta } from "@/lib/job-order-approval";
-import { parseItemRequisitionApprovalMeta } from "@/lib/item-requisition-approval";
-import { parseFundTransferApprovalMeta } from "@/lib/fund-transfer-approval";
-import { parseAcaApprovalMeta } from "@/lib/aca-approval";
+import { prisma } from "@/modules/platform/db/prisma";
+import { parsePaymentApprovalMeta } from "@/modules/requests/request-for-payment-approval";
+import { parseJobOrderApprovalMeta } from "@/modules/requests/job-order-approval";
+import { parseItemRequisitionApprovalMeta } from "@/modules/requests/item-requisition-approval";
+import { parseFundTransferApprovalMeta } from "@/modules/requests/fund-transfer-approval";
+import { parseAcaApprovalMeta } from "@/modules/requests/aca-approval";
 
 type SeatHit = { seat: string; agentId: string };
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Code, CreditCard, Rocket, Shield } from "lucide-react";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { loadStaffAssignmentColorsForAgents } from "@/lib/assignee-assignment-color";
 import { TicketsKanbanBoard, type KanbanTicket } from "./TicketsKanbanBoard";
 import { BRAND_TITLE } from "@/lib/brand";

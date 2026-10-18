@@ -1,4 +1,4 @@
-import { prisma } from "../src/lib/prisma";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const oldId = "3cd2fdf9-7e56-4c5c-89d2-5558b5acff70";

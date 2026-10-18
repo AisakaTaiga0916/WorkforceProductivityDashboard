@@ -5,7 +5,7 @@ import {
   kpiMaintenanceWhereForTaskMetrics,
   periodKeysWithGmt8Aliases,
   snapshotTimeZoneForTaskMetrics,
-} from "@/lib/kpi-period-snapshots";
+} from "@/modules/tasks/kpi-period-snapshots";
 
 describe("snapshotTimeZoneForTaskMetrics", () => {
   it("prefers KPI_SNAPSHOT_TZ over client tz", () => {

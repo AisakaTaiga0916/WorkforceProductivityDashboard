@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
 import {
   getDepartmentMetricsVisibility,
   parseDepartmentMetricsVisibility,
   setDepartmentMetricsVisibility,
-} from "@/lib/department-metrics-visibility";
-import { prisma } from "@/lib/prisma";
+} from "@/modules/platform/settings/department-metrics-visibility";
+import { prisma } from "@/modules/platform/db/prisma";
 
 /**
  * GET /api/admin/department-metrics-visibility
@@ -36,10 +37,13 @@ export async function GET() {
  */
 export async function PUT(req: Request) {
   const { session, unauthorized } = await requireRole(["SuperAdmin"]);
-  if (unauthorized) return unauthorized;
-  if (session?.user?.role !== "SuperAdmin") {
+  if (unauthorized || !session) return unauthorized;
+  if (session.user.role !== "SuperAdmin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const denied = await permissionDenied(session, "settings.update");
+  if (denied) return denied;
 
   const body = (await req.json().catch(() => ({}))) as { hiddenSectionIds?: unknown };
   const next = parseDepartmentMetricsVisibility({

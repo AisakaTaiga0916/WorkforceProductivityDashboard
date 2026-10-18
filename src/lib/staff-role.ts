@@ -70,6 +70,29 @@ export function normalizePortalRole(role: string | null | undefined): PortalRole
   return null;
 }
 
+/**
+ * Product-facing label for a portal role. Stored values (and role checks) keep
+ * the legacy vocabulary; only what users read changes (Personnel → Employee).
+ */
+export function portalRoleDisplayLabel(role: string | null | undefined): string {
+  switch (normalizePortalRole(role)) {
+    case "SuperAdmin":
+      return "Super Admin";
+    case "HighAdmin":
+      return "High Admin";
+    case "Admin":
+      return "Admin";
+    case "Personnel":
+      return "Employee";
+    case "Personnel-Guard":
+      return "Employee (Guard)";
+    case "Customer":
+      return "Customer";
+    default:
+      return role?.trim() || "";
+  }
+}
+
 /** @deprecated use normalizePortalRole */
 export function normalizeStaffRoleLabel(role: string | null | undefined): string | null {
   return normalizePortalRole(role);

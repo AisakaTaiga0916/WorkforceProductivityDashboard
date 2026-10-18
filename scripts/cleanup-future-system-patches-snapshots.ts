@@ -16,7 +16,7 @@
  */
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 /** Cutoff: anything on or after this YYYY-MM is considered future-dated. */
 const CUTOFF = "2026-09";

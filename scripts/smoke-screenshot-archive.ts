@@ -11,10 +11,10 @@ import {
   getPillarScreenshots,
   normalizeSubKpis,
   resetAllSubKpiDone,
-} from "../src/lib/kpi-subkpis";
-import { computePeriodKey, getDailyPeriodStartDt, normalizeTimeZone } from "../src/lib/kpi-recurrence";
-import { prisma } from "../src/lib/prisma";
-import { taskScreenshotsUploadDir } from "../src/lib/task-screenshots";
+} from "../src/modules/tasks/kpi-subkpis";
+import { computePeriodKey, getDailyPeriodStartDt, normalizeTimeZone } from "../src/modules/tasks/kpi-recurrence";
+import { prisma } from "../src/modules/platform/db/prisma";
+import { taskScreenshotsUploadDir } from "../src/modules/tasks/task-screenshots";
 
 const SMOKE_TITLE = "__SMOKE_SCREENSHOT_ARCHIVE__";
 const timeZone = normalizeTimeZone(process.env.KPI_SNAPSHOT_TZ ?? "Asia/Manila");

@@ -1,11 +1,11 @@
 import { Prisma } from "@prisma/client/primary";
-import { prisma } from "../../src/lib/prisma";
+import { prisma } from "../../src/modules/platform/db/prisma";
 import {
   applyPaymentApprovalAssignees,
   completePaymentApprovalStep,
   parsePaymentApprovalMeta,
-} from "../../src/lib/request-for-payment-approval";
-import { savePaymentApprovalMeta } from "../../src/lib/payment-approval-db";
+} from "../../src/modules/requests/request-for-payment-approval";
+import { savePaymentApprovalMeta } from "../../src/modules/requests/payment-approval-db";
 
 async function main() {
   const dryRun = !process.argv.includes("--apply");

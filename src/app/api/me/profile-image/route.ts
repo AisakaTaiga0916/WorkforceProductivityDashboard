@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { MAX_PROFILE_IMAGE_DATA_URL_CHARS } from "@/lib/profile-image-limits";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   profileImageToBinaryResponse,
 } from "@/lib/session-profile-image";

@@ -2,7 +2,7 @@
  * Remove all Task Board rows (KpiMaintenance + period snapshots) and legacy TaskItem rows.
  * Usage: npx tsx scripts/clear-taskboard.ts
  */
-import { prisma } from "../src/lib/prisma";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const kpi = await prisma.kpiMaintenance.deleteMany();

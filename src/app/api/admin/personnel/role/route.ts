@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
 import { ensureAgentRowForPortalStaff } from "@/lib/admin-roster";
 import { requireRole } from "@/lib/access";
-import { mapPortalRoleToMergedHrisRole } from "@/lib/auth/portal-to-merged-role";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { rbacRoleIdForLegacyRole, rbacRoleRelationWrite } from "@/modules/platform/rbac/rbac-role-sync";
+import { mapPortalRoleToMergedHrisRole } from "@/modules/platform/auth/portal-to-merged-role";
 import {
   canonicalProfileFromMerged,
   syncPortalProfile,
-} from "@/lib/auth/sync-portal-profile";
-import {
-  resolveHrisSourceTags,
-  resolveSecondaryDatabaseName,
-} from "@/lib/merged-database-sources";
+} from "@/modules/platform/auth/sync-portal-profile";
+import { resolveHrisSourceTags } from "@/lib/merged-database-sources";
 import { setPortalStaffAssignmentColor } from "@/lib/portal-staff-assignment-color-sql";
-import { prismaPrimary, prismaSecondary } from "@/lib/prisma";
-import { withSecondaryWriteClient } from "@/lib/prisma-secondary-write";
-import { Prisma } from "@prisma/client/secondary";
+import { prismaPrimary } from "@/modules/platform/db/prisma";
+import { Prisma } from "@prisma/client/primary";
 import {
   isPersonnelGuardPortalRole,
   isPlatformSuperAdminPortalRole,
@@ -27,12 +25,15 @@ const MANAGEABLE = new Set<string>(PORTAL_ROLES);
 
 /**
  * PATCH /api/admin/personnel/role
- * SuperAdmin: set portal role on an HRIS merged user (updates portal; syncs merged_users when allowed).
+ * SuperAdmin: set the portal role of an HRIS user's account (main DB only; HRIS identity
+ * comes from the `hris_users` snapshot and the merged DB is never written).
  * Body: { mergedSourceUserId: string, role: PortalRole }
  */
 export async function PATCH(req: Request) {
   const { session, unauthorized } = await requireRole(["SuperAdmin"]);
   if (unauthorized || !session) return unauthorized;
+  const denied = await permissionDenied(session, "users.assign");
+  if (denied) return denied;
 
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -67,7 +68,7 @@ export async function PATCH(req: Request) {
     const sourceTags = resolveHrisSourceTags();
     const mergedHrisRole = mapPortalRoleToMergedHrisRole(portalRole);
 
-    const mergedRows = await prismaSecondary.$queryRaw<
+    const mergedRows = await prismaPrimary.$queryRaw<
       Array<{
         source_user_id: bigint;
         name: string;
@@ -80,16 +81,16 @@ export async function PATCH(req: Request) {
       }>
     >`
       SELECT source_user_id, name, username, email, role, company_name, position, department
-      FROM merged_users
+      FROM hris_users
       WHERE source_user_id = ${mergedSourceUserId}
         AND (source_database IN (${Prisma.join(sourceTags)}) OR source_user_id >= 9000000000)
-        AND is_active = 1
+        AND is_active = true
       LIMIT 1
     `;
     const merged = mergedRows[0];
     if (!merged) {
       return NextResponse.json(
-        { error: `HRIS user not found in ${resolveSecondaryDatabaseName()}.` },
+        { error: "HRIS user not found. Re-run the merged-dump import if they were added recently." },
         { status: 404 },
       );
     }
@@ -190,6 +191,7 @@ export async function PATCH(req: Request) {
     }
 
     const wasSuper = isPlatformSuperAdminPortalRole(portal.role);
+    const rbacRoleId = await rbacRoleIdForLegacyRole(portalRole);
     // Portal is the live role SoT for sessions.
     // Manual Admin from ListView does not set headPrivileges — org-chart reconcile
     // only demotes Admins that were promoted via department headship.
@@ -197,6 +199,7 @@ export async function PATCH(req: Request) {
       where: { id: portal.id },
       data: {
         role: portalRole,
+        ...rbacRoleRelationWrite(rbacRoleId),
         headPrivileges: false,
         ...(portalRole === "SuperAdmin"
           ? { staffDesignatedCompany: { disconnect: true } }
@@ -206,24 +209,6 @@ export async function PATCH(req: Request) {
           : {}),
       },
     });
-
-    // Best-effort sync to merged_users via write URL (merge_app is SELECT-only).
-    let mergedSynced = false;
-    try {
-      await withSecondaryWriteClient(async (db) => {
-        await db.$executeRaw`
-          UPDATE merged_users
-          SET role = ${mergedHrisRole}, updated_at = CURRENT_TIMESTAMP
-          WHERE source_user_id = ${mergedSourceUserId}
-        `;
-      });
-      mergedSynced = true;
-    } catch (e) {
-      console.warn(
-        "merged_users role sync skipped (portal role still updated):",
-        e instanceof Error ? e.message : e,
-      );
-    }
 
     if (wasSuper || portalRole === "SuperAdmin") {
       try {
@@ -251,9 +236,7 @@ export async function PATCH(req: Request) {
       ok: true,
       mergedSourceUserId: mergedIdRaw,
       role: portalRole as PortalRole,
-      mergedRole: mergedHrisRole,
       portalAccountId: portal.id,
-      mergedSynced,
     });
   } catch (e) {
     console.error("PATCH /api/admin/personnel/role failed", e);

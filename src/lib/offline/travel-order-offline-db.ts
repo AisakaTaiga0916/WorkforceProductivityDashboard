@@ -7,11 +7,11 @@ import {
   emptyTravelOrderDraft,
   type TravelOrderDraft,
   type TravelOrderDto,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 import {
   deriveWorkPlanOrderRequest,
   type WorkPlanDraft,
-} from "@/lib/work-plan";
+} from "@/modules/work-plans/work-plan";
 
 export type TravelOrderSyncStatus = "draft" | "pending" | "synced" | "failed";
 

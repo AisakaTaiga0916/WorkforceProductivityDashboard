@@ -10,7 +10,7 @@ import {
   isSubKpiPendingVerification,
   rejectCompletionDbPatch,
   resubmitCompletionDbPatch,
-} from "@/lib/task-completion-verification";
+} from "@/modules/tasks/task-completion-verification";
 
 describe("task completion verification", () => {
   it("moves newly complete checklists into pending verification without lastFullCompletionAt", () => {
@@ -33,7 +33,7 @@ describe("task completion verification", () => {
 
   it("treats done sub-tasks as finished when verification is disabled", () => {
     const submitted = applySubKpiSubmitForVerification(
-      { id: "a", title: "T", done: false },
+      { id: "a", title: "T", done: false as boolean },
       { verificationEnabled: false },
     );
     expect(submitted.completionVerificationStatus).toBe(COMPLETION_VERIFICATION.VERIFIED);
@@ -120,7 +120,7 @@ describe("task completion verification", () => {
     const submitted = applySubKpiSubmitForVerification({
       id: "awic",
       title: "TICKETING",
-      done: false,
+      done: false as boolean,
       completionVerificationStatus: null as string | null,
     });
     expect(submitted.done).toBe(true);

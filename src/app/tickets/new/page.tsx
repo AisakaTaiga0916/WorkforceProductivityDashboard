@@ -22,7 +22,7 @@ import { Input, Select, Textarea } from "@/components/ui/field";
 import { ChevronDown } from "lucide-react";
 import { RequestTypeSelection } from "@/components/tickets/RequestTypeSelection";
 import { BRAND_TITLE } from "@/lib/brand";
-import { issueConcernIntakeLockMessage } from "@/lib/issue-concern-intake-lock";
+import { issueConcernIntakeLockMessage } from "@/modules/requests/issue-concern-intake-lock";
 import {
   DEFAULT_REQUEST_TYPE,
   isIssueConcernTicket,
@@ -30,56 +30,48 @@ import {
   recommendedSendToDepartmentName,
   requestTypeLabel,
   type RequestTypeId,
-} from "@/lib/request-types";
+} from "@/modules/requests/request-types";
 import {
   firstVisibleIntakeRequestType,
   isRequestTypeHiddenFromIntake,
-} from "@/lib/intake-request-type-visibility";
+} from "@/modules/platform/settings/intake-request-type-visibility";
 import {
   DELIVERY_OF_CHECK_OPTIONS,
   MODE_OF_PAYMENT_CHECK,
   MODE_OF_PAYMENT_OPTIONS,
   paymentModeRequiresBankDetails,
   paymentModeShowsBankDetails,
-} from "@/lib/request-for-payment";
+} from "@/modules/requests/request-for-payment";
 import {
   emptyRequisitionLineItem,
   REQUISITION_UNIT_OPTIONS,
   validateItemRequisitionFields,
   type RequisitionLineItem,
-} from "@/lib/item-requisition";
-import { validateFundTransferRequestFields } from "@/lib/fund-transfer-request";
+} from "@/modules/requests/item-requisition";
+import { validateFundTransferRequestFields } from "@/modules/requests/fund-transfer-request";
 import {
   JOB_ORDER_NATURE_GROUPS,
   computeJobOrderDurationDays,
   formatJobOrderDurationLabel,
   validateJobOrderFields,
-} from "@/lib/job-order";
+} from "@/modules/requests/job-order";
 import {
   INTAKE_ATTACHMENT_ACCEPT,
   isAllowedIntakeAttachment,
   isIntakeImageMimeOrName,
   MAX_SCREENSHOT_BYTES,
   MAX_SCREENSHOT_COUNT,
-} from "@/lib/ticket-intake-screenshots-constants";
-import { isTicketRequestorRole } from "@/lib/ticket-requestor";
+} from "@/modules/requests/ticket-intake-screenshots-constants";
+import { isTicketRequestorRole } from "@/modules/requests/ticket-requestor";
 import { DatePickerField } from "@/components/ui/DatePickerField";
 import { CompanyUserSearchField } from "@/components/tickets/CompanyUserSearchField";
-import { AcaIntakeFields } from "@/components/tickets/AcaIntakeFields";
 import { FileText, Paperclip, Plus, Trash2 } from "lucide-react";
-import { acaRecommendedByUsesRequestorCompanyLock, resolveAcaAuthority } from "@/lib/aca-authority-matrix";
-import { parseAcaAmountNumber } from "@/lib/authority-to-conduct-activity";
 import {
   findOrgChartSectionByName,
   orgChartIntakeSendToDepartments,
   type OrgChartSectionOption,
-} from "@/lib/org-chart-section-display";
+} from "@/modules/hierarchy/org-chart-section-display";
 import { IntakeApprovalRecommendationGuide } from "@/components/tickets/IntakeApprovalRecommendationGuide";
-
-function todayIsoDate() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 function pickImageFiles(list: File[]) {
   return list.filter((f) => isIntakeImageMimeOrName(f.type || "", f.name));
@@ -218,7 +210,6 @@ function NewTicketPageInner({
   ]);
 
   const isPaymentRequest = activeRequestType === "REQUEST_FOR_PAYMENT";
-  const isAcaRequest = activeRequestType === "AUTHORITY_TO_CONDUCT_ACTIVITY";
   const isRequisitionRequest = activeRequestType === "ITEM_REQUISITION_SLIP";
   const isFundTransferRequest = activeRequestType === "FUND_TRANSFER_REQUEST";
   const isJobOrderRequest = activeRequestType === "JOB_ORDER";
@@ -302,26 +293,6 @@ function NewTicketPageInner({
   const [companiesLoading, setCompaniesLoading] = useState(false);
   const [staffDesignatedCompany, setStaffDesignatedCompany] = useState<{ id: string; name: string } | null>(null);
   const [staffDesignatedLoading, setStaffDesignatedLoading] = useState(false);
-  const [acaCategory, setAcaCategory] = useState("");
-  const [acaNatureOfRequest, setAcaNatureOfRequest] = useState("");
-  const [acaEstimatedCost, setAcaEstimatedCost] = useState("");
-  const [acaBudgetAmount, setAcaBudgetAmount] = useState("");
-  const [acaDescription, setAcaDescription] = useState("");
-  const [acaObjective, setAcaObjective] = useState("");
-  const [acaDateSubmitted, setAcaDateSubmitted] = useState(todayIsoDate);
-  const [acaImplementationDate, setAcaImplementationDate] = useState("");
-  const [acaRelatedTicketIds, setAcaRelatedTicketIds] = useState("");
-  const [acaRecommendedByAgentId, setAcaRecommendedByAgentId] = useState("");
-  const [acaFinanceManagerAgentId, setAcaFinanceManagerAgentId] = useState("");
-  const [acaApprovingAgentIds, setAcaApprovingAgentIds] = useState<string[]>([]);
-  const [acaAnyCompanyAgents, setAcaAnyCompanyAgents] = useState<
-    Array<{ id: string; name: string; email?: string | null }>
-  >([]);
-  const [acaRequestorCompanyAgents, setAcaRequestorCompanyAgents] = useState<
-    Array<{ id: string; name: string; email?: string | null }>
-  >([]);
-  const [acaApproversLoading, setAcaApproversLoading] = useState(false);
-
   const screenshotPreviews = useMemo(
     () =>
       screenshots.map((file, index) => {
@@ -450,94 +421,6 @@ function NewTicketPageInner({
     setSelectedSendToCompanyTeamId((prev) => prev || staffDesignatedCompany.id);
   }, [staffDesignatedCompany?.id]);
 
-  useEffect(() => {
-    if (!isAcaRequest) {
-      setAcaAnyCompanyAgents([]);
-      setAcaRequestorCompanyAgents([]);
-      setAcaRecommendedByAgentId("");
-      setAcaFinanceManagerAgentId("");
-      setAcaApprovingAgentIds([]);
-      return;
-    }
-    let cancelled = false;
-    setAcaApproversLoading(true);
-
-    async function loadCompanyAgents(companyId: string | null | undefined) {
-      const id = (companyId ?? "").trim();
-      if (!id) return [] as Array<{ id: string; name: string; email?: string | null }>;
-      const res = await fetch(`/api/agents?company=${encodeURIComponent(id)}`, { cache: "no-store" });
-      if (!res.ok) return [];
-      const rows = (await res.json()) as Array<{ id: string; name: string; email?: string | null }>;
-      return Array.isArray(rows) ? rows : [];
-    }
-
-    void (async () => {
-      const [anyRows, requestorRows] = await Promise.all([
-        fetch("/api/agents?anyCompany=1", { cache: "no-store" })
-          .then((r) => (r.ok ? r.json() : []))
-          .then((rows: Array<{ id: string; name: string; email?: string | null }>) =>
-            Array.isArray(rows) ? rows : [],
-          )
-          .catch(() => [] as Array<{ id: string; name: string; email?: string | null }>),
-        loadCompanyAgents(staffDesignatedCompany?.id),
-      ]);
-      if (cancelled) return;
-      setAcaAnyCompanyAgents(anyRows);
-      setAcaRequestorCompanyAgents(requestorRows);
-      const anyIds = new Set(anyRows.map((a) => a.id));
-      setAcaFinanceManagerAgentId((prev) => (prev && anyIds.has(prev) ? prev : ""));
-      setAcaApprovingAgentIds((prev) => prev.map((id) => (id && anyIds.has(id) ? id : "")));
-    })()
-      .catch(() => {
-        if (!cancelled) {
-          setAcaAnyCompanyAgents([]);
-          setAcaRequestorCompanyAgents([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setAcaApproversLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAcaRequest, staffDesignatedCompany?.id]);
-
-  const acaResolution = useMemo(() => {
-    if (!isAcaRequest || !acaCategory || !acaNatureOfRequest) return null;
-    const amount = parseAcaAmountNumber(acaEstimatedCost);
-    if (amount == null) return null;
-    return resolveAcaAuthority({
-      category: acaCategory,
-      natureOfRequest: acaNatureOfRequest,
-      estimatedCost: amount,
-    });
-  }, [isAcaRequest, acaCategory, acaNatureOfRequest, acaEstimatedCost]);
-
-  const acaRaLockedToRequestor = acaRecommendedByUsesRequestorCompanyLock(
-    acaResolution?.recommendingLevel,
-  );
-  const acaRecommendedByUsers = useMemo(
-    () => (acaRaLockedToRequestor ? acaRequestorCompanyAgents : acaAnyCompanyAgents),
-    [acaRaLockedToRequestor, acaRequestorCompanyAgents, acaAnyCompanyAgents],
-  );
-
-  useEffect(() => {
-    if (!isAcaRequest || acaApproversLoading) return;
-    const ids = new Set(acaRecommendedByUsers.map((a) => a.id));
-    setAcaRecommendedByAgentId((prev) => (prev && ids.has(prev) ? prev : ""));
-  }, [isAcaRequest, acaApproversLoading, acaRaLockedToRequestor, acaRecommendedByUsers]);
-
-  useEffect(() => {
-    if (!isAcaRequest) return;
-    const seats = acaResolution?.requiresAca ? acaResolution.approvingSeatCount : 0;
-    setAcaApprovingAgentIds((prev) => {
-      const next = Array.from({ length: seats }, (_, i) => prev[i] ?? "");
-      if (next.length === prev.length && next.every((v, i) => v === prev[i])) return prev;
-      return next;
-    });
-  }, [isAcaRequest, acaResolution?.requiresAca, acaResolution?.approvingSeatCount]);
-
   const isCustomer = session?.user?.role === "Customer";
   const isPersonnelIntake = session?.user?.role === "Personnel";
   const isAdminStaffIntake =
@@ -550,10 +433,6 @@ function NewTicketPageInner({
       isFundTransferRequest ||
       isJobOrderRequest ||
       isRequisitionRequest);
-  const canShowAcaRecommendations =
-    isStaffRequestorIntake &&
-    isAcaRequest &&
-    Boolean(acaResolution?.requiresAca && acaResolution.recommendingLevel && acaResolution.approvingPath);
   const isRequestorIntakeLockRole = isTicketRequestorRole(session?.user?.role);
 
   useEffect(() => {
@@ -693,7 +572,7 @@ function NewTicketPageInner({
     void (async () => {
       // Approval seats are never roster-locked at intake — pick from any company.
       // Recommendations still use org-chart / position logic; only Recommending Approval
-      // (FTR) and Recommended By (ACA) are auto-filled from positions when left empty.
+      // (FTR) is auto-filled from positions when left empty.
       const rows = await loadAnyCompanyAgents();
       if (cancelled) return;
       setApprovalAgents(rows);
@@ -1070,59 +949,6 @@ function NewTicketPageInner({
           setLoading(false);
           return;
         }
-      } else if (isAcaRequest) {
-        if (
-          !acaCategory.trim() ||
-          !acaNatureOfRequest.trim() ||
-          !acaEstimatedCost.trim() ||
-          !acaBudgetAmount.trim() ||
-          !acaDescription.trim() ||
-          !acaObjective.trim() ||
-          !acaDateSubmitted.trim() ||
-          !acaImplementationDate.trim()
-        ) {
-          setError("Complete all required ACA fields before submitting.");
-          setLoading(false);
-          return;
-        }
-        if (!acaResolution?.ok) {
-          setError(acaResolution?.error || "Select a valid Nature of Request and Estimated Cost.");
-          setLoading(false);
-          return;
-        }
-        if (!acaResolution.requiresAca) {
-          setError(
-            acaResolution.guidance ||
-              "ACA is not required for this amount. Do not submit this request type.",
-          );
-          setLoading(false);
-          return;
-        }
-        if (!acaRecommendedByAgentId || !acaFinanceManagerAgentId) {
-          setError("Assign Recommended By and Finance Manager before submitting.");
-          setLoading(false);
-          return;
-        }
-        if (
-          acaApprovingAgentIds.length !== acaResolution.approvingSeatCount ||
-          acaApprovingAgentIds.some((id) => !id.trim())
-        ) {
-          setError(
-            `Assign all ${acaResolution.approvingSeatCount} approving seat(s) before submitting.`,
-          );
-          setLoading(false);
-          return;
-        }
-        const roleIds = [
-          acaRecommendedByAgentId,
-          acaFinanceManagerAgentId,
-          ...acaApprovingAgentIds,
-        ];
-        if (new Set(roleIds).size !== roleIds.length) {
-          setError("Each ACA approval seat must be a different person.");
-          setLoading(false);
-          return;
-        }
       } else if (!issue.trim()) {
         setError("Please describe the request.");
         setLoading(false);
@@ -1377,54 +1203,10 @@ function NewTicketPageInner({
         }
       };
 
-      const appendAcaFields = (target: FormData | Record<string, unknown>) => {
-        if (!isAcaRequest) return;
-        const submittedByName =
-          String(form.get("contactName") || "").trim() ||
-          session?.user?.name?.trim() ||
-          "";
-        const approvingJson = JSON.stringify(acaApprovingAgentIds);
-        if (target instanceof FormData) {
-          target.append("acaCategory", acaCategory.trim());
-          target.append("acaNatureOfRequest", acaNatureOfRequest.trim());
-          target.append("acaEstimatedCost", acaEstimatedCost.trim());
-          target.append("acaBudgetAmount", acaBudgetAmount.trim());
-          target.append("acaDescription", acaDescription.trim());
-          target.append("acaObjective", acaObjective.trim());
-          target.append("acaDateSubmitted", acaDateSubmitted.trim());
-          target.append("acaImplementationDate", acaImplementationDate.trim());
-          target.append("acaSubmittedByName", submittedByName);
-          if (acaRelatedTicketIds.trim()) {
-            target.append("acaRelatedTicketIds", acaRelatedTicketIds.trim());
-          }
-          target.append("acaRecommendedByAgentId", acaRecommendedByAgentId);
-          target.append("acaFinanceManagerAgentId", acaFinanceManagerAgentId);
-          target.append("acaApprovingAgentIds", approvingJson);
-          target.append("issue", acaDescription.trim());
-        } else {
-          target.acaCategory = acaCategory.trim();
-          target.acaNatureOfRequest = acaNatureOfRequest.trim();
-          target.acaEstimatedCost = acaEstimatedCost.trim();
-          target.acaBudgetAmount = acaBudgetAmount.trim();
-          target.acaDescription = acaDescription.trim();
-          target.acaObjective = acaObjective.trim();
-          target.acaDateSubmitted = acaDateSubmitted.trim();
-          target.acaImplementationDate = acaImplementationDate.trim();
-          target.acaSubmittedByName = submittedByName;
-          if (acaRelatedTicketIds.trim()) {
-            target.acaRelatedTicketIds = acaRelatedTicketIds.trim();
-          }
-          target.acaRecommendedByAgentId = acaRecommendedByAgentId;
-          target.acaFinanceManagerAgentId = acaFinanceManagerAgentId;
-          target.acaApprovingAgentIds = acaApprovingAgentIds;
-          target.issue = acaDescription.trim();
-        }
-      };
-
       let res: Response;
       if (screenshots.length > 0) {
         const fd = new FormData();
-        if (!isRequisitionRequest && !isAcaRequest) {
+        if (!isRequisitionRequest) {
           fd.append("issue", issue);
         }
         fd.append("requestType", activeRequestType ?? DEFAULT_REQUEST_TYPE);
@@ -1436,7 +1218,6 @@ function NewTicketPageInner({
         appendSectionFields(fd);
         appendRequestingCompanyField(fd);
         appendApprovalAssignees(fd);
-        appendAcaFields(fd);
         if (isCustomer) {
           fd.append("requestToCompanySbu", String(form.get("requestToCompanySbu") || "").trim());
           fd.append("branch", String(form.get("branch") || "").trim());
@@ -1462,7 +1243,7 @@ function NewTicketPageInner({
         });
       } else {
         const payload: Record<string, unknown> = {
-          issue: isAcaRequest ? acaDescription.trim() : issue,
+          issue,
           requestType: activeRequestType ?? DEFAULT_REQUEST_TYPE,
           priority,
         };
@@ -1473,7 +1254,6 @@ function NewTicketPageInner({
         appendSectionFields(payload);
         appendRequestingCompanyField(payload);
         appendApprovalAssignees(payload);
-        appendAcaFields(payload);
         if (isCustomer) {
           payload.requestToCompanySbu = String(form.get("requestToCompanySbu") || "").trim();
           payload.branch = String(form.get("branch") || "").trim();
@@ -1656,13 +1436,11 @@ function NewTicketPageInner({
               <>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="block min-w-0 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                    {isAcaRequest
-                      ? "Submitted by:"
-                      : isPaymentRequest
-                        ? "REQUESTED BY:"
-                        : isFundTransferRequest || isJobOrderRequest
-                          ? "PREPARED BY:"
-                          : "Requestor"}
+                    {isPaymentRequest
+                      ? "REQUESTED BY:"
+                      : isFundTransferRequest || isJobOrderRequest
+                        ? "PREPARED BY:"
+                        : "Requestor"}
                     <Input
                       name="contactName"
                       required
@@ -2559,75 +2337,6 @@ function NewTicketPageInner({
                   </label>
                   {renderOptionalFieldAttachments("ticket-screenshots-job-order")}
                 </div>
-              </div>
-            ) : isAcaRequest ? (
-              <div className="space-y-3">
-                {canShowAcaRecommendations ? (
-                  <IntakeApprovalRecommendationGuide
-                    requestType="AUTHORITY_TO_CONDUCT_ACTIVITY"
-                    requestorSectionId={selectedRequestorOrgChartSectionId}
-                    sendToSectionId={selectedSendToOrgChartSectionId}
-                    acaRecommendingLevel={acaResolution?.recommendingLevel ?? undefined}
-                    acaApprovingPath={acaResolution?.approvingPath ?? undefined}
-                    acaApprovingSeatCount={acaResolution?.approvingSeatCount ?? 0}
-                    onApply={(assignees) => {
-                      if (assignees.recommendedByAgentId) {
-                        setAcaRecommendedByAgentId(assignees.recommendedByAgentId);
-                      }
-                      if (assignees.financeManagerAgentId) {
-                        setAcaFinanceManagerAgentId(assignees.financeManagerAgentId);
-                      }
-                      setAcaApprovingAgentIds((prev) => {
-                        const next = [...prev];
-                        for (let i = 0; i < next.length; i += 1) {
-                          const key = `approvingAgentId${i}`;
-                          if (assignees[key]) next[i] = assignees[key]!;
-                        }
-                        return next;
-                      });
-                    }}
-                  />
-                ) : null}
-              <AcaIntakeFields
-                companyName={staffDesignatedCompany?.name ?? ""}
-                category={acaCategory}
-                onCategoryChange={setAcaCategory}
-                natureOfRequest={acaNatureOfRequest}
-                onNatureOfRequestChange={setAcaNatureOfRequest}
-                estimatedCost={acaEstimatedCost}
-                onEstimatedCostChange={setAcaEstimatedCost}
-                budgetAmount={acaBudgetAmount}
-                onBudgetAmountChange={setAcaBudgetAmount}
-                description={acaDescription}
-                onDescriptionChange={setAcaDescription}
-                objective={acaObjective}
-                onObjectiveChange={setAcaObjective}
-                dateSubmitted={acaDateSubmitted}
-                onDateSubmittedChange={setAcaDateSubmitted}
-                implementationDate={acaImplementationDate}
-                onImplementationDateChange={setAcaImplementationDate}
-                relatedTicketIds={acaRelatedTicketIds}
-                onRelatedTicketIdsChange={setAcaRelatedTicketIds}
-                resolution={acaResolution}
-                recommendedByUsers={acaRecommendedByUsers}
-                recommendedByLockedToRequestor={acaRaLockedToRequestor}
-                requestorCompanyName={staffDesignatedCompany?.name ?? ""}
-                companyUsers={acaAnyCompanyAgents}
-                companyUsersLoading={acaApproversLoading}
-                recommendedByAgentId={acaRecommendedByAgentId}
-                onRecommendedByAgentIdChange={setAcaRecommendedByAgentId}
-                financeManagerAgentId={acaFinanceManagerAgentId}
-                onFinanceManagerAgentIdChange={setAcaFinanceManagerAgentId}
-                approvingAgentIds={acaApprovingAgentIds}
-                onApprovingAgentIdChange={(index, value) =>
-                  setAcaApprovingAgentIds((prev) => {
-                    const next = [...prev];
-                    next[index] = value;
-                    return next;
-                  })
-                }
-                renderAttachments={renderOptionalFieldAttachments}
-              />
               </div>
             ) : (
               <div>

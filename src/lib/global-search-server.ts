@@ -1,37 +1,37 @@
 import type { Prisma } from "@prisma/client/primary";
 import type { Session } from "next-auth";
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
 import type { GlobalSearchResult } from "@/lib/global-search";
-import { isItProjectEnvelope } from "@/lib/it-project-subkpis";
-import { kpiMainTaskLabel } from "@/lib/kpi-main-task";
-import { hasSubKpiAssignedTo } from "@/lib/kpi-subkpis";
-import { prisma } from "@/lib/prisma";
+import { isItProjectEnvelope } from "@/modules/tasks/it-project-subkpis";
+import { kpiMainTaskLabel } from "@/modules/tasks/kpi-main-task";
+import { hasSubKpiAssignedTo } from "@/modules/tasks/kpi-subkpis";
+import { prisma } from "@/modules/platform/db/prisma";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
-import { requestTypeAcronym } from "@/lib/request-types";
-import { personnelRequestBoardWhere } from "@/lib/rfp-request-board";
+import { requestTypeAcronym } from "@/modules/requests/request-types";
+import { personnelRequestBoardWhere } from "@/modules/requests/rfp-request-board";
 import { findSessionAgentWithTeam } from "@/lib/session-agent";
 import {
   loadAgentIdsForCompanyTeam,
   resolveAgentDesignatedCompanyId,
   resolveStaffCompanyTeamId,
-} from "@/lib/staff-company-scope";
+} from "@/modules/platform/scope/staff-company-scope";
 import {
   kpiRowInSectionAgentScope,
   resolveViewerOrgChartSectionScope,
   roleUsesCompanyDepartmentTaskAssignScope,
   roleUsesOrgChartSectionBoardScope,
   sectionScopedTicketWhere,
-} from "@/lib/org-chart-section-scope";
-import { filterOrgChartSectionsByCompanyTeam } from "@/lib/org-chart-section-display";
-import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
+} from "@/modules/platform/scope/org-chart-section-scope";
+import { filterOrgChartSectionsByCompanyTeam } from "@/modules/hierarchy/org-chart-section-display";
+import { listOrgChartSectionOptions } from "@/modules/hierarchy/org-chart-section-roster";
 import { isPersonnelGuardPortalRole } from "@/lib/staff-role";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { loadHrisAssignableStaff } from "@/lib/hris-staff-roster";
+import { loadHrisAssignableStaff } from "@/modules/hierarchy/hris-staff-roster";
 import {
   findTravelOrdersVisibleToAgent,
   serializeTravelOrder,
-} from "@/lib/travel-order-db";
+} from "@/modules/work-plans/travel-order-db";
 
 const MAX_TOTAL = 10;
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { verifyPortalPassword } from "@/lib/auth/portal-password";
-import { prisma } from "@/lib/prisma";
+import { verifyPortalPassword } from "@/modules/platform/auth/portal-password";
+import { prisma } from "@/modules/platform/db/prisma";
 import { safeGetServerSession } from "@/lib/server-session";
 
 export async function PATCH(req: Request) {

@@ -60,7 +60,7 @@ function iconForQuickAction(action: QuickAction): LucideIcon {
   if (id === "workforce") return Users;
   if (id === "kpi" || href.includes("insights")) return BarChart3;
   if (id === "process") return Settings;
-  if (id.includes("superadmin") || id === "access-controls" || id === "priority-alerts") {
+  if (id.includes("superadmin") || id === "priority-alerts") {
     return Shield;
   }
   if (id === "account" || label.includes("account")) return UserCircle;

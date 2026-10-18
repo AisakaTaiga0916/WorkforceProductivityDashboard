@@ -12,9 +12,9 @@ import {
   applyDailyPillarPercentSnapshots,
   parseItSalfPillarCsv,
   pillarFromItSalfDailyFilename,
-} from "../src/lib/kpi-sheet-import-snapshots";
-import { normalizeTimeZone } from "../src/lib/kpi-recurrence";
-import { prisma } from "../src/lib/prisma";
+} from "../src/modules/tasks/kpi-sheet-import-snapshots";
+import { normalizeTimeZone } from "../src/modules/tasks/kpi-recurrence";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 const DEFAULT_DOWNLOADS = [
   "IT SALF - SYSTEM AVAILABILITY.csv",

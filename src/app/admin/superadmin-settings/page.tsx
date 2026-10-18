@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
-import { orgChartLayerById } from "./org-chart-layers";
+import { prisma } from "@/modules/platform/db/prisma";
+import { parseSuperAdminSettingsTab } from "@/lib/superadmin-settings-tabs";
 import { SuperAdminSettingsClient } from "./ui";
 
 export const dynamic = "force-dynamic";
@@ -22,34 +22,9 @@ export default async function SuperAdminSettingsPage({
   if (tabParam === "orgchart" || tabParam === "sections" || tabParam === "positions") {
     redirect("/admin/workforce?view=sections");
   }
-  const initialTab =
-    tabParam === "access"
-      ? "access"
-      : tabParam === "faq"
-        ? "faq"
-        : tabParam === "intake"
-          ? "intake"
-          : tabParam === "workforce"
-            ? "workforce"
-            : tabParam === "tasks"
-              ? "tasks"
-              : "alerts";
+  const initialTab = parseSuperAdminSettingsTab(tabParam);
 
-  const [triggers, orgLayerNodes] = await Promise.all([
-    prisma.escalationTrigger.findMany({ orderBy: { priority: "asc" } }),
-    // Only the edges are needed: the access matrix labels the deepest layer.
-    prisma.orgChartNode.findMany({ select: { id: true, parentId: true } }),
-  ]);
+  const triggers = await prisma.escalationTrigger.findMany({ orderBy: { priority: "asc" } });
 
-  const layerById = orgChartLayerById(orgLayerNodes);
-  let maxOrgLayer = 1;
-  for (const layer of layerById.values()) maxOrgLayer = Math.max(maxOrgLayer, layer);
-
-  return (
-    <SuperAdminSettingsClient
-      initialTab={initialTab}
-      initialTriggers={triggers}
-      maxOrgLayer={maxOrgLayer}
-    />
-  );
+  return <SuperAdminSettingsClient initialTab={initialTab} initialTriggers={triggers} />;
 }

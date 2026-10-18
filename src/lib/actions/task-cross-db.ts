@@ -1,6 +1,6 @@
 "use server";
 
-import { prismaPrimary, prismaSecondary } from "@/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "@/modules/platform/db/prisma";
 
 export async function getMergedTaskWithPrimaryRelations(taskSourceId: string) {
   const task = await prismaSecondary.mergedTaskItem.findUnique({

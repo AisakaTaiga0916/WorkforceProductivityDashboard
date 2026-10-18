@@ -1,19 +1,25 @@
 import { TicketPriority } from "@prisma/client/primary";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { prisma } from "@/modules/platform/db/prisma";
 
 const priorities = new Set(Object.values(TicketPriority));
 const notifyTargets = new Set(["NONE", "ADMIN", "SUPERADMIN", "ADMIN_AND_SUPERADMIN"]);
 
-/** Priority alerts now live in SuperAdmin Settings → SuperAdmin only. */
-async function guardSuperAdmin() {
+/** Priority alerts live in SuperAdmin Settings → System Settings (SuperAdmin only).
+ *  Writes additionally require the given RBAC permission. */
+async function guardSuperAdmin(permissionKey?: string) {
   const session = await requireSession();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (session.user.role !== "SuperAdmin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (permissionKey) {
+    const denied = await permissionDenied(session, permissionKey);
+    if (denied) return denied;
   }
   return null;
 }
@@ -28,7 +34,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
-  const denied = await guardSuperAdmin();
+  const denied = await guardSuperAdmin("settings.update");
   if (denied) return denied;
 
   const body = await req.json();

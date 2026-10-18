@@ -1,4 +1,4 @@
-import { prisma } from "../src/lib/prisma";
+import { prisma } from "../src/modules/platform/db/prisma";
 import { ensureRosterTeamsInDb } from "../src/lib/roster-teams";
 
 async function main() {

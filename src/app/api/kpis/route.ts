@@ -1,12 +1,12 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import { rosterTeamNameFilter } from "@/lib/company-roster";
-import { computeKpis, parseHelpdeskCadence, parseKpiRangeFromQuery } from "@/lib/kpis";
-import { resolveAgentIdsForOrgChartSection } from "@/lib/org-chart-section-roster";
-import { resolveViewerOrgChartSectionScope } from "@/lib/org-chart-section-scope";
-import { prisma } from "@/lib/prisma";
-import { resolveStaffCompanyTeamId, resolveAgentDesignatedCompanyId } from "@/lib/staff-company-scope";
+import { computeKpis, parseHelpdeskCadence, parseKpiRangeFromQuery } from "@/modules/tasks/kpis";
+import { resolveAgentIdsForOrgChartSection } from "@/modules/hierarchy/org-chart-section-roster";
+import { resolveViewerOrgChartSectionScope } from "@/modules/platform/scope/org-chart-section-scope";
+import { prisma } from "@/modules/platform/db/prisma";
+import { resolveStaffCompanyTeamId, resolveAgentDesignatedCompanyId } from "@/modules/platform/scope/staff-company-scope";
 import { findSessionAgentId } from "@/lib/session-agent";
 
 export async function GET(req: Request) {

@@ -7,7 +7,7 @@ import {
   jobOrderApprovalStepsFor,
   nextJobOrderApprovalStep,
   parseJobOrderApprovalMeta,
-} from "../../src/lib/job-order-approval";
+} from "../../src/modules/requests/job-order-approval";
 
 describe("Job Order skip Noted By / Approved By", () => {
   it("computes start step from skip flags", () => {

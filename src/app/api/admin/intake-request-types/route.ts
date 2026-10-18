@@ -1,18 +1,24 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
-import { parseIntakeRequestTypeVisibility } from "@/lib/intake-request-type-visibility";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { parseIntakeRequestTypeVisibility } from "@/modules/platform/settings/intake-request-type-visibility";
 import {
   getIntakeRequestTypeVisibility,
   setIntakeRequestTypeVisibility,
-} from "@/lib/intake-request-type-visibility-db";
+} from "@/modules/platform/settings/intake-request-type-visibility-db";
 
-async function guardSuperAdmin() {
+/** SuperAdmin-only guard. Writes additionally require the given RBAC permission. */
+async function guardSuperAdmin(permissionKey?: string) {
   const session = await requireSession();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (session.user.role !== "SuperAdmin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (permissionKey) {
+    const denied = await permissionDenied(session, permissionKey);
+    if (denied) return denied;
   }
   return null;
 }
@@ -25,7 +31,7 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
-  const denied = await guardSuperAdmin();
+  const denied = await guardSuperAdmin("settings.update");
   if (denied) return denied;
 
   const body = (await req.json().catch(() => ({}))) as { hiddenTypeIds?: unknown };
@@ -44,7 +50,7 @@ export async function PUT(req: Request) {
 
 export async function POST() {
   /** Reset — show all request types. */
-  const denied = await guardSuperAdmin();
+  const denied = await guardSuperAdmin("settings.update");
   if (denied) return denied;
   const config = await setIntakeRequestTypeVisibility({ hiddenTypeIds: [] });
   return NextResponse.json(config);

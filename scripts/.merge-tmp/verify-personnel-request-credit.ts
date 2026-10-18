@@ -4,19 +4,19 @@
  */
 import { DateTime } from "luxon";
 import { Prisma } from "@prisma/client/primary";
-import { prisma } from "../../src/lib/prisma";
-import { ACTIVE_REQUEST_STATUSES } from "../../src/lib/active-request-statuses";
-import { parseAcaApprovalMeta } from "../../src/lib/aca-approval";
-import { parsePaymentApprovalMeta } from "../../src/lib/request-for-payment-approval";
-import { parseItemRequisitionApprovalMeta } from "../../src/lib/item-requisition-approval";
-import { parseFundTransferApprovalMeta } from "../../src/lib/fund-transfer-approval";
-import { loadAcaSubmittedPersonnelMetrics } from "../../src/lib/aca-role-kpis";
-import { loadRfpRolePersonnelMetrics } from "../../src/lib/rfp-role-kpis";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { ACTIVE_REQUEST_STATUSES } from "../../src/modules/requests/active-request-statuses";
+import { parseAcaApprovalMeta } from "../../src/modules/requests/aca-approval";
+import { parsePaymentApprovalMeta } from "../../src/modules/requests/request-for-payment-approval";
+import { parseItemRequisitionApprovalMeta } from "../../src/modules/requests/item-requisition-approval";
+import { parseFundTransferApprovalMeta } from "../../src/modules/requests/fund-transfer-approval";
+import { loadAcaSubmittedPersonnelMetrics } from "../../src/modules/requests/aca-role-kpis";
+import { loadRfpRolePersonnelMetrics } from "../../src/modules/requests/rfp-role-kpis";
 import {
   loadFtrPreparedPersonnelMetrics,
   loadIrsCanvassPersonnelMetrics,
-} from "../../src/lib/irs-ftr-role-kpis";
-import { isKpiMetricsWorkingDay } from "../../src/lib/kpi-recurrence";
+} from "../../src/modules/requests/irs-ftr-role-kpis";
+import { isKpiMetricsWorkingDay } from "../../src/modules/tasks/kpi-recurrence";
 
 const TZ = "Asia/Manila";
 

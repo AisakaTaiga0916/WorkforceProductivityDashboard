@@ -1,6 +1,6 @@
-import { prisma } from "../../src/lib/prisma.ts";
-import { computeTaskMetrics, parseKpiRangeFromQuery } from "../../src/lib/kpis.ts";
-import { loadAgentIdsForCompanyTeam } from "../../src/lib/staff-company-scope.ts";
+import { prisma } from "../../src/modules/platform/db/prisma.ts";
+import { computeTaskMetrics, parseKpiRangeFromQuery } from "../../src/modules/tasks/kpis.ts";
+import { loadAgentIdsForCompanyTeam } from "../../src/modules/platform/scope/staff-company-scope.ts";
 
 void (async () => {
   const teams = await prisma.team.findMany({ select: { id: true, name: true }, take: 5 });

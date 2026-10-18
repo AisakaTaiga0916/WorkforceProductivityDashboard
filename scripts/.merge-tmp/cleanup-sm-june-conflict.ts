@@ -1,4 +1,4 @@
-import { prisma } from "../../src/lib/prisma";
+import { prisma } from "../../src/modules/platform/db/prisma";
 
 /** Drop the conflicting Taipei June 33% monthly row so Manila monthly history wins. */
 async function main() {

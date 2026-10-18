@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { resolveAgentDesignatedCompanyId } from "@/lib/staff-company-scope";
-import { resolveWorkPlanOrgChartApprovalPath } from "@/lib/work-plan-org-chart-path";
+import { resolveAgentDesignatedCompanyId } from "@/modules/platform/scope/staff-company-scope";
+import { resolveWorkPlanOrgChartApprovalPath } from "@/modules/work-plans/work-plan-org-chart-path";
 
 /**
  * GET /api/travel-orders/work-plan-org-chart-path?agentId=

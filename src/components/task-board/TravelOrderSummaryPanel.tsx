@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { DateTime } from "luxon";
 import { FileText, Loader2, Paperclip, Plus, X } from "lucide-react";
-import { INTAKE_ATTACHMENT_ACCEPT } from "@/lib/ticket-intake-screenshots-constants";
+import { INTAKE_ATTACHMENT_ACCEPT } from "@/modules/requests/ticket-intake-screenshots-constants";
 import { MapLocationPicker } from "@/components/task-board/MapLocationPicker";
 import {
   TravelOrderPageNav,
@@ -18,7 +18,7 @@ import {
 import { WorkPlanOrderCard } from "@/components/task-board/WorkPlanOrderCard";
 import { TravelOrderLocationVisitList } from "@/components/task-board/TravelOrderLocationVisitList";
 import { cn } from "@/lib/cn";
-import { isWorkPlanOrder, workPlanUsesGatePass } from "@/lib/work-plan";
+import { isWorkPlanOrder, workPlanUsesGatePass } from "@/modules/work-plans/work-plan";
 import {
   canApproveTravelOrderNow,
   canCancelTravelOrderNow,
@@ -44,8 +44,9 @@ import {
   type TravelOrderDto,
   type TravelOrderGatePassDraft,
   type TravelOrderLocationDto,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 import { isPersonnelGuardPortalRole } from "@/lib/staff-role";
+import { permissionAllows, usePermissions } from "@/modules/platform/rbac/permissions-client";
 import { TravelOrderOfflineBanner } from "@/components/offline/TravelOrderOfflineBanner";
 import {
   applyLocalTravelOrderOverlay,
@@ -197,6 +198,9 @@ export function TravelOrderSummaryPanel({
   onEditLinkedRfp,
 }: TravelOrderSummaryPanelProps) {
   const { data: session } = useSession();
+  const clientPermissions = usePermissions();
+  /** Hide Approve controls the API would reject (work_plans.approve). */
+  const approveAllowed = permissionAllows(clientPermissions, "work_plans.approve");
   const personnelGuard =
     personnelGuardProp || isPersonnelGuardPortalRole(session?.user?.role);
   const gatePassOnly = interactionMode === "gatePassOnly";
@@ -1253,6 +1257,7 @@ export function TravelOrderSummaryPanel({
           const unlockedLevels = hierarchical ? getUnlockedIncompleteLevels(levels) : [];
           const hierarchyDone = hierarchical && isApprovalHierarchySatisfied(levels);
           const canApproveThis =
+            approveAllowed &&
             !gatePassOnly &&
             canApproveTravelOrderNow(
               operatorAgentId,

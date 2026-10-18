@@ -13,11 +13,11 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
-import type { DepartmentMetricRow } from "@/lib/department-task-metrics";
+import type { DepartmentMetricRow } from "@/modules/tasks/department-task-metrics";
 import type {
   TaskChecklistIncludedTask,
   TaskChecklistIncludedTaskSegment,
-} from "@/lib/kpi-period-snapshots";
+} from "@/modules/tasks/kpi-period-snapshots";
 import { KPI_DONUT_COLORS, KINETIC_PALETTE } from "@/lib/kinetic-palette";
 
 type CatalogSection = {

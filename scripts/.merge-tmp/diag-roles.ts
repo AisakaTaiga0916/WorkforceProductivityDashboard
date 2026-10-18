@@ -1,5 +1,5 @@
-import { prisma } from "../../src/lib/prisma";
-import { prismaSecondary } from "../../src/lib/prisma";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { prismaSecondary } from "../../src/modules/platform/db/prisma";
 
 async function main() {
   const ids = [

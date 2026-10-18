@@ -2,7 +2,7 @@
  * Show portal + agent rows for known duplicate people (seed vs HRIS vs July backup).
  */
 import { normalizePersonName } from "../src/lib/person-name";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 const NEEDLES = ["zyrah", "reginald", "mark", "kurt", "neziah", "john", "darwin", "manilyn", "marvin"];
 

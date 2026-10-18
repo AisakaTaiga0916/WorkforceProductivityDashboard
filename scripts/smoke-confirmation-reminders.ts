@@ -5,8 +5,8 @@
  *   npx tsx scripts/smoke-confirmation-reminders.ts
  */
 import { DateTime } from "luxon";
-import { runForConfirmationReminderSweep, CONFIRMATION_REMINDER_ACTIVITY } from "../src/lib/confirmation-reminders";
-import { prisma } from "../src/lib/prisma";
+import { runForConfirmationReminderSweep, CONFIRMATION_REMINDER_ACTIVITY } from "../src/modules/requests/confirmation-reminders";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 function fail(message: string): never {
   console.error("FAIL:", message);

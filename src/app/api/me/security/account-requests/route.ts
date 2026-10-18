@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { isOAuthOnlyPortal, verifyPortalPassword } from "@/lib/auth/portal-password";
-import { prisma } from "@/lib/prisma";
+import { isOAuthOnlyPortal, verifyPortalPassword } from "@/modules/platform/auth/portal-password";
+import { prisma } from "@/modules/platform/db/prisma";
 import { safeGetServerSession } from "@/lib/server-session";
 
 const allowedRequestTypes = new Set(["SUSPENSION", "DELETION", "PASSWORD_RESET"]);

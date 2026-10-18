@@ -6,7 +6,7 @@
  */
 import { Prisma } from "@prisma/client/primary";
 import { pickCanonicalAgentForPortal } from "../src/lib/admin-roster";
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 const SPOT_CHECKS = [
   { label: "Mark Robina", email: "markanthony.robina@gmail.com", minTickets: 1 },

@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import { prismaPrimary } from "../../src/lib/prisma";
+import { prismaPrimary } from "../../src/modules/platform/db/prisma";
 
 type Contrib = { id?: string; name?: string; role?: string; total?: number; done?: number };
 

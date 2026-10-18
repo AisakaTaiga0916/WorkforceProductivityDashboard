@@ -7,8 +7,8 @@ import {
   removeSubKpiItem,
   resolveEffectiveSubKpiDueDate,
   updateSubKpiItem,
-} from "@/lib/kpi-subkpis";
-import { listSubTaskDtos } from "@/lib/kpi-subtasks-rest";
+} from "@/modules/tasks/kpi-subkpis";
+import { listSubTaskDtos } from "@/modules/tasks/kpi-subtasks-rest";
 
 const baseChecklist = [{ id: "a", title: "First step", done: false }];
 

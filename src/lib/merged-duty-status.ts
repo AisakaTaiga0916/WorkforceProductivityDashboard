@@ -14,8 +14,8 @@
 
 import { DateTime } from "luxon";
 import { Prisma } from "@prisma/client/secondary";
-import { DEFAULT_TIME_ZONE } from "@/lib/kpi-recurrence";
-import { prismaSecondary } from "@/lib/prisma";
+import { DEFAULT_TIME_ZONE } from "@/modules/tasks/kpi-recurrence";
+import { prismaSecondary } from "@/modules/platform/db/prisma";
 import { withTtlCache } from "@/lib/ttl-cache";
 
 export type DutyStatus = "ON_DUTY" | "OFFLINE";
@@ -178,7 +178,7 @@ export async function loadTodayClockInsBySourceUserId(
 ): Promise<Map<string, Date>> {
   // Keep merge attendance close to live HRIS (callers poll frequently).
   try {
-    const { runHrisAttendanceSync } = await import("@/lib/auth/hris-attendance-sync");
+    const { runHrisAttendanceSync } = await import("@/modules/platform/auth/hris-attendance-sync");
     const { withTtlCache } = await import("@/lib/ttl-cache");
     await withTtlCache("hris-attendance-sync", 30_000, async () => {
       await runHrisAttendanceSync();

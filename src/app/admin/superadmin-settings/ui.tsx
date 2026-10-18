@@ -5,12 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { SuperAdminSettingsNav, type SuperAdminSettingsTab } from "@/components/SuperAdminSettingsNav";
 import { BRAND_TITLE } from "@/lib/brand";
-import { EscalationTriggersClient } from "../escalation-triggers/ui";
-import { AccessControlsPanel } from "./AccessControlsPanel";
-import { FaqPanel } from "./FaqPanel";
-import { IntakeRequestTypesPanel } from "./IntakeRequestTypesPanel";
-import { TaskVerificationPanel } from "./TaskVerificationPanel";
-import { WorkforceViewsPanel } from "./WorkforceViewsPanel";
+import { superAdminSettingsHref } from "@/lib/superadmin-settings-tabs";
+import { RolesPanel } from "./RolesPanel";
+import { SystemSettingsPanel } from "./SystemSettingsPanel";
+import { UsersPanel } from "./UsersPanel";
 
 type Trigger = Pick<
   EscalationTrigger,
@@ -20,12 +18,9 @@ type Trigger = Pick<
 export function SuperAdminSettingsClient({
   initialTab,
   initialTriggers,
-  maxOrgLayer,
 }: {
   initialTab: SuperAdminSettingsTab;
   initialTriggers: Trigger[];
-  /** Deepest layer currently on the org chart — labels the access matrix. */
-  maxOrgLayer: number;
 }) {
   const router = useRouter();
   const [tab, setTabState] = useState<SuperAdminSettingsTab>(initialTab);
@@ -36,19 +31,7 @@ export function SuperAdminSettingsClient({
 
   function setTab(next: SuperAdminSettingsTab) {
     setTabState(next);
-    const qs =
-      next === "access"
-        ? "?tab=access"
-        : next === "faq"
-          ? "?tab=faq"
-          : next === "intake"
-            ? "?tab=intake"
-            : next === "workforce"
-              ? "?tab=workforce"
-              : next === "tasks"
-                ? "?tab=tasks"
-                : "?tab=alerts";
-    router.replace(`/admin/superadmin-settings${qs}`, { scroll: false });
+    router.replace(superAdminSettingsHref(next), { scroll: false });
   }
 
   return (
@@ -62,26 +45,19 @@ export function SuperAdminSettingsClient({
             SuperAdmin Settings
           </h1>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Manage escalation alerts, access controls, task verification, Workforce toggles, and the
-            public sign-in FAQ. The organizational chart lives under Workforce → Org. Chart when that
-            toggle is shown.
+            Manage roles and permissions, users, and system settings (modules, priority alerts,
+            task verification). The organizational chart lives under Workforce → Org. Chart.
           </p>
         </div>
         <SuperAdminSettingsNav activeTab={tab} onTabChange={setTab} />
       </header>
 
-      {tab === "access" ? (
-        <AccessControlsPanel maxOrgLayer={maxOrgLayer} />
-      ) : tab === "intake" ? (
-        <IntakeRequestTypesPanel />
-      ) : tab === "workforce" ? (
-        <WorkforceViewsPanel />
-      ) : tab === "tasks" ? (
-        <TaskVerificationPanel />
-      ) : tab === "faq" ? (
-        <FaqPanel />
+      {tab === "users" ? (
+        <UsersPanel />
+      ) : tab === "system" ? (
+        <SystemSettingsPanel initialTriggers={initialTriggers} />
       ) : (
-        <EscalationTriggersClient initialTriggers={initialTriggers} embedded />
+        <RolesPanel />
       )}
     </main>
   );

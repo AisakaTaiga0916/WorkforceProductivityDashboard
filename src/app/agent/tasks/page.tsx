@@ -1,13 +1,15 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/access";
+import { isSystemModuleEnabled } from "@/modules/platform/settings/system-modules-db";
+import { ModuleDisabledNotice } from "@/components/ModuleDisabledNotice";
 import { BRAND_TITLE } from "@/lib/brand";
 import { rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
-import { buildOrgChartDepartmentFilterOptions } from "@/lib/org-chart-section-display";
-import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
-import { prisma } from "@/lib/prisma";
-import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
-import { TASK_FREQUENCY_DONUT_KEYS } from "@/lib/task-metrics-task-type";
+import { buildOrgChartDepartmentFilterOptions } from "@/modules/hierarchy/org-chart-section-display";
+import { listOrgChartSectionOptions } from "@/modules/hierarchy/org-chart-section-roster";
+import { prisma } from "@/modules/platform/db/prisma";
+import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { TASK_FREQUENCY_DONUT_KEYS } from "@/modules/tasks/task-metrics-task-type";
 import { AgentKpiKanbanFlow } from "../kpi-kanban-flow";
 import { TaskBoardFilterBar } from "./task-board-filter-bar";
 
@@ -40,6 +42,7 @@ export default async function AgentTasksPage({
   const session = await requireSession();
   if (!session?.user) redirect("/signin");
   if (!["SuperAdmin", "HighAdmin", "Personnel", "Admin"].includes(session.user.role)) redirect("/");
+  if (!(await isSystemModuleEnabled("tasks"))) return <ModuleDisabledNotice module="tasks" />;
 
   const params = await searchParams;
   const focusTaskId = firstQuery(params.task)?.trim() || null;

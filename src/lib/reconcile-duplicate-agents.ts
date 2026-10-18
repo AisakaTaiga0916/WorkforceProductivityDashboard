@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client/primary";
 import { agentMatchesPortalStaff, pickCanonicalAgentForPortal } from "@/lib/admin-roster";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 export type PortalAgentDuplicateMapping = {
   portalEmail: string;

@@ -1,7 +1,7 @@
 /**
  * Snapshot: how many HRIS-linked portals can appear on Personnel today.
  */
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 import { isStaffPortalRole } from "../src/lib/staff-role";
 
 async function main() {

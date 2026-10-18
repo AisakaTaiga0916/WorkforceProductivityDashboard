@@ -2,9 +2,9 @@
  * Explain merged ACI ticket pending vs live Task Metrics for suspicious names.
  */
 import { Prisma } from "@prisma/client/primary";
-import { prisma } from "../../src/lib/prisma";
-import { OPEN_PIPELINE_STATUSES } from "../../src/lib/active-request-statuses";
-import { parsePaymentApprovalMeta } from "../../src/lib/request-for-payment-approval";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { OPEN_PIPELINE_STATUSES } from "../../src/modules/requests/active-request-statuses";
+import { parsePaymentApprovalMeta } from "../../src/modules/requests/request-for-payment-approval";
 
 const NAMES = [
   "Riezel Cua Lelis",

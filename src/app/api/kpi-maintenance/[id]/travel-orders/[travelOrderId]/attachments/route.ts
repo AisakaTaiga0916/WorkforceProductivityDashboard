@@ -2,22 +2,23 @@ import { unlink } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   isTravelOrderApproved,
   isTravelOrderTraveler,
   MAX_TRAVEL_ORDER_ATTACHMENTS,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 import {
   findTravelOrderById,
   serializeTravelOrder,
   updateTravelOrderAttachments,
-} from "@/lib/travel-order-db";
+} from "@/modules/work-plans/travel-order-db";
 import {
   persistTravelOrderAttachment,
   travelOrderUploadDir,
-} from "@/lib/travel-order-uploads";
+} from "@/modules/work-plans/travel-order-uploads";
 
 async function loadOrderForTravelerAttachments(
   sessionPerms: Awaited<ReturnType<typeof resolveOpsPermissions>>,
@@ -69,6 +70,8 @@ export async function POST(
 ) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("work_plans");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   const { id, travelOrderId } = await ctx.params;
 
@@ -137,6 +140,8 @@ export async function PATCH(
 ) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("work_plans");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   const { id, travelOrderId } = await ctx.params;
 

@@ -18,8 +18,8 @@ import {
   computeTaskMetrics,
   parseKpiRangeFromQuery,
   type PersonnelTicketMetric,
-} from "@/lib/kpis";
-import { prismaPrimary, prismaSecondary } from "@/lib/prisma";
+} from "@/modules/tasks/kpis";
+import { prismaPrimary, prismaSecondary } from "@/modules/platform/db/prisma";
 import {
   buildCanonicalMergedIdMap,
   canonicalMergedId,
@@ -31,7 +31,7 @@ import {
   combinedPersonnelEfficiency,
   mergePersonnelMetricCards,
   mergePersonnelRequestMetrics,
-} from "@/lib/task-personnel-metrics";
+} from "@/modules/tasks/task-personnel-metrics";
 
 const BATCH_SIZE = 500;
 
@@ -486,13 +486,12 @@ async function computeMergedUserEfficiencies(
     taskRows,
     metrics.personnelTicketMetrics as PersonnelTicketMetric[],
   );
-  // Insights parity: Requests = assignee tickets + RFP/IRS/FTR/ACA role seats (no Approver fallback).
+  // Insights parity: Requests = assignee tickets + RFP/IRS/FTR role seats (no Approver fallback).
   const cards = attachPersonnelRequestRoleMetrics(baseCards, {
     rfpAccounting: metrics.personnelRfpAccountingMetrics,
     rfpFinance: metrics.personnelRfpFinanceMetrics,
     irsCanvass: metrics.personnelIrsCanvassMetrics,
     ftrPrepared: metrics.personnelFtrPreparedMetrics,
-    acaSubmitted: metrics.personnelAcaSubmittedMetrics,
   });
 
   const agentById = new Map(agents.map((a) => [a.id, a]));

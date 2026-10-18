@@ -6,9 +6,9 @@ import type { ActivityActor, TicketPriority, TicketStatus } from "@prisma/client
 import { AgentTicketDeepLink } from "@/components/AgentTicketDeepLink";
 import { AssigneeInitialsBadge } from "@/components/ticket/AssigneeInitialsBadge";
 import { cn } from "@/lib/cn";
-import { parseJobOrderDescription } from "@/lib/job-order";
-import { formatTicketActivityDetail } from "@/lib/ticket-activity-display";
-import { formatTicketPriorityLabel } from "@/lib/ticket-priority-label";
+import { parseJobOrderDescription } from "@/modules/requests/job-order";
+import { formatTicketActivityDetail } from "@/modules/requests/ticket-activity-display";
+import { formatTicketPriorityLabel } from "@/modules/requests/ticket-priority-label";
 
 export type TicketActivityLogRow = {
   id: string;

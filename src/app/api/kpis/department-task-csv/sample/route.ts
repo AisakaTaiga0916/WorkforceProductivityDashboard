@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { departmentTaskCsvSampleContent } from "@/lib/department-task-csv";
+import { departmentTaskCsvSampleContent } from "@/modules/tasks/department-task-csv";
 
 /**
  * GET /api/kpis/department-task-csv/sample

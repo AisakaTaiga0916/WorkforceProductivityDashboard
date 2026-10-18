@@ -3,7 +3,7 @@ import {
   checklistProgressFromChecks,
   parseItSalfDateCell,
   pillarFromItSalfFilename,
-} from "@/lib/kpi-daily-csv-import";
+} from "@/modules/tasks/kpi-daily-csv-import";
 
 describe("kpi-daily-csv-import", () => {
   it("maps filenames to pillars", () => {

@@ -10,7 +10,7 @@
 import { pickCanonicalAgentForPortal } from "../src/lib/admin-roster";
 import { normalizePersonName } from "../src/lib/person-name";
 import { mergeAgentOwnership } from "../src/lib/reconcile-duplicate-agents";
-import { prismaAuth, prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaAuth, prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 const STAFF_ROLES = ["Admin", "Personnel", "SuperAdmin"] as const;
 

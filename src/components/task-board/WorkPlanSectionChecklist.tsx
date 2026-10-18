@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 import {
   WORK_PLAN_WIZARD_STEPS,
   type WorkPlanSectionId,
-} from "@/lib/work-plan";
+} from "@/modules/work-plans/work-plan";
 
 type WorkPlanSectionChecklistProps = {
   completeById: Partial<Record<WorkPlanSectionId, boolean>>;

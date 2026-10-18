@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Link2, PlusSquare } from "lucide-react";
-import { JOB_ORDER_TASK_BOARD_SECTION_ID } from "@/lib/job-order-section-ids";
+import { JOB_ORDER_TASK_BOARD_SECTION_ID } from "@/modules/requests/job-order-section-ids";
 
 type ProjectOption = {
   id: string;

@@ -3,9 +3,9 @@ import { createReadStream, existsSync } from "fs";
 import path from "path";
 import { Readable } from "stream";
 import { requireRole } from "@/lib/access";
-import { isIntakeAttachmentImage } from "@/lib/ticket-intake-screenshots-meta";
-import { findTravelOrderById, travelOrderExistsForKpi } from "@/lib/travel-order-db";
-import { travelOrderUploadDir } from "@/lib/travel-order-uploads";
+import { isIntakeAttachmentImage } from "@/modules/requests/ticket-intake-screenshots-meta";
+import { findTravelOrderById, travelOrderExistsForKpi } from "@/modules/work-plans/travel-order-db";
+import { travelOrderUploadDir } from "@/modules/work-plans/travel-order-uploads";
 
 function guessMimeFromStoredName(storedFileName: string): string {
   const lower = storedFileName.toLowerCase();

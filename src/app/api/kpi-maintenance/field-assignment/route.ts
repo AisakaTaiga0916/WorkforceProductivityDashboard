@@ -1,31 +1,32 @@
 import { KpiFrequency } from "@prisma/client/primary";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
 import {
   applyPillarOnlyTaskCreate,
   setTaskCount,
   wrapForPersist,
   markFieldAssignmentTask,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { prisma } from "@/lib/prisma";
-import { resolveAgentDesignatedCompanyId } from "@/lib/staff-company-scope";
+import { prisma } from "@/modules/platform/db/prisma";
+import { resolveAgentDesignatedCompanyId } from "@/modules/platform/scope/staff-company-scope";
 import {
   agentIdsFromApprovalLevels,
   normalizeApprovalLevelsForStore,
   type TravelOrderApprovalLevelDraft,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 import {
   createTravelOrderWithLocations,
   serializeTravelOrder,
   updateTravelOrderAttachments,
-} from "@/lib/travel-order-db";
-import { createRfpFromSubmittedTravelOrder } from "@/lib/travel-order-rfp";
+} from "@/modules/work-plans/travel-order-db";
+import { createRfpFromSubmittedTravelOrder } from "@/modules/work-plans/travel-order-rfp";
 import {
   MAX_TRAVEL_ORDER_ATTACHMENTS,
   persistTravelOrderAttachment,
   removeTravelOrderUploadDir,
-} from "@/lib/travel-order-uploads";
+} from "@/modules/work-plans/travel-order-uploads";
 import {
   deriveWorkPlanOrderRequest,
   emptyWorkPlanDraft,
@@ -33,7 +34,7 @@ import {
   normalizeWorkPlanMetaForStore,
   validateWorkPlanDraft,
   type WorkPlanMeta,
-} from "@/lib/work-plan";
+} from "@/modules/work-plans/work-plan";
 
 /**
  * POST /api/kpi-maintenance/field-assignment
@@ -43,6 +44,8 @@ import {
 export async function POST(req: Request) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("work_plans");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
 
   const creatorAgentId = perms.operator?.id ?? null;

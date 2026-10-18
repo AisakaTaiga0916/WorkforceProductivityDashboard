@@ -1,5 +1,5 @@
-import { prisma } from "../../src/lib/prisma";
-import { loadEffectiveCompaniesByPortalEmail } from "../../src/lib/staff-company-scope";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { loadEffectiveCompaniesByPortalEmail } from "../../src/modules/platform/scope/staff-company-scope";
 
 async function main() {
   const emails = [

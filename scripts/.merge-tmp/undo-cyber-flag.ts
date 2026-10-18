@@ -1,11 +1,11 @@
-import { prisma } from "../../src/lib/prisma";
-import { upsertKpiPeriodSnapshot } from "../../src/lib/kpi-period-snapshots";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { upsertKpiPeriodSnapshot } from "../../src/modules/tasks/kpi-period-snapshots";
 import {
   kpiChecklistMetricView,
   kpiChecklistProgress,
   setPillarDone,
   taskUsesInvertedRecording,
-} from "../../src/lib/kpi-subkpis";
+} from "../../src/modules/tasks/kpi-subkpis";
 
 const ID = "cmsfm27oe0007cv1hw25xgnnz";
 

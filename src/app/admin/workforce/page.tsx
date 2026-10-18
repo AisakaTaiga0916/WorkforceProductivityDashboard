@@ -3,20 +3,20 @@ import { requireSession } from "@/lib/access";
 import { sortByRosterOrder, rosterTeamNameFilter } from "@/lib/company-roster";
 import { loadPersonnelAccountsPayload } from "@/lib/personnel-accounts-data";
 import { loadOnDutySnapshot } from "@/lib/load-on-duty-snapshot";
-import { prisma } from "@/lib/prisma";
-import { resolveAdminOnDutyCompanyFilter } from "@/lib/staff-company-scope";
+import { prisma } from "@/modules/platform/db/prisma";
+import { resolveAdminOnDutyCompanyFilter } from "@/modules/platform/scope/staff-company-scope";
 import {
   reconcilePortalStaffRolesFromOrgChart,
   resolvePortalTechnicalRolesByMergedSourceUserIds,
   resolveViewerOrgChartSectionScope,
-} from "@/lib/org-chart-section-scope";
+} from "@/modules/platform/scope/org-chart-section-scope";
 import { WorkforceClient } from "./ui";
 import type { OrgChartSectionRow } from "../superadmin-settings/OrgChartSectionsPanel";
 import {
   firstVisibleWorkforceView,
   isWorkforceViewVisible,
-} from "@/lib/workforce-view-visibility";
-import { getWorkforceViewVisibility } from "@/lib/workforce-view-visibility-db";
+} from "@/modules/platform/settings/workforce-view-visibility";
+import { getWorkforceViewVisibility } from "@/modules/platform/settings/workforce-view-visibility-db";
 
 export const dynamic = "force-dynamic";
 
@@ -71,10 +71,17 @@ export default async function WorkforcePage({
       where: rosterTeamNameFilter(),
       select: { id: true, name: true },
     }),
+    // Activity reads attendance from the merged DB; the rest of Workforce must render without it.
     loadOnDutySnapshot({
       page: 1,
       pageSize: ON_DUTY_PAGE_SIZE,
       ...(lockedCompanyFilter ? { companyFilter: lockedCompanyFilter } : {}),
+    }).catch((e: unknown) => {
+      console.warn(
+        "[workforce] on-duty snapshot unavailable:",
+        e instanceof Error ? e.message.split("\n")[0] : e,
+      );
+      return { agents: [], page: 1, totalPages: 1, total: 0, companies: [], onDutyCount: 0 };
     }),
     visibleViews.sections
       ? Promise.all([

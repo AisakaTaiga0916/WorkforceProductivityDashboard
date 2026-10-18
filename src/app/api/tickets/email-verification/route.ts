@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
 import { verifyEmailVerificationToken } from "@/lib/email-verification-token";
-import { isAwaitingCustomerConfirmation } from "@/lib/customer-pending-resolution";
-import { prisma } from "@/lib/prisma";
-import { logActivity } from "@/lib/ticket-actions";
+import { isAwaitingCustomerConfirmation } from "@/modules/requests/customer-pending-resolution";
+import { prisma } from "@/modules/platform/db/prisma";
+import { logActivity } from "@/modules/requests/ticket-actions";
 import {
   normalizeFeedbackComment,
   validateFeedbackForRating,
-} from "@/lib/ticket-feedback-policy";
+} from "@/modules/requests/ticket-feedback-policy";
 
 const RATING_ALLOWED_STATUSES = ["FOR_CONFIRMATION", "RESOLVED", "CLOSED"] as const;
 

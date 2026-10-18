@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isTravelOrderConfirmReady,
   travelOrderLocationsUnlocked,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 
 describe("travel order gate pass unlock rules", () => {
   it("locks locations until Gate Pass Start when gate pass is present", () => {

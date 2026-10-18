@@ -1,4 +1,4 @@
-import { prisma } from "../../src/lib/prisma";
+import { prisma } from "../../src/modules/platform/db/prisma";
 import { findSessionAgentWithTeam } from "../../src/lib/session-agent";
 
 async function main() {

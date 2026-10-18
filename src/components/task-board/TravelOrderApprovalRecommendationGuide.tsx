@@ -3,8 +3,8 @@
 import { Lightbulb, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import type { TravelOrderOrgChartPathSeat } from "@/lib/travel-order";
-import type { TravelOrderRecommendedConfirmer } from "@/lib/travel-order-org-chart-path";
+import type { TravelOrderOrgChartPathSeat } from "@/modules/work-plans/travel-order";
+import type { TravelOrderRecommendedConfirmer } from "@/modules/work-plans/travel-order-org-chart-path";
 
 type Props = {
   seats: TravelOrderOrgChartPathSeat[];

@@ -4,8 +4,8 @@
  */
 import fs from "fs";
 import path from "path";
-import { prismaPrimary } from "../../src/lib/prisma";
-import { withSecondaryWriteClient } from "../../src/lib/prisma-secondary-write";
+import { prismaPrimary } from "../../src/modules/platform/db/prisma";
+import { withSecondaryWriteClient } from "../../src/modules/platform/db/prisma-secondary-write";
 
 async function main() {
   const left = await prismaPrimary.travelOrder.count();

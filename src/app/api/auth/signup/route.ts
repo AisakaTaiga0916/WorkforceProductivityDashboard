@@ -4,14 +4,14 @@ import {
   OAUTH_SIGNUP_INTENT_COOKIE,
   signOAuthSignupIntent,
   validateOAuthSignupInput,
-} from "@/lib/auth/oauth-signup-intent";
+} from "@/modules/platform/auth/oauth-signup-intent";
 import {
   createPortalAccount,
   findPortalByEmailOnly,
   findPortalByUsername,
   isSignupRole,
 } from "@/lib/portal-account";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { ensureRosterTeamsInDb } from "@/lib/roster-teams";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 

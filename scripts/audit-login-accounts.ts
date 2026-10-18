@@ -1,4 +1,4 @@
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const noHash = await prismaPrimary.portalAccount.count({

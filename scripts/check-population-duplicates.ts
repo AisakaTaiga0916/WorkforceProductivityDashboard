@@ -4,7 +4,7 @@
  *
  * Usage: npx tsx scripts/check-population-duplicates.ts
  */
-import { prismaAuth, prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaAuth, prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 const HRIS_TAG = process.env.HRIS_MERGE_SOURCE_TAG?.trim() || "hrisdemo";
 

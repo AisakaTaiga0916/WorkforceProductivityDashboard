@@ -12,8 +12,8 @@
 import {
   runComputeUserEfficiencyBreakdowns,
   type EfficiencyFrequency,
-} from "../src/lib/efficiency/user-efficiency-breakdown";
-import { prismaPrimary } from "../src/lib/prisma";
+} from "../src/modules/tasks/efficiency/user-efficiency-breakdown";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 function parseFrequencies(): EfficiencyFrequency[] | undefined {
   const i = process.argv.indexOf("--freq");

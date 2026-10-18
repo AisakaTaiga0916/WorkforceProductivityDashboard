@@ -1,9 +1,9 @@
-import { prismaPrimary as prisma } from "../../src/lib/prisma";
-import { resolveStaffCompanyTeamId } from "../../src/lib/staff-company-scope";
-import { resolveViewerOrgChartSectionScope } from "../../src/lib/org-chart-section-scope";
-import { listOrgChartSectionOptions } from "../../src/lib/org-chart-section-roster";
-import { filterOrgChartSectionsByCompanyTeam } from "../../src/lib/org-chart-section-display";
-import { resolveMergedSourceUserIdForSessionEmail } from "../../src/lib/approval-position-resolver";
+import { prismaPrimary as prisma } from "../../src/modules/platform/db/prisma";
+import { resolveStaffCompanyTeamId } from "../../src/modules/platform/scope/staff-company-scope";
+import { resolveViewerOrgChartSectionScope } from "../../src/modules/platform/scope/org-chart-section-scope";
+import { listOrgChartSectionOptions } from "../../src/modules/hierarchy/org-chart-section-roster";
+import { filterOrgChartSectionsByCompanyTeam } from "../../src/modules/hierarchy/org-chart-section-display";
+import { resolveMergedSourceUserIdForSessionEmail } from "../../src/modules/hierarchy/approval-position-resolver";
 
 async function main() {
   const admins = await prisma.portalAccount.findMany({

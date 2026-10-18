@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { proceduralBoardAssigneeWrite } from "@/lib/procedural-board-assignee";
+import { proceduralBoardAssigneeWrite } from "@/modules/requests/procedural-board-assignee";
 
 describe("proceduralBoardAssigneeWrite", () => {
   it("connects when the current seat has an assignee", () => {

@@ -7,16 +7,16 @@ import {
   ensureMergedTravelOrderTables,
   parseMysqlDatabaseName,
 } from "../../../scripts/ensure-merged-task-kpi-tables";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   resolveSecondaryWriteUrl,
   withSecondaryWriteClient,
-} from "@/lib/prisma-secondary-write";
+} from "@/modules/platform/db/prisma-secondary-write";
 import {
   buildCanonicalMergedIdMap,
   canonicalMergedId,
 } from "@/lib/sync/merged-person-identity";
-import type { TravelOrderRow } from "@/lib/travel-order-db";
+import type { TravelOrderRow } from "@/modules/work-plans/travel-order-db";
 
 function resolveSourceTag(): string {
   return process.env.TICKETING_MERGE_SOURCE_TAG?.trim() || "ticketing_system";

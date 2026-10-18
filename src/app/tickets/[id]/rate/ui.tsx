@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { normalizeFeedbackComment, requiresFeedbackForRating } from "@/lib/ticket-feedback-policy";
+import { normalizeFeedbackComment, requiresFeedbackForRating } from "@/modules/requests/ticket-feedback-policy";
 
 export function TicketRatingForm({
   ticketId,

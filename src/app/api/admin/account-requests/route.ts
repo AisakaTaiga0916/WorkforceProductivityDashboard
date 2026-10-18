@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { setLinkedAccountPassword } from "@/lib/auth/linked-account-password";
+import { setLinkedAccountPassword } from "@/modules/platform/auth/linked-account-password";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
 import { DEFAULT_PASSWORD_RESET } from "@/lib/default-reset-password";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 export async function GET() {
   const { unauthorized } = await requireRole(["Admin"]);
@@ -22,6 +23,8 @@ export async function GET() {
 export async function PATCH(req: Request) {
   const { session, unauthorized } = await requireRole(["Admin"]);
   if (unauthorized || !session) return unauthorized;
+  const denied = await permissionDenied(session, "users.update");
+  if (denied) return denied;
 
   const body = (await req.json()) as { id?: string; status?: string };
   const id = body.id?.trim() ?? "";

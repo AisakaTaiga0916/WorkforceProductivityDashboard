@@ -1,5 +1,5 @@
-import { runHrisPortalSync } from "../src/lib/auth/hris-sync-job";
-import { prismaAuth, prismaSecondary } from "../src/lib/prisma";
+import { runHrisPortalSync } from "../src/modules/platform/auth/hris-sync-job";
+import { prismaAuth, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const result = await runHrisPortalSync();

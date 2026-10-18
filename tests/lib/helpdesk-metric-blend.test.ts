@@ -3,7 +3,7 @@ import {
   combineHelpdeskCountsByBlend,
   resolveHelpdeskMetricBlend,
   yearMonthsBetween,
-} from "@/lib/helpdesk-csv";
+} from "@/modules/requests/helpdesk-csv";
 
 describe("resolveHelpdeskMetricBlend", () => {
   it("uses csv-only for March and April 2026", () => {

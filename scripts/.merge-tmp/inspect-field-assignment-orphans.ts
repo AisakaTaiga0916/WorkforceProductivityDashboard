@@ -1,5 +1,5 @@
-import { prismaPrimary } from "../../src/lib/prisma";
-import { isFieldAssignmentTask } from "../../src/lib/kpi-subkpis";
+import { prismaPrimary } from "../../src/modules/platform/db/prisma";
+import { isFieldAssignmentTask } from "../../src/modules/tasks/kpi-subkpis";
 
 async function main() {
   const all = await prismaPrimary.kpiMaintenance.findMany({

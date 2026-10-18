@@ -10,7 +10,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { GlobalSearchResult } from "@/lib/global-search";
-import { requestTypeAcronym } from "@/lib/request-types";
+import { requestTypeAcronym } from "@/modules/requests/request-types";
 import { cn } from "@/lib/cn";
 import { SearchHighlight } from "@/components/global-search/SearchHighlight";
 

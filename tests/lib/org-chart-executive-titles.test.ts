@@ -3,7 +3,7 @@ import {
   collapseDuplicateDesignation,
   formatDepartmentDesignationWithExecutiveTitle,
   resolveExecutiveTitle,
-} from "@/lib/org-chart-executive-titles";
+} from "@/modules/hierarchy/org-chart-executive-titles";
 
 describe("resolveExecutiveTitle", () => {
   it("resolves CEO / COO by merged HRIS id", () => {

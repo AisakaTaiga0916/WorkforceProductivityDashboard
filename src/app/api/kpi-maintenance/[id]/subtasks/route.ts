@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
-import { kpiMainTaskLabel } from "@/lib/kpi-main-task";
-import { normalizeTimeZone } from "@/lib/kpi-recurrence";
-import { appendSubKpiItem, hasSubKpiAssignedTo, normalizeSubKpis } from "@/lib/kpi-subkpis";
-import { listSubTaskDtos, listSubTasksPayload } from "@/lib/kpi-subtasks-rest";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
+import { isItProjectImplementationPillar } from "@/modules/tasks/it-task-pillar-titles";
+import { kpiMainTaskLabel } from "@/modules/tasks/kpi-main-task";
+import { normalizeTimeZone } from "@/modules/tasks/kpi-recurrence";
+import { appendSubKpiItem, hasSubKpiAssignedTo, normalizeSubKpis } from "@/modules/tasks/kpi-subkpis";
+import { listSubTaskDtos, listSubTasksPayload } from "@/modules/tasks/kpi-subtasks-rest";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { KPI_ROW_SELECT, checklistFullyComplete, snapshotIfRecurring } from "./_shared";
 
 /** GET /api/kpi-maintenance/:id/subtasks — list sub-tasks of a board task. */
@@ -32,6 +33,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("tasks");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   if (!perms.isAdminRole) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

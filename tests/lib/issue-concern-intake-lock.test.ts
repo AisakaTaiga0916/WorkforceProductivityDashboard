@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { issueConcernIntakeLockMessage } from "@/lib/issue-concern-intake-lock";
+import { issueConcernIntakeLockMessage } from "@/modules/requests/issue-concern-intake-lock";
 
 describe("issueConcernIntakeLockMessage", () => {
   it("mentions Issue/Concern and allows other types", () => {

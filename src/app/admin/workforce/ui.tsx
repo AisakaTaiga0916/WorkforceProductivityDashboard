@@ -26,7 +26,7 @@ import Filters, {
   loadSavedFilters,
   persistSavedFilters,
 } from "@/components/ui/filters";
-import type { WorkforceViewId } from "@/lib/workforce-view-visibility";
+import type { WorkforceViewId } from "@/modules/platform/settings/workforce-view-visibility";
 
 type WorkforceView = WorkforceViewId;
 
@@ -90,7 +90,7 @@ type Props = {
   lockedCompanyFilter?: string | null;
   /** Session user email — scopes the saved-filters localStorage key per user. */
   userEmail?: string | null;
-  /** Which Workforce toggles are enabled (SuperAdmin Settings → Workforce). */
+  /** Which Workforce toggles are enabled (stored `workforce_view_visibility` setting). */
   visibleViews: WorkforceVisibleViews;
   /** SuperAdmin: manage org-chart departments when Org. Chart is shown. */
   canManageSections?: boolean;
@@ -106,7 +106,7 @@ type Props = {
 
 /**
  * Workforce = Personnel registry (ListView), live On Duty activity, and Org. Chart.
- * Toggle visibility comes from SuperAdmin Settings → Workforce.
+ * Toggle visibility comes from the stored `workforce_view_visibility` setting.
  * List stays mounted so filter state survives toggling; Activity / Org. Chart mount lazily.
  */
 export function WorkforceClient(props: Props) {
@@ -409,7 +409,7 @@ export function WorkforceClient(props: Props) {
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">
                 {[
-                  showList ? "Personnel registry" : null,
+                  showList ? "Employee registry" : null,
                   showActivity ? "live On Duty / Offline activity" : null,
                   showSections ? "org. chart" : null,
                 ]

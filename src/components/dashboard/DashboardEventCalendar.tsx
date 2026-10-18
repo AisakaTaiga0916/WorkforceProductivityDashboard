@@ -1,8 +1,8 @@
 "use client";
 
 import { EventManager, type Event } from "@/components/ui/event-manager";
-import { DEFAULT_TIME_ZONE, getPeriodEndExclusive } from "@/lib/kpi-recurrence";
-import { getTaskTargetDueDate } from "@/lib/kpi-subkpis";
+import { DEFAULT_TIME_ZONE, getPeriodEndExclusive } from "@/modules/tasks/kpi-recurrence";
+import { getTaskTargetDueDate } from "@/modules/tasks/kpi-subkpis";
 import { useEffect, useMemo, useState } from "react";
 
 type CalendarTask = {

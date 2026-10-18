@@ -6,7 +6,7 @@ import {
   normalizeSubKpis,
   UNSEGMENTED_SEGMENT_ID,
   wrapForPersist,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 
 describe("append to Unassigned preserves existing cards", () => {
   it("keeps prior Unassigned items when appending another", () => {

@@ -1,5 +1,5 @@
-import { prisma } from "../../src/lib/prisma.ts";
-import { loadAgentIdsForCompanyTeam } from "../../src/lib/staff-company-scope.ts";
+import { prisma } from "../../src/modules/platform/db/prisma.ts";
+import { loadAgentIdsForCompanyTeam } from "../../src/modules/platform/scope/staff-company-scope.ts";
 
 void (async () => {
   const teams = await prisma.team.findMany({ select: { id: true, name: true } });

@@ -37,31 +37,31 @@ import {
   type MergedPersonnelEfficiencyRow,
   type PersonnelCombinedMetricCard,
   type PersonnelDelayPenaltyRow,
-} from "@/lib/task-personnel-metrics";
+} from "@/modules/tasks/task-personnel-metrics";
 import {
   buildOrgChartDepartmentFilterOptions,
   mergedSourceUserIdsForOrgChartSectionTree,
   type OrgChartSectionOption,
-} from "@/lib/org-chart-section-display";
-import type { PersonnelTicketMetric } from "@/lib/kpis";
-import type { DepartmentMainMetric } from "@/lib/department-task-metrics";
+} from "@/modules/hierarchy/org-chart-section-display";
+import type { PersonnelTicketMetric } from "@/modules/tasks/kpis";
+import type { DepartmentMainMetric } from "@/modules/tasks/department-task-metrics";
 import { KpiDefinitionConsole } from "@/components/KpiDefinitionConsole";
 import { InsightsMetricsPanes } from "@/app/insights/insights-metrics-panes";
-import { resolveRosterCompanyName } from "@/lib/hris-company-aliases";
-import { DEFAULT_TIME_ZONE } from "@/lib/kpi-recurrence";
+import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
+import { DEFAULT_TIME_ZONE } from "@/modules/tasks/kpi-recurrence";
 import type {
   CsatStarDistributionRow,
   TaskChecklistPillarMetrics,
   TaskMetricsHelpdeskTickets,
   TaskMetricsUserSupportTickets,
-} from "@/lib/kpis";
+} from "@/modules/tasks/kpis";
 import {
   defaultTaskMetricsRangeForCadence,
   formatTaskMetricsPeriodLabel,
   resolveTaskMetricsQueryRange,
   taskMetricsMergedPeriod,
   type TaskMetricsCadence,
-} from "@/lib/task-metrics-range";
+} from "@/modules/tasks/task-metrics-range";
 import {
   FIELD_ASSIGNMENT_DONUT_KEY,
   PROJECTS_DONUT_KEY,
@@ -69,7 +69,7 @@ import {
   TASK_METRICS_ALL_TYPE_SECTIONS,
   type TaskMetricsTaskType,
   type TaskMetricsTaskTypeFilter,
-} from "@/lib/task-metrics-task-type";
+} from "@/modules/tasks/task-metrics-task-type";
 
 type KpiPayload = {
   range: { from: string; to: string };
@@ -202,7 +202,6 @@ function InsightsPageInner() {
   const [personnelRfpFinanceMetrics, setPersonnelRfpFinanceMetrics] = useState<PersonnelTicketMetric[]>([]);
   const [personnelIrsCanvassMetrics, setPersonnelIrsCanvassMetrics] = useState<PersonnelTicketMetric[]>([]);
   const [personnelFtrPreparedMetrics, setPersonnelFtrPreparedMetrics] = useState<PersonnelTicketMetric[]>([]);
-  const [personnelAcaSubmittedMetrics, setPersonnelAcaSubmittedMetrics] = useState<PersonnelTicketMetric[]>([]);
   const [personnelDelayPenalties, setPersonnelDelayPenalties] = useState<PersonnelDelayPenaltyRow[]>([]);
   const [taskMetricsLoading, setTaskMetricsLoading] = useState(false);
   const [taskMetricsError, setTaskMetricsError] = useState<string | null>(null);
@@ -323,7 +322,6 @@ function InsightsPageInner() {
         setPersonnelRfpFinanceMetrics([]);
         setPersonnelIrsCanvassMetrics([]);
         setPersonnelFtrPreparedMetrics([]);
-        setPersonnelAcaSubmittedMetrics([]);
         setPersonnelDelayPenalties([]);
         return;
       }
@@ -336,7 +334,6 @@ function InsightsPageInner() {
         personnelRfpFinanceMetrics?: PersonnelTicketMetric[];
         personnelIrsCanvassMetrics?: PersonnelTicketMetric[];
         personnelFtrPreparedMetrics?: PersonnelTicketMetric[];
-        personnelAcaSubmittedMetrics?: PersonnelTicketMetric[];
         personnelDelayPenalties?: PersonnelDelayPenaltyRow[];
       };
       setTaskMetricsHelpdesk(json.taskMetricsHelpdesk);
@@ -347,7 +344,6 @@ function InsightsPageInner() {
       setPersonnelRfpFinanceMetrics(json.personnelRfpFinanceMetrics ?? []);
       setPersonnelIrsCanvassMetrics(json.personnelIrsCanvassMetrics ?? []);
       setPersonnelFtrPreparedMetrics(json.personnelFtrPreparedMetrics ?? []);
-      setPersonnelAcaSubmittedMetrics(json.personnelAcaSubmittedMetrics ?? []);
       setPersonnelDelayPenalties(json.personnelDelayPenalties ?? []);
     } finally {
       setTaskMetricsLoading(false);
@@ -1079,7 +1075,6 @@ function InsightsPageInner() {
               personnelRfpFinanceMetrics={personnelRfpFinanceMetrics}
               personnelIrsCanvassMetrics={personnelIrsCanvassMetrics}
               personnelFtrPreparedMetrics={personnelFtrPreparedMetrics}
-              personnelAcaSubmittedMetrics={personnelAcaSubmittedMetrics}
               personnelDelayPenalties={personnelDelayPenalties}
               departmentSections={departmentMetrics}
               helpdeskTickets={taskMetricsHelpdesk}
@@ -1446,7 +1441,6 @@ function TaskMetricsPanel({
   personnelRfpFinanceMetrics,
   personnelIrsCanvassMetrics,
   personnelFtrPreparedMetrics,
-  personnelAcaSubmittedMetrics,
   personnelDelayPenalties,
   departmentSections,
   helpdeskTickets,
@@ -1486,7 +1480,6 @@ function TaskMetricsPanel({
   personnelRfpFinanceMetrics: PersonnelTicketMetric[];
   personnelIrsCanvassMetrics: PersonnelTicketMetric[];
   personnelFtrPreparedMetrics: PersonnelTicketMetric[];
-  personnelAcaSubmittedMetrics: PersonnelTicketMetric[];
   personnelDelayPenalties: PersonnelDelayPenaltyRow[];
   departmentSections: DepartmentMainMetric[];
   helpdeskTickets: TaskMetricsHelpdeskTickets | null;
@@ -1753,7 +1746,6 @@ function TaskMetricsPanel({
       personnelRfpFinanceMetrics,
       personnelIrsCanvassMetrics,
       personnelFtrPreparedMetrics,
-      personnelAcaSubmittedMetrics,
       liveTicketsAuthoritative: !loading && !error,
     });
   }, [
@@ -1766,7 +1758,6 @@ function TaskMetricsPanel({
     personnelRfpFinanceMetrics,
     personnelIrsCanvassMetrics,
     personnelFtrPreparedMetrics,
-    personnelAcaSubmittedMetrics,
     loading,
     error,
   ]);
@@ -1801,7 +1792,7 @@ function TaskMetricsPanel({
             {(
               [
                 { id: "company", label: "Company" },
-                { id: "personnel", label: "Personnel" },
+                { id: "personnel", label: "Employees" },
                 { id: "departments", label: "Departments" },
               ] as const
             ).map((option) => (

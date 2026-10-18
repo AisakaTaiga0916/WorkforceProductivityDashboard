@@ -1,4 +1,4 @@
-import { prismaPrimary } from "@/lib/prisma";
+import { prismaPrimary } from "@/modules/platform/db/prisma";
 import {
   contentToSections,
   parsePatchNoteContent,

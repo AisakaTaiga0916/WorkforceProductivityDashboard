@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectMergedIdsForSectionTree } from "@/lib/org-chart-section-roster";
+import { collectMergedIdsForSectionTree } from "@/modules/hierarchy/org-chart-section-roster";
 
 describe("collectMergedIdsForSectionTree", () => {
   it("includes section members and org-chart heads", () => {

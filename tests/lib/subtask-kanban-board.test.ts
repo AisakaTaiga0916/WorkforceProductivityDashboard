@@ -8,7 +8,7 @@ import {
   UNSEGMENTED_SEGMENT_LABEL,
   validateSegmentStructureForPersist,
   wrapForPersist,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 
 describe("subtask kanban board moves (Trello-style segments)", () => {
   const base = {

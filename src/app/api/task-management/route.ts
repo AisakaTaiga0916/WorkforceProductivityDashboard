@@ -1,18 +1,20 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { TaskStatus } from "@prisma/client/primary";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { triggerEfficiencyRecomputeBackground } from "@/lib/efficiency/trigger-efficiency-recompute";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
+import { triggerEfficiencyRecomputeBackground } from "@/modules/tasks/efficiency/trigger-efficiency-recompute";
 import {
   normalizeDelayPenaltyFrequency,
   penaltyAccrualUnits,
   type DelayPenaltyFrequency,
-} from "@/lib/delay-penalty-frequency";
-import { prisma } from "@/lib/prisma";
+} from "@/modules/tasks/delay-penalty-frequency";
+import { prisma } from "@/modules/platform/db/prisma";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { isTaskCompletionVerificationEnabled } from "@/lib/task-verification-settings-db";
+import { isTaskCompletionVerificationEnabled } from "@/modules/platform/settings/task-verification-settings-db";
 import { DateTime } from "luxon";
-import { DEFAULT_TIME_ZONE } from "@/lib/kpi-recurrence";
+import { DEFAULT_TIME_ZONE } from "@/modules/tasks/kpi-recurrence";
 
 const statusSet = new Set(Object.values(TaskStatus));
 
@@ -65,6 +67,8 @@ export async function GET() {
 export async function POST(req: Request) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("tasks");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   if (!perms.canAssignWork) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -120,6 +124,8 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("tasks");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
 
   const body = (await req.json()) as {
@@ -157,7 +163,9 @@ export async function PATCH(req: Request) {
     if (task.status !== "PENDING_VERIFICATION") {
       return NextResponse.json({ error: "Task is not awaiting verification." }, { status: 400 });
     }
-    const { canVerifyTaskCompletion } = await import("@/lib/task-completion-verification-access");
+    const denied = await permissionDenied(session, "tasks.verify");
+    if (denied) return denied;
+    const { canVerifyTaskCompletion } = await import("@/modules/tasks/task-completion-verification-access");
     const mayVerify = await canVerifyTaskCompletion(
       {
         assignedAgentId: task.assignedAgentId,

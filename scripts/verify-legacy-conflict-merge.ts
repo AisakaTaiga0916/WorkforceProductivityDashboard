@@ -1,7 +1,7 @@
 #!/usr/bin/env npx tsx
-import { findMergedUserByLogin } from "../src/lib/auth/merged-credentials";
-import { findPortalAccountByLogin } from "../src/lib/auth/portal-credentials";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { findMergedUserByLogin } from "../src/modules/platform/auth/merged-credentials";
+import { findPortalAccountByLogin } from "../src/modules/platform/auth/portal-credentials";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const legacy = await prismaPrimary.portalAccount.findMany({

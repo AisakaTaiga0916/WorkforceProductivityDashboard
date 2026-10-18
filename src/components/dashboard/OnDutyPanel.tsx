@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { authInputClass, authLabelClass } from "@/components/auth/AuthShell";
 import { AssigneeAvatar } from "@/components/agent-assignee-search";
 import { cn } from "@/lib/cn";
-import { DEFAULT_TIME_ZONE } from "@/lib/kpi-recurrence";
+import { DEFAULT_TIME_ZONE } from "@/modules/tasks/kpi-recurrence";
+import { portalRoleDisplayLabel } from "@/lib/staff-role";
 import type { OnDutyAgentSnapshot } from "@/lib/load-on-duty-snapshot";
 
 type Props = {
@@ -44,22 +45,10 @@ function dutyLabel(agent: OnDutyAgentSnapshot): "On Duty" | "Offline" {
 
 /** Compact role label for the on-duty card badge. */
 function roleBadgeLabel(role: string | undefined): string {
-  if (!role) return "";
-  switch (role) {
-    case "SuperAdmin":
-      return "Super Admin";
-    case "HighAdmin":
-      return "High Admin";
-    case "Personnel-Guard":
-      return "Personnel Guard";
-    case "Customer":
-      return "Customer";
-    default:
-      return role;
-  }
+  return role ? portalRoleDisplayLabel(role) : "";
 }
 
-/** Badge tone by role so Admin vs Personnel reads instantly. */
+/** Badge tone by role so Admin vs Employee reads instantly. */
 function roleBadgeClass(role: string | undefined): string {
   switch (role) {
     case "SuperAdmin":

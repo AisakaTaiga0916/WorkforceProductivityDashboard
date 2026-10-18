@@ -8,7 +8,7 @@ import {
   parsePaymentApprovalMeta,
   paymentApprovalStepsFor,
   paymentNotedAndApprovedByComplete,
-} from "../../src/lib/request-for-payment-approval";
+} from "../../src/modules/requests/request-for-payment-approval";
 
 describe("RFP skip Approved By", () => {
   it("parses skipApprovedBy from stored meta", () => {

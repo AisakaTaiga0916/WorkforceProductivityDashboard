@@ -2,15 +2,15 @@
  * Diagnose Assign Requests scoping for Admin portals.
  * Usage: npx tsx scripts/.merge-tmp/diag-admin-assign-scope.ts
  */
-import { prismaPrimary as prisma } from "../../src/lib/prisma";
+import { prismaPrimary as prisma } from "../../src/modules/platform/db/prisma";
 import {
   loadAgentIdsForCompanyTeam,
   resolveStaffCompanyTeamId,
-} from "../../src/lib/staff-company-scope";
-import { resolveViewerOrgChartSectionScope } from "../../src/lib/org-chart-section-scope";
-import { filterOrgChartSectionsByCompanyTeam } from "../../src/lib/org-chart-section-display";
-import { listOrgChartSectionOptions } from "../../src/lib/org-chart-section-roster";
-import { loadHrisAssignableStaff } from "../../src/lib/hris-staff-roster";
+} from "../../src/modules/platform/scope/staff-company-scope";
+import { resolveViewerOrgChartSectionScope } from "../../src/modules/platform/scope/org-chart-section-scope";
+import { filterOrgChartSectionsByCompanyTeam } from "../../src/modules/hierarchy/org-chart-section-display";
+import { listOrgChartSectionOptions } from "../../src/modules/hierarchy/org-chart-section-roster";
+import { loadHrisAssignableStaff } from "../../src/modules/hierarchy/hris-staff-roster";
 
 async function main() {
   const admins = await prisma.portalAccount.findMany({

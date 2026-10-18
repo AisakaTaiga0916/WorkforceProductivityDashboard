@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { helpdeskSupportPercent } from "@/lib/kpis";
+import { helpdeskSupportPercent } from "@/modules/tasks/kpis";
 
 describe("helpdeskSupportPercent", () => {
   it("is (closed in range ÷ (open in range + closed in range)) × 100", () => {

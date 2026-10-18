@@ -3,9 +3,9 @@ import { redirect } from "next/navigation";
 import { ArrowRight, ClipboardList, LayoutGrid, PlusCircle, Users } from "lucide-react";
 import type { TicketStatus } from "@prisma/client/primary";
 import { requireSession } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { BRAND_TITLE } from "@/lib/brand";
-import { formatTicketPriorityLabel } from "@/lib/ticket-priority-label";
+import { formatTicketPriorityLabel } from "@/modules/requests/ticket-priority-label";
 
 export const dynamic = "force-dynamic";
 

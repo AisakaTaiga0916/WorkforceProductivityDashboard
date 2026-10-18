@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Lightbulb, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import type { IntakeApprovalRecommendationGuide } from "@/lib/intake-approval-recommendations";
-import type { RequestTypeId } from "@/lib/request-types";
+import type { IntakeApprovalRecommendationGuide } from "@/modules/requests/intake-approval-recommendations";
+import type { RequestTypeId } from "@/modules/requests/request-types";
 
 type Props = {
   requestType: RequestTypeId;
@@ -15,10 +15,6 @@ type Props = {
   skipNotedBy?: boolean;
   skipApprovedBy?: boolean;
   deferBookkeeper?: boolean;
-  /** ACA matrix inputs — required for AUTHORITY_TO_CONDUCT_ACTIVITY recommendations. */
-  acaRecommendingLevel?: string;
-  acaApprovingPath?: string;
-  acaApprovingSeatCount?: number;
   onApply: (
     assignees: Record<string, string>,
     people: Array<{ key: string; id: string; name: string }>,
@@ -33,9 +29,6 @@ export function IntakeApprovalRecommendationGuide({
   skipNotedBy = false,
   skipApprovedBy = false,
   deferBookkeeper = false,
-  acaRecommendingLevel = "",
-  acaApprovingPath = "",
-  acaApprovingSeatCount = 0,
   onApply,
 }: Props) {
   const [guide, setGuide] = useState<IntakeApprovalRecommendationGuide | null>(null);
@@ -52,9 +45,6 @@ export function IntakeApprovalRecommendationGuide({
         skipNotedBy ? "1" : "0",
         skipApprovedBy ? "1" : "0",
         deferBookkeeper ? "1" : "0",
-        acaRecommendingLevel.trim(),
-        acaApprovingPath.trim(),
-        String(acaApprovingSeatCount || 0),
       ].join("|"),
     [
       requestType,
@@ -64,9 +54,6 @@ export function IntakeApprovalRecommendationGuide({
       skipNotedBy,
       skipApprovedBy,
       deferBookkeeper,
-      acaRecommendingLevel,
-      acaApprovingPath,
-      acaApprovingSeatCount,
     ],
   );
 
@@ -76,17 +63,6 @@ export function IntakeApprovalRecommendationGuide({
     setError(null);
     void (async () => {
       try {
-        if (
-          requestType === "AUTHORITY_TO_CONDUCT_ACTIVITY" &&
-          (!acaRecommendingLevel.trim() || !acaApprovingPath.trim() || acaApprovingSeatCount < 1)
-        ) {
-          if (!cancelled) {
-            setGuide(null);
-            setLoading(false);
-          }
-          return;
-        }
-
         const params = new URLSearchParams({ requestType });
         const requestorId = requestorSectionId.trim();
         const sendToId = sendToSectionId.trim();
@@ -97,15 +73,6 @@ export function IntakeApprovalRecommendationGuide({
         if (skipNotedBy) params.set("skipNotedBy", "1");
         if (skipApprovedBy) params.set("skipApprovedBy", "1");
         if (deferBookkeeper) params.set("deferBookkeeper", "1");
-        if (acaRecommendingLevel.trim()) {
-          params.set("acaRecommendingLevel", acaRecommendingLevel.trim());
-        }
-        if (acaApprovingPath.trim()) {
-          params.set("acaApprovingPath", acaApprovingPath.trim());
-        }
-        if (acaApprovingSeatCount > 0) {
-          params.set("acaApprovingSeatCount", String(acaApprovingSeatCount));
-        }
 
         const res = await fetch(`/api/intake/approval-recommendations?${params.toString()}`, {
           cache: "no-store",
@@ -138,9 +105,6 @@ export function IntakeApprovalRecommendationGuide({
     sendToSectionId,
     skipApprovedBy,
     skipNotedBy,
-    acaRecommendingLevel,
-    acaApprovingPath,
-    acaApprovingSeatCount,
   ]);
 
   const filledSeats = guide?.seats.filter((seat) => seat.agentId) ?? [];
@@ -175,11 +139,6 @@ export function IntakeApprovalRecommendationGuide({
       }
       return parts.length > 0 ? parts.join(" · ") : null;
     }
-    if (requestType === "AUTHORITY_TO_CONDUCT_ACTIVITY") {
-      return guide.requestorCompanyName
-        ? `company ${guide.requestorCompanyName} · authority matrix positions`
-        : "authority matrix positions";
-    }
     if (requestType === "ITEM_REQUISITION_SLIP") {
       return guide.requestorMainSectionName
         ? `Approved By from ${guide.requestorMainSectionName} (Canvassed By is set on the Assignment Board)`
@@ -205,9 +164,6 @@ export function IntakeApprovalRecommendationGuide({
   }, [guide, requestType]);
 
   const helpText = useMemo(() => {
-    if (requestType === "AUTHORITY_TO_CONDUCT_ACTIVITY") {
-      return "Suggested assignees from the authority matrix positions for your company and selected nature/cost. You can still choose someone else below.";
-    }
     if (requestType === "ITEM_REQUISITION_SLIP") {
       return "Suggested Approved By from your department. Canvassed By is assigned later on the Assignment Board. You can still choose someone else below.";
     }
@@ -236,11 +192,9 @@ export function IntakeApprovalRecommendationGuide({
   }
 
   const emptyHint =
-    requestType === "AUTHORITY_TO_CONDUCT_ACTIVITY"
-      ? "Select Nature of Request and Estimated Cost to see recommended approvers."
-      : requestType === "JOB_ORDER"
-        ? "Select your department and Send request to (department) to see recommended approvers."
-        : "Select your department to see recommended approvers.";
+    requestType === "JOB_ORDER"
+      ? "Select your department and Send request to (department) to see recommended approvers."
+      : "Select your department to see recommended approvers.";
 
   return (
     <div className="rounded-xl border border-orange-200/80 bg-orange-50/40 p-3 dark:border-orange-500/25 dark:bg-orange-950/15 sm:p-4">

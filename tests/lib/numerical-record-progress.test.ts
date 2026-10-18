@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { kpiChecklistProgress } from "@/lib/kpi-subkpis";
+import { kpiChecklistProgress } from "@/modules/tasks/kpi-subkpis";
 import {
   numericalRecordProgressPercent,
   subKpiItemProgressFraction,
-} from "@/lib/sub-kpi-completion-mode";
+} from "@/modules/tasks/sub-kpi-completion-mode";
 
 describe("numericalRecordProgressPercent", () => {
   it("computes (actual / target) * 100 rounded", () => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { totalRecordedDataPercent } from "../../src/lib/sub-kpi-completion-mode";
-import type { SubKpiItem } from "../../src/lib/kpi-subkpis";
+import { totalRecordedDataPercent } from "../../src/modules/tasks/sub-kpi-completion-mode";
+import type { SubKpiItem } from "../../src/modules/tasks/kpi-subkpis";
 
 function item(
   partial: Partial<SubKpiItem> & Pick<SubKpiItem, "id" | "title">,

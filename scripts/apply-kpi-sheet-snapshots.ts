@@ -22,8 +22,8 @@ import { resolve } from "path";
 import {
   applyPillarPercentSnapshots,
   matchPillarFromSheetLabel,
-} from "../src/lib/kpi-sheet-import-snapshots";
-import { prisma } from "../src/lib/prisma";
+} from "../src/modules/tasks/kpi-sheet-import-snapshots";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 const MONTH_ALIASES: Record<string, string> = {
   january: "01",

@@ -2,7 +2,7 @@
  * Delete Apr–Jun daily snapshots incorrectly written under Asia/Taipei
  * (recovery run used the wrong default zone). Keeps monthly Taipei keys.
  */
-import { prisma } from "../../src/lib/prisma";
+import { prisma } from "../../src/modules/platform/db/prisma";
 
 async function main() {
   const result = await prisma.kpiMaintenancePeriodSnapshot.deleteMany({

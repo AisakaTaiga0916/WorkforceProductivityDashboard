@@ -1,15 +1,15 @@
 /**
  * One-off: diagnose Mark Robina assign ability.
  */
-import { prismaPrimary as prisma } from "../../src/lib/prisma";
+import { prismaPrimary as prisma } from "../../src/modules/platform/db/prisma";
 import {
   loadAgentIdsForCompanyTeam,
   resolveStaffCompanyTeamId,
-} from "../../src/lib/staff-company-scope";
+} from "../../src/modules/platform/scope/staff-company-scope";
 import {
   resolveViewerOrgChartSectionScope,
   roleUsesCompanyDepartmentTaskAssignScope,
-} from "../../src/lib/org-chart-section-scope";
+} from "../../src/modules/platform/scope/org-chart-section-scope";
 import { portalCompanyAdminPrivilegesForEmail } from "../../src/lib/portal-staff";
 
 async function main() {

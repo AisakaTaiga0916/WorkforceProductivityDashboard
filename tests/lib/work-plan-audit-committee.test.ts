@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { ensureInternalAuditBeforeAuditCommittee } from "../../src/lib/work-plan-org-chart-path";
-import type { TravelOrderOrgChartAncestor } from "../../src/lib/travel-order";
+import { describe, it } from "vitest";
+import { ensureInternalAuditBeforeAuditCommittee } from "../../src/modules/work-plans/work-plan-org-chart-path";
+import type { TravelOrderOrgChartAncestor } from "../../src/modules/work-plans/travel-order";
 
 describe("ensureInternalAuditBeforeAuditCommittee", () => {
   const sections = [

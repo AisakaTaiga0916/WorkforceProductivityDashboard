@@ -18,7 +18,7 @@ import {
   sumWorkPlanBudgetLines,
   type WorkPlanMeta,
   type WorkPlanSectionId,
-} from "@/lib/work-plan";
+} from "@/modules/work-plans/work-plan";
 
 type AgentOpt = {
   id: string;

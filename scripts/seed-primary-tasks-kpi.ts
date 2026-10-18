@@ -3,7 +3,7 @@
  * Seed sample Task/KPI monitoring data in primary PostgreSQL (ticketing_system).
  * Usage: npx tsx scripts/seed-primary-tasks-kpi.ts
  */
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 const CREATED_BY = "seed-script";
 const CREATED_BY_ROLE = "Admin";

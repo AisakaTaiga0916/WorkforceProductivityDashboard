@@ -2,17 +2,16 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import {
   resolveMergedSourceUserIdForSessionEmail,
-} from "@/lib/approval-position-resolver";
-import { resolveIntakeApprovalRecommendations } from "@/lib/intake-approval-recommendations";
-import { resolveDeepestOrgChartSectionIdForMergedUser } from "@/lib/org-chart-section-roster";
-import { parseRequestTypeId, type RequestTypeId } from "@/lib/request-types";
+} from "@/modules/hierarchy/approval-position-resolver";
+import { resolveIntakeApprovalRecommendations } from "@/modules/requests/intake-approval-recommendations";
+import { resolveDeepestOrgChartSectionIdForMergedUser } from "@/modules/hierarchy/org-chart-section-roster";
+import { parseRequestTypeId, type RequestTypeId } from "@/modules/requests/request-types";
 
 const SUPPORTED: RequestTypeId[] = [
   "REQUEST_FOR_PAYMENT",
   "FUND_TRANSFER_REQUEST",
   "JOB_ORDER",
   "ITEM_REQUISITION_SLIP",
-  "AUTHORITY_TO_CONDUCT_ACTIVITY",
 ];
 
 function isTruthyFlag(raw: string | null): boolean {
@@ -39,12 +38,6 @@ export async function GET(req: Request) {
   const skipNotedBy = isTruthyFlag(searchParams.get("skipNotedBy"));
   const skipApprovedBy = isTruthyFlag(searchParams.get("skipApprovedBy"));
   const deferBookkeeper = isTruthyFlag(searchParams.get("deferBookkeeper"));
-  const acaRecommendingLevel = searchParams.get("acaRecommendingLevel")?.trim() || "";
-  const acaApprovingPath = searchParams.get("acaApprovingPath")?.trim() || "";
-  const acaApprovingSeatCountRaw = searchParams.get("acaApprovingSeatCount");
-  const acaApprovingSeatCount = acaApprovingSeatCountRaw
-    ? Number.parseInt(acaApprovingSeatCountRaw, 10)
-    : NaN;
 
   const mergedSourceUserId = await resolveMergedSourceUserIdForSessionEmail(session.user.email);
   if (!requestorSectionId) {
@@ -62,9 +55,6 @@ export async function GET(req: Request) {
     skipNotedBy,
     skipApprovedBy,
     deferBookkeeper,
-    acaRecommendingLevel: acaRecommendingLevel || null,
-    acaApprovingPath: acaApprovingPath || null,
-    acaApprovingSeatCount: Number.isFinite(acaApprovingSeatCount) ? acaApprovingSeatCount : null,
   });
 
   return NextResponse.json(guide);

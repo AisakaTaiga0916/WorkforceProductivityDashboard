@@ -1,8 +1,8 @@
 "use client";
 
 import { Loader2, MapPin } from "lucide-react";
-import type { TravelOrderGatePassDraft } from "@/lib/travel-order";
-import { toDatetimeLocalValue } from "@/lib/travel-order";
+import type { TravelOrderGatePassDraft } from "@/modules/work-plans/travel-order";
+import { toDatetimeLocalValue } from "@/modules/work-plans/travel-order";
 
 type TravelOrderGatePassFieldsProps = {
   value: TravelOrderGatePassDraft;

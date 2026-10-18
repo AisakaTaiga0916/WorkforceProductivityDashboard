@@ -12,14 +12,14 @@
  *   npx tsx scripts/sync-portal-to-merged-users.ts --apply
  */
 import { Prisma } from "@prisma/client/primary";
-import { samePersonName } from "../src/lib/auth/person-match";
+import { samePersonName } from "../src/modules/platform/auth/person-match";
 import {
   canonicalProfileFromMerged,
   syncPortalProfile,
-} from "../src/lib/auth/sync-portal-profile";
-import { mapHrisToPortalRole } from "../src/lib/auth/role-mapping";
+} from "../src/modules/platform/auth/sync-portal-profile";
+import { mapHrisToPortalRole } from "../src/modules/platform/auth/role-mapping";
 import { MERGED_SOURCE_DATABASE } from "../src/lib/merged-database-sources";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 type MergedRow = {
   source_user_id: bigint;

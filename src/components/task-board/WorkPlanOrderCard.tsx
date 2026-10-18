@@ -14,15 +14,17 @@ import {
   isTravelOrderConfirmReady,
   TRAVEL_ORDER_STATUS,
   type TravelOrderDto,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 import { travelOrderApprovalGridClass } from "@/components/task-board/TravelOrderPageNav";
+import { ApprovalStepper } from "@/components/ui/approval-stepper";
+import { travelOrderApprovalUiSteps } from "@/modules/work-plans/travel-order-ui";
 import { cn } from "@/lib/cn";
 import {
   formatWorkPlanAmount,
   isWorkPlanOrder,
   workPlanVenueLabels,
   type WorkPlanMeta,
-} from "@/lib/work-plan";
+} from "@/modules/work-plans/work-plan";
 
 type WorkPlanOrderCardProps = {
   order: TravelOrderDto;
@@ -138,6 +140,11 @@ export function WorkPlanOrderCard({
       {rejected && order.rejectionReason ? (
         <p className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-xs text-rose-700 dark:text-rose-200">
           Declined: {order.rejectionReason}
+          {order.rejectedByAgent?.name || order.rejectedByAgentId
+            ? ` — ${order.rejectedByAgent?.name || order.rejectedByAgentId}`
+            : ""}
+          {order.rejectedAtLevel != null ? ` at Level ${order.rejectedAtLevel}` : ""}
+          {order.rejectedAt ? ` on ${new Date(order.rejectedAt).toLocaleString()}` : ""}
         </p>
       ) : null}
 
@@ -328,6 +335,7 @@ export function WorkPlanOrderCard({
           {levels.map((lvl, index) => {
             const done = Boolean(lvl.approvedAt);
             const isCurrent = actionable?.level === lvl.level;
+            const isRejectedSeat = rejected && order.rejectedAtLevel === lvl.level;
             return (
               <div
                 key={`lvl-${lvl.level}`}
@@ -346,12 +354,14 @@ export function WorkPlanOrderCard({
                     className={
                       done
                         ? "text-xs font-semibold text-emerald-700 dark:text-emerald-300"
-                        : isCurrent
-                          ? "text-xs font-semibold text-orange-700 dark:text-orange-300"
-                          : "text-xs text-zinc-500"
+                        : isRejectedSeat
+                          ? "text-xs font-semibold text-rose-700 dark:text-rose-300"
+                          : isCurrent
+                            ? "text-xs font-semibold text-orange-700 dark:text-orange-300"
+                            : "text-xs text-zinc-500"
                     }
                   >
-                    {done ? "Approved" : isCurrent ? "Awaiting action" : "Pending"}
+                    {done ? "Approved" : isRejectedSeat ? "Declined" : isCurrent ? "Awaiting action" : "Pending"}
                   </span>
                 </div>
                 {lvl.approvedAt ? (
@@ -438,71 +448,64 @@ export function WorkPlanOrderCard({
               </div>
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
+            <div className="space-y-2">
               {canApprove ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => onApprove(order)}
-                >
-                  {busyKey === `approve-${order.id}` ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                <ApprovalStepper
+                  steps={travelOrderApprovalUiSteps({
+                    levels,
+                    actionableLevel: actionable?.level ?? null,
+                  })}
+                  canAct
+                  busy={busy}
+                  compact
+                  approveLabel="Approve"
+                  returnLabel="Return"
+                  requireCommentOnReturn
+                  onApprove={() => onApprove(order)}
+                  onReturn={(comment) => onDecline(order, (comment ?? "").trim(), false)}
+                />
+              ) : null}
+              {canConfirm || canCancel ? (
+                <div className="flex flex-wrap gap-2">
+                  {canConfirm ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={busy || !confirmReady}
+                      onClick={() => onConfirm(order)}
+                    >
+                      {busyKey === `confirm-${order.id}` ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      Confirm travel order
+                    </Button>
                   ) : null}
-                  Approve
-                </Button>
-              ) : null}
-              {canApprove ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => {
-                    setDecliningAsConfirmer(false);
-                    setDeclining(true);
-                  }}
-                >
-                  Return
-                </Button>
-              ) : null}
-              {canConfirm ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={busy || !confirmReady}
-                  onClick={() => onConfirm(order)}
-                >
-                  {busyKey === `confirm-${order.id}` ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  {canConfirm ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => {
+                        setDecliningAsConfirmer(true);
+                        setDeclining(true);
+                      }}
+                    >
+                      Do not confirm
+                    </Button>
                   ) : null}
-                  Confirm travel order
-                </Button>
-              ) : null}
-              {canConfirm ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => {
-                    setDecliningAsConfirmer(true);
-                    setDeclining(true);
-                  }}
-                >
-                  Do not confirm
-                </Button>
-              ) : null}
-              {canCancel ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => onCancel(order)}
-                >
-                  Cancel travel order
-                </Button>
+                  {canCancel ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => onCancel(order)}
+                    >
+                      Cancel travel order
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           )}

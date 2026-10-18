@@ -1,6 +1,6 @@
-import { prisma } from "../../src/lib/prisma";
-import { findTravelOrdersVisibleToAgent } from "../../src/lib/travel-order-db";
-import { resolveAgentDesignatedCompanyId } from "../../src/lib/staff-company-scope";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { findTravelOrdersVisibleToAgent } from "../../src/modules/work-plans/travel-order-db";
+import { resolveAgentDesignatedCompanyId } from "../../src/modules/platform/scope/staff-company-scope";
 
 async function main() {
   // Every agent that appears as an approver/confirmer on any travel order

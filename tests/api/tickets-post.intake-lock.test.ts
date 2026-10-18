@@ -1,6 +1,6 @@
 /**
  * Intake lock: POST /api/tickets returns 409 when the requestor already has an
- * **assigned** non-CLOSED ticket (see `src/lib/customer-pending-resolution.ts`).
+ * **assigned** non-CLOSED ticket (see `src/modules/requests/customer-pending-resolution.ts`).
  * Unassigned tickets do not block a new submission.
  *
  * Manual smoke checklist (customer portal, signed in as requestor A):
@@ -14,7 +14,7 @@ vi.mock("@/lib/access", () => ({
   requireSession: vi.fn(),
 }));
 
-vi.mock("@/lib/ticket-intake-contact", () => ({
+vi.mock("@/modules/requests/ticket-intake-contact", () => ({
   IntakeContactError: class IntakeContactError extends Error {
     override name = "IntakeContactError";
   },
@@ -29,8 +29,8 @@ const { requestorHasIntakeBlockingTicketMock } = vi.hoisted(() => ({
   requestorHasIntakeBlockingTicketMock: vi.fn(),
 }));
 
-vi.mock("@/lib/customer-pending-resolution", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/customer-pending-resolution")>();
+vi.mock("@/modules/requests/customer-pending-resolution", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/modules/requests/customer-pending-resolution")>();
   return {
     ...actual,
     requestorHasIntakeBlockingTicket: requestorHasIntakeBlockingTicketMock,

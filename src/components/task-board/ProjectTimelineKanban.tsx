@@ -7,7 +7,7 @@ import {
   resolvePhaseEffectiveTargetDate,
   resolvePhaseOwnTargetDate,
   type ItProjectPhase,
-} from "@/lib/it-project-subkpis";
+} from "@/modules/tasks/it-project-subkpis";
 import { cn } from "@/lib/cn";
 import { DatePickerField } from "@/components/ui/DatePickerField";
 

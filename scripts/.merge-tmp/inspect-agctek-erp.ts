@@ -1,5 +1,5 @@
-import { prisma } from "@/lib/prisma";
-import { isItProjectEnvelope } from "@/lib/it-project-subkpis";
+import { prisma } from "@/modules/platform/db/prisma";
+import { isItProjectEnvelope } from "@/modules/tasks/it-project-subkpis";
 
 async function main() {
   const rows = await prisma.kpiMaintenance.findMany({

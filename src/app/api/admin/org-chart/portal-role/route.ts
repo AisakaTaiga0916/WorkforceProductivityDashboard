@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { mapPortalRoleToMergedHrisRole } from "@/lib/auth/portal-to-merged-role";
 import { ensureAgentRowForPortalStaff } from "@/lib/admin-roster";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { rbacRoleIdForLegacyRole } from "@/modules/platform/rbac/rbac-role-sync";
 import { setPortalStaffAssignmentColor } from "@/lib/portal-staff-assignment-color-sql";
-import { prismaPrimary, prismaSecondary } from "@/lib/prisma";
-import { withSecondaryWriteClient } from "@/lib/prisma-secondary-write";
-import { Prisma } from "@prisma/client/secondary";
+import { prismaPrimary } from "@/modules/platform/db/prisma";
+import { Prisma } from "@prisma/client/primary";
 import {
   isPlatformSuperAdminPortalRole,
   isStaffPortalRole,
@@ -31,6 +31,8 @@ export async function PATCH(req: Request) {
       { status: 403 },
     );
   }
+  const denied = await permissionDenied(session, "users.assign");
+  if (denied) return denied;
 
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -76,9 +78,8 @@ export async function PATCH(req: Request) {
 
     const mergedSourceUserId = BigInt(mergedId);
     const sourceTags = resolveHrisSourceTags();
-    const mergedHrisRole = mapPortalRoleToMergedHrisRole(portalRole);
 
-    const mergedRows = await prismaSecondary.$queryRaw<
+    const mergedRows = await prismaPrimary.$queryRaw<
       Array<{
         source_user_id: bigint;
         name: string;
@@ -87,10 +88,10 @@ export async function PATCH(req: Request) {
       }>
     >`
       SELECT source_user_id, name, email, username
-      FROM merged_users
+      FROM hris_users
       WHERE source_user_id = ${mergedSourceUserId}
         AND (source_database IN (${Prisma.join(sourceTags)}) OR source_user_id >= 9000000000)
-        AND is_active = 1
+        AND is_active = true
       LIMIT 1
     `;
     const merged = mergedRows[0];
@@ -122,6 +123,7 @@ export async function PATCH(req: Request) {
           name: merged.name,
           username: merged.username?.trim() || null,
           role: portalRole,
+          roleId: (await rbacRoleIdForLegacyRole(portalRole)) ?? null,
           mergedSourceUserId,
           headPrivileges: portalRole === "Admin",
           accountStatus: "ACTIVE",
@@ -172,22 +174,11 @@ export async function PATCH(req: Request) {
       where: { id: portal.id },
       data: {
         role: portalRole,
+        roleId: await rbacRoleIdForLegacyRole(portalRole),
         // Chart head + Admin → headPrivileges; HighAdmin / Personnel → false
         headPrivileges: portalRole === "Admin" && Boolean(isSectionHead),
       },
     });
-
-    try {
-      await withSecondaryWriteClient(async (db) => {
-        await db.$executeRaw`
-          UPDATE merged_users
-          SET role = ${mergedHrisRole}, updated_at = CURRENT_TIMESTAMP
-          WHERE source_user_id = ${mergedSourceUserId}
-        `;
-      });
-    } catch (e) {
-      console.warn("org-chart portal-role: merged_users sync skipped", e);
-    }
 
     if (isStaffPortalRole(portalRole)) {
       try {

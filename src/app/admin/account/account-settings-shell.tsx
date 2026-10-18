@@ -1,6 +1,6 @@
 "use client";
 
-import { isElevatedPlatformRole } from "@/lib/staff-role";
+import { isElevatedPlatformRole, portalRoleDisplayLabel } from "@/lib/staff-role";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -448,7 +448,7 @@ export function AccountSettingsShell() {
     await signOut({ callbackUrl: "/signin" });
   }
 
-  const roleLabel = useMemo(() => role || "—", [role]);
+  const roleLabel = useMemo(() => portalRoleDisplayLabel(role) || "—", [role]);
   const isAdminRole = isElevatedPlatformRole(role) || role === "Admin";
 
   if (status === "loading") {

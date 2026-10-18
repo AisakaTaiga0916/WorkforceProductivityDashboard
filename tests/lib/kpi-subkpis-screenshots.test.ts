@@ -10,7 +10,7 @@ import {
   resetAllSubKpiDone,
   setSubKpiItemScreenshots,
   setPillarScreenshotUploads,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 
 const screenshot = {
   storedFileName: "proof-1.png",

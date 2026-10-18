@@ -1,9 +1,9 @@
-import type { TaskMetricsCadence } from "@/lib/task-metrics-range";
+import type { TaskMetricsCadence } from "@/modules/tasks/task-metrics-range";
 import {
   TASK_METRICS_TASK_TYPE_OPTIONS,
   parseTaskMetricsTaskTypeFilter,
   type TaskMetricsTaskTypeFilter,
-} from "@/lib/task-metrics-task-type";
+} from "@/modules/tasks/task-metrics-task-type";
 
 export type TaskMetricsViewMode = "company" | "personnel" | "departments";
 

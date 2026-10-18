@@ -4,7 +4,7 @@ import { resolveOpsPermissions } from "@/lib/ops-permissions";
 import {
   listPendingTravelConfirmationsForAgent,
   serializeTravelOrder,
-} from "@/lib/travel-order-db";
+} from "@/modules/work-plans/travel-order-db";
 
 /**
  * GET /api/travel-orders/pending-confirmations

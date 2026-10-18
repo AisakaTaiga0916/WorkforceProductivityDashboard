@@ -11,8 +11,8 @@ import {
   setPillarWorkMeta,
   setSubKpiItemDone,
   syncPillarDoneFromRequirements,
-} from "@/lib/kpi-subkpis";
-import { subKpiRequirementsMet } from "@/lib/sub-kpi-completion-mode";
+} from "@/modules/tasks/kpi-subkpis";
+import { subKpiRequirementsMet } from "@/modules/tasks/sub-kpi-completion-mode";
 
 describe("pillar-only tasks", () => {
   it("creates an empty checklist with pillar completion requirements", () => {
@@ -42,12 +42,15 @@ describe("pillar-only tasks", () => {
     });
 
     raw = setSubKpiItemDone(raw, PILLAR_ONLY_VIRTUAL_SUBKPI_ID, true);
-    expect(kpiChecklistProgress(raw, "Ops")).toEqual({
+    // The virtual row carries no per-item verification fields, so progress only
+    // counts it once the card is verified or platform verification is off.
+    expect(kpiChecklistProgress(raw, "Ops", { verificationEnabled: false })).toEqual({
       total: 1,
       done: 1,
       missing: 0,
       percent: 100,
     });
+    expect(kpiChecklistProgress(raw, "Ops", { parentCardEffectivelyVerified: true }).done).toBe(1);
   });
 
   it("markAllDone toggles pillar completion", () => {

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { isAdminPortalRole } from "@/lib/staff-role";
 
 /**

@@ -5,7 +5,7 @@ import {
   kpiChecklistProgress,
   setPillarDone,
   wrapForPersist,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 
 describe("setPillarDone", () => {
   it("clears a previously flagged pillar-only inverted task", () => {
@@ -15,11 +15,13 @@ describe("setPillarDone", () => {
     );
     raw = setPillarDone(raw, true);
     expect((raw as { pillarDone?: boolean }).pillarDone).toBe(true);
-    expect(kpiChecklistProgress(raw, "CYBERSECURITY").done).toBe(1);
+    expect(
+      kpiChecklistProgress(raw, "CYBERSECURITY", { verificationEnabled: false }).done,
+    ).toBe(1);
 
     raw = setPillarDone(raw, false);
     expect((raw as { pillarDone?: boolean }).pillarDone).toBeUndefined();
-    const prog = kpiChecklistProgress(raw, "CYBERSECURITY");
+    const prog = kpiChecklistProgress(raw, "CYBERSECURITY", { verificationEnabled: false });
     expect(prog.done).toBe(0);
     expect(prog.missing).toBe(1);
     const view = kpiChecklistMetricView(prog, true);

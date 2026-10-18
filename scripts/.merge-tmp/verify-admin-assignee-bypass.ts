@@ -1,5 +1,5 @@
-import { prisma } from "../../src/lib/prisma";
-import { adminOutsideCompanyScope } from "../../src/lib/ticket-staff-access";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { adminOutsideCompanyScope } from "../../src/modules/requests/ticket-staff-access";
 
 async function main() {
   const ticket = await prisma.ticket.findFirst({

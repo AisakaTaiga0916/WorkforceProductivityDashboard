@@ -4,8 +4,8 @@
  *
  * Usage: npm run db:seed:auth-role-mappings
  */
-import { DEFAULT_HRIS_ROLE_MAPPINGS } from "../src/lib/auth/role-mapping";
-import { prismaAuth } from "../src/lib/prisma";
+import { DEFAULT_HRIS_ROLE_MAPPINGS } from "../src/modules/platform/auth/role-mapping";
+import { prismaAuth } from "../src/modules/platform/db/prisma";
 
 async function main() {
   for (const row of DEFAULT_HRIS_ROLE_MAPPINGS) {

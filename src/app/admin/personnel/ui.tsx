@@ -24,7 +24,13 @@ import { TaskBoardPopup } from "@/components/task-board/TaskBoardPopup";
 import { RegistryFiltersBar } from "@/components/admin/RegistryFiltersBar";
 import { StaffAssignmentColorSelect } from "@/components/admin/StaffAssignmentColorSelect";
 import { SimplePaginationBar } from "@/components/ui/SimplePaginationBar";
-import { PORTAL_ROLES, isStaffPortalRole, normalizePortalRole, isElevatedPlatformRole } from "@/lib/staff-role";
+import {
+  PORTAL_ROLES,
+  isElevatedPlatformRole,
+  isStaffPortalRole,
+  normalizePortalRole,
+  portalRoleDisplayLabel,
+} from "@/lib/staff-role";
 
 type Team = { id: string; name: string };
 
@@ -515,7 +521,7 @@ export function PersonnelClient({
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-orange-400/95">
               {BRAND_TITLE} · Admin console
             </p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-zinc-900 dark:text-white md:text-3xl">Personnel registry</h1>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-zinc-900 dark:text-white md:text-3xl">Employee registry</h1>
             <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-500">
               Showing HRIS employees from {secondaryDatabaseName} · progress synced from ticketing
             </p>
@@ -599,10 +605,10 @@ export function PersonnelClient({
                 value={createRole}
                 onChange={(e) => setCreateRole(e.target.value as "Admin" | "Personnel")}
                 className={authInputClass}
-                title="New accounts start as Personnel. Admin is granted when the person is set as a department or sub-department head."
+                title="New accounts start as Employee. Admin is granted when the person is set as a department or sub-department head."
               >
-                <option value="Personnel">Personnel</option>
-                <option value="Admin">Admin</option>
+                <option value="Personnel">{portalRoleDisplayLabel("Personnel")}</option>
+                <option value="Admin">{portalRoleDisplayLabel("Admin")}</option>
               </select>
             </label>
             <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1">
@@ -713,7 +719,8 @@ export function PersonnelClient({
                 </h2>
                 <p className="mt-1 max-w-xl text-[11px] leading-snug text-amber-900/90 dark:text-amber-100/80">
                   Your Admin account does not have a designated company yet. A SuperAdmin can set your designated company
-                  under <strong className="font-semibold">Personnel</strong> so your roster appears here.
+                  under <strong className="font-semibold">SuperAdmin Settings → User Management</strong> so
+                  your roster appears here.
                 </p>
               </section>
             ) : (
@@ -779,7 +786,7 @@ export function PersonnelClient({
                               {row.email}
                             </td>
                             <td className="truncate px-3 py-2 text-zinc-700 dark:text-zinc-300">
-                              {normalizePortalRole(row.staffRole) ?? row.staffRole}
+                              {portalRoleDisplayLabel(row.staffRole)}
                             </td>
                             <td className="truncate px-3 py-2 text-zinc-600" title={row.teamName}>
                               {row.teamName}
@@ -826,7 +833,7 @@ export function PersonnelClient({
           <>
             <p className="text-[11px] text-zinc-600 dark:text-zinc-500">
               HRIS roster from {secondaryDatabaseName} · Set any portal technical role here
-              (Personnel, Admin, HighAdmin, SuperAdmin, Personnel-Guard, Customer). Org Chart
+              (Employee, Admin, High Admin, Super Admin, Employee (Guard), Customer). Org Chart
               headship can still promote department heads to Admin on reconcile.
             </p>
 
@@ -895,7 +902,7 @@ export function PersonnelClient({
                             >
                               {PORTAL_ROLES.map((r) => (
                                 <option key={r} value={r}>
-                                  {r}
+                                  {portalRoleDisplayLabel(r)}
                                 </option>
                               ))}
                             </select>

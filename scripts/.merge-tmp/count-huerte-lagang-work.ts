@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client/primary";
-import { prismaPrimary } from "../../src/lib/prisma";
+import { prismaPrimary } from "../../src/modules/platform/db/prisma";
 
 const HUERTE_WORK = "cmpdly428005csdp4fpevnlmw";
 const HUERTE_GMAIL = "cmrbdhqpp011q11jondhfojyf";

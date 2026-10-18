@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { NewTicketIntake } from "@/app/tickets/new/page";
 import { cn } from "@/lib/cn";
-import type { RequestTypeId } from "@/lib/request-types";
+import type { RequestTypeId } from "@/modules/requests/request-types";
 
 type CreateRequestModalProps = {
   open: boolean;

@@ -1,4 +1,4 @@
-import { prismaSecondary } from "@/lib/prisma";
+import { prismaSecondary } from "@/modules/platform/db/prisma";
 
 /** Employees with company from mergeddatabase-dev (HRIS ETL). */
 export async function listMergedEmployees(options?: {

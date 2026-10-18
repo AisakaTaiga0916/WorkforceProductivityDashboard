@@ -5,7 +5,7 @@
  * Usage: npx tsx scripts/link-portal-staff-after-import.ts
  */
 import { normalizePersonName } from "../src/lib/person-name";
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const generalQueue = await prismaPrimary.team.findFirst({

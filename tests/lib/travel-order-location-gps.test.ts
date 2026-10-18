@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidLatLng } from "@/lib/travel-order";
+import { isValidLatLng } from "@/modules/work-plans/travel-order";
 
 describe("travel order location GPS rules", () => {
   it("requires both finite lat/lng in range (Start/End hard-require)", () => {

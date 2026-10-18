@@ -4,7 +4,7 @@ import {
   readCompanyLogoByName,
   readCompanyLogoFile,
 } from "@/lib/company-logo";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { safeGetServerSession } from "@/lib/server-session";
 
 export async function GET(

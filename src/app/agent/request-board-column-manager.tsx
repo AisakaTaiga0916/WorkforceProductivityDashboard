@@ -7,8 +7,8 @@ import type { TicketStatus } from "@prisma/client/primary";
 import {
   DEFAULT_REQUEST_BOARD_COLUMNS,
   type RequestBoardColumnDto,
-} from "@/lib/request-board-columns-shared";
-import { formatTicketStatusLabel } from "@/lib/ticket-status-label";
+} from "@/modules/requests/request-board-columns-shared";
+import { formatTicketStatusLabel } from "@/modules/requests/ticket-status-label";
 import {
   Dialog,
   DialogContent,

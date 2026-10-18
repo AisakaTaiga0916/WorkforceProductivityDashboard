@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { kpiRowInCompanyScope } from "@/lib/kpi-company-board-scope";
+import { kpiRowInCompanyScope } from "@/modules/tasks/kpi-company-board-scope";
 
 describe("kpiRowInCompanyScope", () => {
   const companyId = "team-agc";

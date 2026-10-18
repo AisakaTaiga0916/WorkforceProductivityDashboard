@@ -6,7 +6,7 @@ import {
   loadChatSenderAvatars,
   loadTicketForChatAccess,
   resolveRequestChatParticipants,
-} from "@/lib/ticket-chat-access";
+} from "@/modules/requests/ticket-chat-access";
 import {
   createChatMessage,
   listChatMessages,
@@ -15,8 +15,8 @@ import {
   sanitizeChatBody,
   serializeChatMessage,
   type ChatAttachmentMeta,
-} from "@/lib/request-chat";
-import { emitRequestChatMessagesDelivered, emitRequestChatMessagesRead, emitRequestChatNewMessage } from "@/lib/request-chat-emit";
+} from "@/modules/requests/request-chat";
+import { emitRequestChatMessagesDelivered, emitRequestChatMessagesRead, emitRequestChatNewMessage } from "@/modules/requests/request-chat-emit";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";

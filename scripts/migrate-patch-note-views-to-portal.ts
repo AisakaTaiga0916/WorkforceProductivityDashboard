@@ -2,7 +2,7 @@
  * Copy legacy patch-note views (stored under mergedSourceUserId)
  * onto the portal account id so Mark All as Read sticks after the key change.
  */
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const portals = await prismaPrimary.portalAccount.findMany({

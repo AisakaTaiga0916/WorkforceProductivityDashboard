@@ -1,5 +1,5 @@
 import type { TicketCategory } from "@prisma/client/primary";
-import { prisma } from "./prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 const CATEGORY_TEAM_HINT: Record<TicketCategory, string> = {
   IT: "IT Support",

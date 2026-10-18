@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
-import { positionCodeLabel } from "@/lib/position-catalog";
+import { prisma } from "@/modules/platform/db/prisma";
+import { positionCodeLabel } from "@/modules/hierarchy/position-catalog";
 
 export const dynamic = "force-dynamic";
 

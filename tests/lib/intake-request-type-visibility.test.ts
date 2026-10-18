@@ -4,7 +4,7 @@ import {
   isRequestTypeHiddenFromIntake,
   parseIntakeRequestTypeVisibility,
   visibleIntakeRequestTypes,
-} from "@/lib/intake-request-type-visibility";
+} from "@/modules/platform/settings/intake-request-type-visibility";
 
 describe("intake request type visibility", () => {
   it("parses hidden type ids", () => {

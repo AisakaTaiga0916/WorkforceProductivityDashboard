@@ -5,18 +5,18 @@ import {
   resolveAgentIdsForPositionCode,
   resolveDirectManagerAgentId,
   resolveMergedSourceUserIdForSessionEmail,
-} from "@/lib/approval-position-resolver";
-import { loadHrisAssignableStaff } from "@/lib/hris-staff-roster";
+} from "@/modules/hierarchy/approval-position-resolver";
+import { loadHrisAssignableStaff } from "@/modules/hierarchy/hris-staff-roster";
 import { loadOnDutyAgentIdSet } from "@/lib/load-on-duty-snapshot";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { resolveAgentDesignatedCompanyId } from "@/lib/staff-company-scope";
+import { resolveAgentDesignatedCompanyId } from "@/modules/platform/scope/staff-company-scope";
 import { rosterTeamNameFilter } from "@/lib/company-roster";
 import {
   listOrgChartSectionHeads,
   resolveAgentIdsForOrgChartSection,
   resolveDepartmentDesignationsByMergedIds,
-} from "@/lib/org-chart-section-roster";
+} from "@/modules/hierarchy/org-chart-section-roster";
 import {
   loadPortalAvatarMetaByEmails,
   resolveAgentProfileImageSrc,
@@ -137,7 +137,14 @@ export async function GET(req: Request) {
     !lite && agentEmails.length > 0
       ? await loadPortalAvatarMetaByEmails(agentEmails)
       : new Map();
-  const onDutyIds = await loadOnDutyAgentIdSet(agentIds);
+  // Attendance lives in the merged DB; the staff list must still load without it.
+  const onDutyIds = await loadOnDutyAgentIdSet(agentIds).catch((e: unknown) => {
+    console.warn(
+      "[agents] on-duty status unavailable; listing everyone as offline:",
+      e instanceof Error ? e.message.split("\n")[0] : e,
+    );
+    return new Set<string>();
+  });
   let departmentByMergedId = new Map<string, string>();
   if (includeOrgChartLayer) {
     try {

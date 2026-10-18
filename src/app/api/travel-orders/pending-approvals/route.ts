@@ -4,11 +4,11 @@ import { resolveOpsPermissions } from "@/lib/ops-permissions";
 import {
   getOperatorActionableApprovalLevel,
   hasHierarchicalApprovals,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 import {
   listPendingTravelApprovalsForAgent,
   serializeTravelOrder,
-} from "@/lib/travel-order-db";
+} from "@/modules/work-plans/travel-order-db";
 
 /**
  * GET /api/travel-orders/pending-approvals

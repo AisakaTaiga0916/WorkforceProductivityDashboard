@@ -9,7 +9,7 @@ import {
   type OfflineTravelOrderDraft,
   type PendingTravelOrderOp,
 } from "@/lib/offline/travel-order-offline-db";
-import { travelOrderDraftToFieldAssignmentPayload, type TravelOrderDto } from "@/lib/travel-order";
+import { travelOrderDraftToFieldAssignmentPayload, type TravelOrderDto } from "@/modules/work-plans/travel-order";
 
 export const TRAVEL_ORDER_SYNC_TAG = "travel-order-sync";
 

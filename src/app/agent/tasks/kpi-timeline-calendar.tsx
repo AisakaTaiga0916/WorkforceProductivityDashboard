@@ -4,12 +4,12 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { DEFAULT_TIME_ZONE, getPeriodEndExclusive, type KpiFrequencyCode } from "@/lib/kpi-recurrence";
-import { getPeriodStartInclusive } from "@/lib/kpi-period-window";
-import { taskKanbanDerivedStatus } from "@/lib/kpi-cycle-state";
-import { getTaskTargetDueDate, kpiChecklistProgress } from "@/lib/kpi-subkpis";
-import { isFieldAssignmentTask, isProjectTask } from "@/lib/kpi-subkpis";
-import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
+import { DEFAULT_TIME_ZONE, getPeriodEndExclusive, type KpiFrequencyCode } from "@/modules/tasks/kpi-recurrence";
+import { getPeriodStartInclusive } from "@/modules/tasks/kpi-period-window";
+import { taskKanbanDerivedStatus } from "@/modules/tasks/kpi-cycle-state";
+import { getTaskTargetDueDate, kpiChecklistProgress } from "@/modules/tasks/kpi-subkpis";
+import { isFieldAssignmentTask, isProjectTask } from "@/modules/tasks/kpi-subkpis";
+import { isItProjectImplementationPillar } from "@/modules/tasks/it-task-pillar-titles";
 
 type KpiBoardStatus = "CURRENT" | "PENDING_VERIFICATION" | "DONE" | "DELAYED";
 

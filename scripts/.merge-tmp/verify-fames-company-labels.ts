@@ -1,4 +1,4 @@
-import { prisma, prismaSecondary } from "@/lib/prisma";
+import { prisma, prismaSecondary } from "@/modules/platform/db/prisma";
 import { Prisma } from "@prisma/client/secondary";
 
 async function main() {

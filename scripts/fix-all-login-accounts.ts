@@ -8,8 +8,8 @@
  * Usage: npm run db:fix:logins
  */
 import bcrypt from "bcryptjs";
-import { canonicalProfileFromMerged, syncPortalProfile } from "../src/lib/auth/sync-portal-profile";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { canonicalProfileFromMerged, syncPortalProfile } from "../src/modules/platform/auth/sync-portal-profile";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 const PASSWORD = process.env.RESET_ALL_LOGIN_PASSWORDS?.trim() || "aci12345";
 

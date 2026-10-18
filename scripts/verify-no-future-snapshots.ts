@@ -1,5 +1,5 @@
 /** READ-ONLY: confirm no future-dated snapshots remain after cleanup. */
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const snaps = await prismaPrimary.kpiMaintenancePeriodSnapshot.findMany({

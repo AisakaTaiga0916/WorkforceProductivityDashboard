@@ -83,7 +83,12 @@ model PortalAccount {
   emailVerifiedAt           DateTime?              @map("email_verified_at")
   // Logical FK to merged_users.source_user_id (HRIS).
   mergedSourceUserId        BigInt?                @unique @map("merged_source_user_id")
+  /// Legacy role label (SuperAdmin | HighAdmin | Admin | Personnel | Personnel-Guard | Customer).
+  /// Kept in sync with `roleId` until route checks move to permissions.
   role                      String                 @default("Customer") @map("role")
+  /// RBAC primary role (one per user). Null = no staff permissions (fail closed).
+  roleId                    String?                @map("role_id")
+  rbacRole                  Role?                  @relation(fields: [roleId], references: [id], onDelete: SetNull)
   headPrivileges            Boolean                @default(false) @map("head_privileges")
   companyId                 String?                @map("company_id")
   company                   Team?                  @relation("PortalCustomerCompany", fields: [companyId], references: [id], onDelete: SetNull)
@@ -112,6 +117,7 @@ model PortalAccount {
   mergeMapping              PortalMergeMapping?
 
   @@index([authUserId])
+  @@index([roleId])
   @@index([primaryPositionId])
   @@index([departmentId])
   @@index([reportsToPortalAccountId])
@@ -448,8 +454,6 @@ model Ticket {
   itemRequisitionApprovalMeta Json?    @map("item_requisition_approval_meta")
   /// Fund transfer request approval assignees + procedural step (JSON).
   fundTransferApprovalMeta Json?       @map("fund_transfer_approval_meta")
-  /// Authority to Conduct Activity approval assignees + procedural step (JSON).
-  acaApprovalMeta Json?                @map("aca_approval_meta")
   /// Job Order approval assignees + procedural step (JSON).
   jobOrderApprovalMeta Json?           @map("job_order_approval_meta")
   /// Job Order (J.O.) → Task Board project link (`KpiMaintenance` with isProject).
@@ -874,6 +878,73 @@ model PlatformSetting {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("platform_settings")
+}
+
+/// Read-only snapshot of merged / HRIS users, replaced on every merged-dump import.
+/// The app reads HRIS identity (roster, org-chart labels) from here, never from the merged DB.
+model HrisUser {
+  sourceUserId   BigInt   @id @map("source_user_id")
+  sourceDatabase String   @map("source_database")
+  employeeCode   String?  @map("employee_code")
+  username       String?  @map("username")
+  name           String   @map("name")
+  email          String?  @map("email")
+  role           String   @map("role")
+  companyId      BigInt?  @map("company_id")
+  companyName    String?  @map("company_name")
+  department     String?  @map("department")
+  position       String?  @map("position")
+  isActive       Boolean  @default(true) @map("is_active")
+  importedAt     DateTime @default(now()) @map("imported_at")
+
+  @@index([email])
+  @@index([username])
+  @@index([sourceDatabase, isActive])
+  @@map("hris_users")
+}
+
+/// RBAC role. System roles (super_admin, admin, employee) cannot be archived.
+model Role {
+  id          String           @id @default(cuid())
+  key         String           @unique @map("key")
+  name        String           @map("name")
+  description String?          @map("description")
+  isSystem    Boolean          @default(false) @map("is_system")
+  isTemplate  Boolean          @default(false) @map("is_template")
+  archivedAt  DateTime?        @map("archived_at")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+  permissions RolePermission[]
+  users       PortalAccount[]
+
+  @@map("roles")
+}
+
+/// Permission catalog row (`<resource>.<action>`), seeded from code.
+model Permission {
+  id          String           @id @default(cuid())
+  key         String           @unique @map("key")
+  resource    String           @map("resource")
+  action      String           @map("action")
+  description String           @map("description")
+  createdAt   DateTime         @default(now()) @map("created_at")
+  roles       RolePermission[]
+
+  @@index([resource])
+  @@map("permissions")
+}
+
+/// Role grant. Row presence = allow; absence = deny.
+model RolePermission {
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
 }
 
 /// Customizable Request Board lanes (legacy global seed/template).

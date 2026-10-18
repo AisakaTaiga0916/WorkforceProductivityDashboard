@@ -1,4 +1,4 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import {
@@ -8,11 +8,11 @@ import {
   parseItProjectSubKpis,
   phaseDelayNotifyAssignees,
   resolvePhaseEffectiveTargetDate,
-} from "@/lib/it-project-subkpis";
-import { getTaskTargetDueDate } from "@/lib/kpi-subkpis";
-import { normalizeTimeZone } from "@/lib/kpi-recurrence";
+} from "@/modules/tasks/it-project-subkpis";
+import { getTaskTargetDueDate } from "@/modules/tasks/kpi-subkpis";
+import { normalizeTimeZone } from "@/modules/tasks/kpi-recurrence";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 type DelayAlert = {
   kpiMaintenanceId: string;

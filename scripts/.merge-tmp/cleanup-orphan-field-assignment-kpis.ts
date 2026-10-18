@@ -3,8 +3,8 @@
  * plus leftover travel orders and their linked cards.
  * Usage: npx tsx scripts/.merge-tmp/cleanup-orphan-field-assignment-kpis.ts --apply
  */
-import { prismaPrimary } from "../../src/lib/prisma";
-import { isFieldAssignmentTask } from "../../src/lib/kpi-subkpis";
+import { prismaPrimary } from "../../src/modules/platform/db/prisma";
+import { isFieldAssignmentTask } from "../../src/modules/tasks/kpi-subkpis";
 
 const APPLY = process.argv.includes("--apply");
 

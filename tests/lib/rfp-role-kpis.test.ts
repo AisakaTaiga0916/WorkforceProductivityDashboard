@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { parsePaymentApprovalMeta } from "../../src/lib/request-for-payment-approval";
+import { parsePaymentApprovalMeta } from "../../src/modules/requests/request-for-payment-approval";
 
 describe("RFP role KPI attribution inputs", () => {
   it("parses accounting and finance completion stamps separately", () => {

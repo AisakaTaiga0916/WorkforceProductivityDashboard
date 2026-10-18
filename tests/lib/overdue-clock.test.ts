@@ -3,7 +3,7 @@ import {
   BOARD_LANE_OVERDUE_MS,
   isBoardLaneOverdue,
   overdueClockStartedAtMs,
-} from "@/lib/sla-shared";
+} from "@/modules/requests/sla-shared";
 
 const dayAgo = Date.now() - BOARD_LANE_OVERDUE_MS - 60_000;
 const hourAgo = Date.now() - 60 * 60 * 1000;
@@ -44,12 +44,11 @@ describe("overdueClockStartedAtMs / isBoardLaneOverdue", () => {
     ).toBe(true);
   });
 
-  it("RFP/FTR/R.S./A.C.A.: only after FOR_CONFIRMATION", () => {
+  it("RFP/FTR/R.S.: only after FOR_CONFIRMATION", () => {
     for (const requestType of [
       "REQUEST_FOR_PAYMENT",
       "FUND_TRANSFER_REQUEST",
       "ITEM_REQUISITION_SLIP",
-      "AUTHORITY_TO_CONDUCT_ACTIVITY",
     ] as const) {
       expect(
         overdueClockStartedAtMs({

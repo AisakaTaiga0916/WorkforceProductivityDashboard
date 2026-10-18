@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client/primary";
 import { normalizePersonName } from "@/lib/person-name";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { isStaffPortalRole } from "@/lib/staff-role";
 
 export type AgentColorIdentity = {

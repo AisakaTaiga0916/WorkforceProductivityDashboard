@@ -4,7 +4,7 @@
  */
 import { pickCanonicalAgentForPortal } from "../src/lib/admin-roster";
 import { mergeLegacyConflictPortals } from "../src/lib/sync/merge-legacy-conflict-portals";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 const sourceTag = process.env.TICKETING_MERGE_SOURCE_TAG?.trim() || "ticketing_system";
 const hrisTag = process.env.HRIS_MERGE_SOURCE_TAG?.trim() || "hrisdemo";

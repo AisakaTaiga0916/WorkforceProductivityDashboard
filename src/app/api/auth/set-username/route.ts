@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { authOptions } from "@/modules/platform/auth";
 import { findPortalByEmailOnly, findPortalByUsername } from "@/lib/portal-account";
 import { ensureAgentRowForPortalStaff } from "@/lib/admin-roster";
-import { prisma } from "@/lib/prisma";
+import { roleIdPatchForLegacyChange } from "@/modules/platform/rbac/rbac-role-sync";
+import { prisma } from "@/modules/platform/db/prisma";
 
 const USERNAME_RE = /^[a-zA-Z0-9._-]{3,32}$/;
 
@@ -71,6 +72,7 @@ export async function POST(req: Request) {
       data: {
         username: trimmed.toLowerCase(),
         role: isStaffRole ? "Personnel" : "Customer",
+        ...(await roleIdPatchForLegacyChange(portal.id, isStaffRole ? "Personnel" : "Customer")),
         headPrivileges: false,
         companyId: isStaffRole ? null : companyId,
         customerOrgRole: isStaffRole ? null : "Personnel",

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
+import { rbacRoleIdForLegacyRole, rbacRoleRelationWrite } from "@/modules/platform/rbac/rbac-role-sync";
+import { prisma } from "@/modules/platform/db/prisma";
 const SALT_ROUNDS = 12;
 
 export type PortalRow = {
@@ -21,7 +22,7 @@ export type PortalRow = {
 
 /** Match portal row by unique username, email, or legacy username alias. */
 export async function findPortalByLogin(loginId: string): Promise<PortalRow | null> {
-  const { findPortalAccountByLogin } = await import("@/lib/auth/portal-credentials");
+  const { findPortalAccountByLogin } = await import("@/modules/platform/auth/portal-credentials");
   return findPortalAccountByLogin(loginId);
 }
 
@@ -134,6 +135,7 @@ export async function createPortalAccount(input: {
     customerOrgRole = ["Admin", "Personnel"].includes(normalized) ? normalized : null;
   }
   try {
+    const roleId = await rbacRoleIdForLegacyRole(role);
     await prisma.portalAccount.create({
       data: {
         id,
@@ -143,8 +145,8 @@ export async function createPortalAccount(input: {
         passwordHash,
         role,
         ...(companyId
-          ? { company: { connect: { id: companyId } } }
-          : { companyId: null }),
+          ? { company: { connect: { id: companyId } }, ...rbacRoleRelationWrite(roleId ?? undefined) }
+          : { companyId: null, roleId: roleId ?? null }),
         customerOrgRole,
       },
     });
@@ -188,6 +190,7 @@ export async function createStaffPortalAccount(input: {
         name: input.name.trim(),
         passwordHash,
         role: input.role,
+        roleId: (await rbacRoleIdForLegacyRole(input.role)) ?? null,
         headPrivileges: input.role === "Admin",
         companyId: null,
         customerOrgRole: null,
@@ -202,7 +205,7 @@ export async function createStaffPortalAccount(input: {
   }
 }
 
-/** @deprecated Prefer {@link syncOAuthUser} from `@/lib/auth/sync-oauth-user`. */
+/** @deprecated Prefer {@link syncOAuthUser} from `@/modules/platform/auth/sync-oauth-user`. */
 export async function upsertPortalOAuthAccount(input: {
   email: string;
   name: string;
@@ -211,7 +214,7 @@ export async function upsertPortalOAuthAccount(input: {
   provider?: string;
   providerAccountId?: string;
 }): Promise<PortalRow | null> {
-  const { syncOAuthUser } = await import("@/lib/auth/sync-oauth-user");
+  const { syncOAuthUser } = await import("@/modules/platform/auth/sync-oauth-user");
   const email = input.email.trim().toLowerCase();
   if (!email) return null;
   await syncOAuthUser({

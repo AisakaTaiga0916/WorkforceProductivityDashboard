@@ -1,23 +1,24 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   formatPaymentRequestDescription,
   formatPaymentRequestTitle,
   normalizePaymentAmountInput,
   parsePaymentRequestDescription,
   validatePaymentModeFields,
-} from "@/lib/request-for-payment";
-import { loadPaymentApprovalMeta, savePaymentApprovalMeta } from "@/lib/payment-approval-db";
-import { logActivity } from "@/lib/ticket-actions";
-import { findTravelOrderById, type TravelOrderRow } from "@/lib/travel-order-db";
+} from "@/modules/requests/request-for-payment";
+import { loadPaymentApprovalMeta, savePaymentApprovalMeta } from "@/modules/requests/payment-approval-db";
+import { logActivity } from "@/modules/requests/ticket-actions";
+import { findTravelOrderById, type TravelOrderRow } from "@/modules/work-plans/travel-order-db";
 import {
   createRfpFromSubmittedTravelOrder,
   findLinkedRfpByTravelOrderId,
-} from "@/lib/travel-order-rfp";
-import { TO_RFP_DEFAULT_IN_PAYMENT_OF } from "@/lib/travel-order-rfp-constants";
-import { resolveRfpBookkeeperForBudgetCompany, resolveDefaultSendToSectionForBudgetCompany } from "@/lib/intake-approval-recommendations";
+} from "@/modules/work-plans/travel-order-rfp";
+import { TO_RFP_DEFAULT_IN_PAYMENT_OF } from "@/modules/work-plans/travel-order-rfp-constants";
+import { resolveRfpBookkeeperForBudgetCompany, resolveDefaultSendToSectionForBudgetCompany } from "@/modules/requests/intake-approval-recommendations";
 
 async function loadOrderForLinkedRfp(
   kpiId: string,
@@ -246,6 +247,8 @@ export async function POST(
 ) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("work_plans");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   const { id, travelOrderId } = await ctx.params;
 
@@ -310,6 +313,8 @@ export async function PATCH(
 ) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("work_plans");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   const { id, travelOrderId } = await ctx.params;
 

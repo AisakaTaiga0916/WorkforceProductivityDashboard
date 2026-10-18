@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { resolveTravelOrderOrgChartApprovalPath } from "@/lib/travel-order-org-chart-path";
+import { resolveTravelOrderOrgChartApprovalPath } from "@/modules/work-plans/travel-order-org-chart-path";
 
 /**
  * GET /api/travel-orders/org-chart-approval-path?agentId=

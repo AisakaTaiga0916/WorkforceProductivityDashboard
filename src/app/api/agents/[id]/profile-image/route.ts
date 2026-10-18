@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { profileImageToBinaryResponse } from "@/lib/session-profile-image";
 
 export const dynamic = "force-dynamic";

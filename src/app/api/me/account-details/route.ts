@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { safeGetServerSession } from "@/lib/server-session";
 
 export const dynamic = "force-dynamic";

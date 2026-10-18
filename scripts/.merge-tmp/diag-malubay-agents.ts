@@ -1,4 +1,4 @@
-import { prismaPrimary } from "../../src/lib/prisma";
+import { prismaPrimary } from "../../src/modules/platform/db/prisma";
 
 const LEGACY = "cmrpyuvty000111lydrm8c8qk";
 const HRIS = "cmrpr1c8u000xj1cin55odq2m";

@@ -5,18 +5,18 @@
  *   npx tsx scripts/smoke-request-chat.ts
  *   npx tsx scripts/smoke-request-chat.ts --base-url=http://localhost:3000
  */
-import { prisma } from "../src/lib/prisma";
+import { prisma } from "../src/modules/platform/db/prisma";
 import {
   createChatMessage,
   listChatMessages,
   markChatMessagesRead,
   sanitizeChatBody,
-} from "../src/lib/request-chat";
+} from "../src/modules/requests/request-chat";
 import {
   canAccessRequestChat,
   collectRequestChatParticipantAgentIds,
   loadTicketForChatAccess,
-} from "../src/lib/ticket-chat-access";
+} from "../src/modules/requests/ticket-chat-access";
 import { pingRedis } from "../src/lib/redis";
 
 function fail(message: string): never {

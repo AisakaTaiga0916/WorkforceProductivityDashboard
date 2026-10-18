@@ -1,6 +1,16 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
+
+let ensured: Promise<unknown> | null = null;
 
 export async function ensurePlatformSettingsTable() {
+  ensured ??= createPlatformSettingsTable().catch((e) => {
+    ensured = null;
+    throw e;
+  });
+  await ensured;
+}
+
+async function createPlatformSettingsTable() {
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS platform_settings (
       key TEXT PRIMARY KEY,

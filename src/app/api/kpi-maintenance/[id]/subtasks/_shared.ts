@@ -1,9 +1,9 @@
-import { isItProjectEnvelope, itProjectAllItems, parseItProjectSubKpis } from "@/lib/it-project-subkpis";
-import { timeZoneFromPeriodKey, upsertKpiPeriodSnapshot } from "@/lib/kpi-period-snapshots";
-import { collectChecklistProgressItems, hasItemsInUnassignedSegment } from "@/lib/kpi-subkpis";
-import { prisma } from "@/lib/prisma";
-import { subKpiRequirementsMet } from "@/lib/sub-kpi-completion-mode";
-import { isSubKpiEffectivelyVerified } from "@/lib/task-completion-verification";
+import { isItProjectEnvelope, itProjectAllItems, parseItProjectSubKpis } from "@/modules/tasks/it-project-subkpis";
+import { timeZoneFromPeriodKey, upsertKpiPeriodSnapshot } from "@/modules/tasks/kpi-period-snapshots";
+import { collectChecklistProgressItems, hasItemsInUnassignedSegment } from "@/modules/tasks/kpi-subkpis";
+import { prisma } from "@/modules/platform/db/prisma";
+import { subKpiRequirementsMet } from "@/modules/tasks/sub-kpi-completion-mode";
+import { isSubKpiEffectivelyVerified } from "@/modules/tasks/task-completion-verification";
 
 export const KPI_ROW_SELECT = {
   id: true,

@@ -121,7 +121,7 @@ for (const file of walk(ROOT)) {
     .join("\n");
 
   if (text.includes("isElevatedUserRole(")) {
-    text = addImport(text, "isElevatedUserRole", "@/lib/auth");
+    text = addImport(text, "isElevatedUserRole", "@/modules/platform/auth");
   }
 
   if (text !== before) {

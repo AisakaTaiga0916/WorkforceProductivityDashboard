@@ -81,7 +81,7 @@ Defined in `scripts/redis-jobs.cjs`. Each worker POSTs the matching internal job
 
 Socket.IO in `server.js` / `dev:realtime` uses `@socket.io/redis-adapter` when Redis is reachable so `request:{ticketId}` rooms work across instances.
 
-Next.js chat API routes publish with `@socket.io/redis-emitter` (`src/lib/request-chat-emit.ts`).
+Next.js chat API routes publish with `@socket.io/redis-emitter` (`src/modules/requests/request-chat-emit.ts`).
 
 If Redis is down:
 

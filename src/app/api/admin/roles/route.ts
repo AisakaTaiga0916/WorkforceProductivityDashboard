@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { ensureAgentRowForPortalStaff, pickCanonicalAgentForPortal } from "@/lib/admin-roster";
 import { rosterTeamNameFilter, sortByRosterOrder, COMPANY_ROSTER } from "@/lib/company-roster";
 import { requireRole } from "@/lib/access";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { rbacRoleIdForLegacyRole, rbacRoleRelationWrite } from "@/modules/platform/rbac/rbac-role-sync";
 import { createStaffPortalAccount, findPortalByEmailOnly } from "@/lib/portal-account";
 import { normalizePersonnelAssignmentColor } from "@/lib/personnel-assignment-colors";
 import {
@@ -10,7 +12,7 @@ import {
   loadPortalStaffAssignmentColorMap,
   setPortalStaffAssignmentColor,
 } from "@/lib/portal-staff-assignment-color-sql";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   isAdminEligibleStaffRole,
   isPlatformSuperAdminPortalRole,
@@ -99,7 +101,7 @@ const portalAccountPatchSelect = {
 
 export async function PATCH(req: Request) {
   const { session, unauthorized } = await requireRole(["SuperAdmin", "HighAdmin", "Admin"]);
-  if (unauthorized) return unauthorized;
+  if (unauthorized || !session) return unauthorized;
 
   const body = (await req.json()) as {
     id?: string;
@@ -130,6 +132,11 @@ export async function PATCH(req: Request) {
   if (!existing) {
     return NextResponse.json({ error: "Account not found." }, { status: 404 });
   }
+  const denied = await permissionDenied(
+    session,
+    body.role !== undefined ? "users.assign" : "users.update",
+  );
+  if (denied) return denied;
 
   /** Company portal Admin: may only PATCH assignment color for own-SBU Admin/Personnel roster. */
   if (session.user.role === "Admin") {
@@ -218,6 +225,7 @@ export async function PATCH(req: Request) {
       );
     }
     data.role = role;
+    Object.assign(data, rbacRoleRelationWrite(await rbacRoleIdForLegacyRole(role)));
     data.headPrivileges = false;
     if (role !== "Customer") {
       data.company = { disconnect: true };
@@ -443,8 +451,10 @@ function validUsername(username: string) {
 }
 
 export async function POST(req: Request) {
-  const { unauthorized } = await requireRole(["SuperAdmin"]);
-  if (unauthorized) return unauthorized;
+  const { session, unauthorized } = await requireRole(["SuperAdmin"]);
+  if (unauthorized || !session) return unauthorized;
+  const denied = await permissionDenied(session, "users.create");
+  if (denied) return denied;
 
   let body: {
     username?: string;

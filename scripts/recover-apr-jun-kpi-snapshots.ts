@@ -19,13 +19,13 @@ import {
   applyPillarPercentSnapshots,
   ensureDailyKpiForPillar,
   KPI_SHEET_IMPORT_PILLARS,
-} from "../src/lib/kpi-sheet-import-snapshots";
+} from "../src/modules/tasks/kpi-sheet-import-snapshots";
 import {
   getDailyPeriodKey,
   isKpiMetricsWorkingDay,
   normalizeTimeZone,
-} from "../src/lib/kpi-recurrence";
-import { prisma } from "../src/lib/prisma";
+} from "../src/modules/tasks/kpi-recurrence";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 function parseArgs(argv: string[]) {
   const flags = new Map<string, string>();

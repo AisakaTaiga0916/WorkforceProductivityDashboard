@@ -18,8 +18,8 @@ import {
   paymentModeRequiresBankDetails,
   paymentModeShowsBankDetails,
   type PaymentRequestFields,
-} from "@/lib/request-for-payment";
-import { TO_RFP_DEFAULT_IN_PAYMENT_OF } from "@/lib/travel-order-rfp-constants";
+} from "@/modules/requests/request-for-payment";
+import { TO_RFP_DEFAULT_IN_PAYMENT_OF } from "@/modules/work-plans/travel-order-rfp-constants";
 
 type TravelOrderRfpEditModalProps = {
   open: boolean;

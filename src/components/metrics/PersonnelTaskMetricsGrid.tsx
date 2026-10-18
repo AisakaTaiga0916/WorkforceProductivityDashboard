@@ -4,14 +4,14 @@ import { useMemo, useState } from "react";
 import { Users } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { BoardSearchBar } from "@/components/ui/BoardSearchBar";
-import type { PersonnelCombinedMetricCard } from "@/lib/task-personnel-metrics";
+import type { PersonnelCombinedMetricCard } from "@/modules/tasks/task-personnel-metrics";
 import {
   filterPersonnelSearchQuery,
   mergePersonnelRequestMetrics,
   personnelIdentityKey,
   personnelEfficiencyBracket,
   applyPersonnelAverageEfficiencyFloor,
-} from "@/lib/task-personnel-metrics";
+} from "@/modules/tasks/task-personnel-metrics";
 import { ContributorPersonalKpiCard } from "@/components/metrics/TaskPillarMetricsGrid";
 
 type PersonnelTaskMetricsGridProps = {

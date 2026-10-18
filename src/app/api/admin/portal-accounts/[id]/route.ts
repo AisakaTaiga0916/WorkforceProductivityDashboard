@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { prisma } from "@/modules/platform/db/prisma";
 
 export async function DELETE(
   _req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const { unauthorized } = await requireRole(["SuperAdmin"]);
-  if (unauthorized) return unauthorized;
+  const { session, unauthorized } = await requireRole(["SuperAdmin"]);
+  if (unauthorized || !session) return unauthorized;
+  const denied = await permissionDenied(session, "users.delete");
+  if (denied) return denied;
 
   const { id } = await ctx.params;
 

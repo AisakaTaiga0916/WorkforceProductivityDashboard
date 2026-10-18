@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 const TO_ID = "cmrpsn1rd0005glcqpl4lewk6"; // Riezel Cua Lelis
 

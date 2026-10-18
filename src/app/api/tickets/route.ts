@@ -1,39 +1,40 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import type { Prisma } from "@prisma/client/primary";
 import { TicketCategory, TicketPriority } from "@prisma/client/primary";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
 import {
   customerTicketWhereBySessionEmail,
   issueConcernIntakeLockMessage,
   requestorHasIntakeBlockingTicket,
-} from "@/lib/customer-pending-resolution";
-import { ensureOutsideCompanyTeam } from "@/lib/outside-company-team";
-import { logActivity } from "@/lib/ticket-actions";
-import { prisma } from "@/lib/prisma";
-import { resolveAgentDesignatedCompanyId, resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
+} from "@/modules/requests/customer-pending-resolution";
+import { ensureOutsideCompanyTeam } from "@/modules/requests/outside-company-team";
+import { logActivity } from "@/modules/requests/ticket-actions";
+import { prisma } from "@/modules/platform/db/prisma";
+import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
 import {
   orgChartSectionExists,
   resolveCompanyTeamIdForOrgChartSection,
-} from "@/lib/org-chart-section-roster";
+} from "@/modules/hierarchy/org-chart-section-roster";
 import { findSessionAgentId } from "@/lib/session-agent";
-import { personnelRequestBoardWhere } from "@/lib/rfp-request-board";
-import { addHours, getSlaPolicy } from "@/lib/sla";
-import { nextTicketNumber } from "@/lib/ticket-number";
+import { personnelRequestBoardWhere } from "@/modules/requests/rfp-request-board";
+import { addHours, getSlaPolicy } from "@/modules/requests/sla";
+import { nextTicketNumber } from "@/modules/requests/ticket-number";
 import { shouldNotifyAdminOnCreate, shouldNotifySuperAdminOnCreate } from "@/lib/triggers";
 import {
   IntakeContactError,
   isValidWorkEmail,
   resolveTicketContactFields,
-} from "@/lib/ticket-intake-contact";
-import { resolveCustomerRequestTeam, resolveRosterTeamByExactName, resolveRosterTeamById } from "@/lib/ticket-intake-request-team";
-import type { IntakeScreenshotMetaItem } from "@/lib/ticket-intake-screenshots-meta";
-import { persistTicketScreenshots, validateScreenshotFiles } from "@/lib/ticket-intake-screenshots";
+} from "@/modules/requests/ticket-intake-contact";
+import { resolveCustomerRequestTeam, resolveRosterTeamByExactName, resolveRosterTeamById } from "@/modules/requests/ticket-intake-request-team";
+import type { IntakeScreenshotMetaItem } from "@/modules/requests/ticket-intake-screenshots-meta";
+import { persistTicketScreenshots, validateScreenshotFiles } from "@/modules/requests/ticket-intake-screenshots";
 import { loadStaffAssignmentColorsForAgents } from "@/lib/assignee-assignment-color";
-import { runForConfirmationReminderSweep } from "@/lib/confirmation-reminders";
-import { parseRequestTypeId, requestTypeLabel } from "@/lib/request-types";
-import { isRequestTypeHiddenFromIntake } from "@/lib/intake-request-type-visibility";
-import { getIntakeRequestTypeVisibility } from "@/lib/intake-request-type-visibility-db";
+import { runForConfirmationReminderSweep } from "@/modules/requests/confirmation-reminders";
+import { parseRequestTypeId, requestTypeLabel } from "@/modules/requests/request-types";
+import { isRequestTypeHiddenFromIntake } from "@/modules/platform/settings/intake-request-type-visibility";
+import { getIntakeRequestTypeVisibility } from "@/modules/platform/settings/intake-request-type-visibility-db";
 import {
   formatPaymentRequestDescription,
   formatPaymentRequestTitle,
@@ -41,13 +42,13 @@ import {
   normalizePaymentAmountInput,
   MODE_OF_PAYMENT_CHECK,
   paymentModeRequiresBankDetails,
-} from "@/lib/request-for-payment";
+} from "@/modules/requests/request-for-payment";
 import {
   formatItemRequisitionDescription,
   formatItemRequisitionTitle,
   parseRequisitionItemsPayload,
   validateItemRequisitionFields,
-} from "@/lib/item-requisition";
+} from "@/modules/requests/item-requisition";
 import {
   applyPaymentApprovalAssignees,
   currentPaymentStepBoardAssigneeId,
@@ -56,67 +57,56 @@ import {
   paymentProceduralStatusLabel,
   type PaymentApprovalAssignees,
   type PaymentApprovalStep,
-} from "@/lib/request-for-payment-approval";
+} from "@/modules/requests/request-for-payment-approval";
 import {
   initPaymentApprovalMetaIfNeeded,
   savePaymentApprovalMeta,
-} from "@/lib/payment-approval-db";
+} from "@/modules/requests/payment-approval-db";
 import {
   applyItemRequisitionApprovalAssignees,
   itemRequisitionProceduralStatusLabel,
   type ItemRequisitionApprovalAssignees,
-} from "@/lib/item-requisition-approval";
+} from "@/modules/requests/item-requisition-approval";
 import {
   initItemRequisitionApprovalMetaIfNeeded,
   saveItemRequisitionApprovalMeta,
-} from "@/lib/item-requisition-approval-db";
+} from "@/modules/requests/item-requisition-approval-db";
 import {
   formatFundTransferRequestDescription,
   formatFundTransferRequestTitle,
   validateFundTransferRequestFields,
-} from "@/lib/fund-transfer-request";
+} from "@/modules/requests/fund-transfer-request";
 import {
   formatJobOrderDescription,
   formatJobOrderTitle,
   parseJobOrderNatureList,
   validateJobOrderFields,
-} from "@/lib/job-order";
+} from "@/modules/requests/job-order";
 import {
   applyFundTransferApprovalAssignees,
   currentFundTransferStepBoardAssigneeId,
   fundTransferProceduralStatusLabel,
   type FundTransferApprovalAssignees,
-} from "@/lib/fund-transfer-approval";
+} from "@/modules/requests/fund-transfer-approval";
 import {
   saveFundTransferApprovalMeta,
   stampFundTransferCreatorOnCreate,
-} from "@/lib/fund-transfer-approval-db";
+} from "@/modules/requests/fund-transfer-approval-db";
 import {
   applyJobOrderApprovalAssignees,
   currentJobOrderStepBoardAssigneeId,
   jobOrderApprovalStartStep,
   jobOrderProceduralStatusLabel,
   type JobOrderApprovalAssignees,
-} from "@/lib/job-order-approval";
+} from "@/modules/requests/job-order-approval";
 import {
   saveJobOrderApprovalMeta,
   stampJobOrderCreatorOnCreate,
-} from "@/lib/job-order-approval-db";
-import { acaRecommendedByUsesRequestorCompanyLock, resolveAcaAuthority } from "@/lib/aca-authority-matrix";
+} from "@/modules/requests/job-order-approval-db";
 import {
-  formatAcaRequestDescription,
-  formatAcaRequestTitle,
-  normalizeAcaAmountInput,
-  parseAcaAmountNumber,
-  resolveAcaFormCode,
-} from "@/lib/authority-to-conduct-activity";
-import { acaProceduralStatusLabel, defaultAcaApprovalMeta } from "@/lib/aca-approval";
-import { saveAcaApprovalMeta } from "@/lib/aca-approval-db";
-import {
-  resolveAcaAssigneesFromPositions,
   resolveFtrAssigneesFromPositions,
   resolveMergedSourceUserIdForSessionEmail,
-} from "@/lib/approval-position-resolver";
+} from "@/modules/hierarchy/approval-position-resolver";
 
 function pickAgentId(v: unknown): string | null {
   if (v === null || v === "") return null;
@@ -177,7 +167,7 @@ export async function GET(req: Request) {
     session.user.role === "Admin" ||
     session.user.role === "HighAdmin"
   ) {
-    const { sectionScopedTicketWhere } = await import("@/lib/org-chart-section-scope");
+    const { sectionScopedTicketWhere } = await import("@/modules/platform/scope/org-chart-section-scope");
     sectionBoardWhere = await sectionScopedTicketWhere({
       email: session.user.email,
       agentId: operator?.id,
@@ -247,6 +237,10 @@ export async function POST(req: Request) {
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (session.user.role !== "Customer") {
+    const moduleOff = await moduleDisabledResponse("requests");
+    if (moduleOff) return moduleOff;
+  }
 
   try {
     const contentType = req.headers.get("content-type") ?? "";
@@ -300,19 +294,6 @@ export async function POST(req: Request) {
     let targetDateRaw: string | undefined;
     let expectedDurationRaw: string | undefined;
     let approvalAssigneesRaw: unknown;
-    let acaCategoryRaw: string | undefined;
-    let acaNatureOfRequestRaw: string | undefined;
-    let acaEstimatedCostRaw: string | undefined;
-    let acaBudgetAmountRaw: string | undefined;
-    let acaDescriptionRaw: string | undefined;
-    let acaObjectiveRaw: string | undefined;
-    let acaDateSubmittedRaw: string | undefined;
-    let acaImplementationDateRaw: string | undefined;
-    let acaSubmittedByNameRaw: string | undefined;
-    let acaRelatedTicketIdsRaw: string | undefined;
-    let acaRecommendedByAgentIdRaw: string | undefined;
-    let acaFinanceManagerAgentIdRaw: string | undefined;
-    let acaApprovingAgentIdsRaw: unknown;
     let screenshotFiles: File[] | undefined;
 
     if (contentType.includes("multipart/form-data")) {
@@ -422,38 +403,6 @@ export async function POST(req: Request) {
       expectedDurationRaw = ed != null ? String(ed) : undefined;
       const aa = fd.get("approvalAssignees");
       approvalAssigneesRaw = aa != null ? String(aa) : undefined;
-      const acaCat = fd.get("acaCategory");
-      acaCategoryRaw = acaCat != null ? String(acaCat) : undefined;
-      const acaNat = fd.get("acaNatureOfRequest");
-      acaNatureOfRequestRaw = acaNat != null ? String(acaNat) : undefined;
-      const acaEst = fd.get("acaEstimatedCost");
-      acaEstimatedCostRaw = acaEst != null ? String(acaEst) : undefined;
-      const acaBud = fd.get("acaBudgetAmount");
-      acaBudgetAmountRaw = acaBud != null ? String(acaBud) : undefined;
-      const acaDesc = fd.get("acaDescription");
-      acaDescriptionRaw = acaDesc != null ? String(acaDesc) : undefined;
-      const acaObj = fd.get("acaObjective");
-      acaObjectiveRaw = acaObj != null ? String(acaObj) : undefined;
-      const acaDs = fd.get("acaDateSubmitted");
-      acaDateSubmittedRaw = acaDs != null ? String(acaDs) : undefined;
-      const acaImpl = fd.get("acaImplementationDate");
-      acaImplementationDateRaw = acaImpl != null ? String(acaImpl) : undefined;
-      const acaSub = fd.get("acaSubmittedByName");
-      acaSubmittedByNameRaw = acaSub != null ? String(acaSub) : undefined;
-      const acaRel = fd.get("acaRelatedTicketIds");
-      acaRelatedTicketIdsRaw = acaRel != null ? String(acaRel) : undefined;
-      const acaRec = fd.get("acaRecommendedByAgentId");
-      acaRecommendedByAgentIdRaw = acaRec != null ? String(acaRec) : undefined;
-      const acaFin = fd.get("acaFinanceManagerAgentId");
-      acaFinanceManagerAgentIdRaw = acaFin != null ? String(acaFin) : undefined;
-      const acaApp = fd.get("acaApprovingAgentIds");
-      if (typeof acaApp === "string" && acaApp.trim()) {
-        try {
-          acaApprovingAgentIdsRaw = JSON.parse(acaApp);
-        } catch {
-          return NextResponse.json({ error: "Invalid ACA approving assignees payload." }, { status: 400 });
-        }
-      }
       const raw = fd.getAll("screenshots");
       screenshotFiles = raw.filter((x): x is File => x instanceof File && x.size > 0);
       const v = validateScreenshotFiles(screenshotFiles);
@@ -560,31 +509,6 @@ export async function POST(req: Request) {
       expectedDurationRaw =
         typeof body.expectedDuration === "string" ? body.expectedDuration : undefined;
       approvalAssigneesRaw = body.approvalAssignees;
-      acaCategoryRaw = typeof body.acaCategory === "string" ? body.acaCategory : undefined;
-      acaNatureOfRequestRaw =
-        typeof body.acaNatureOfRequest === "string" ? body.acaNatureOfRequest : undefined;
-      acaEstimatedCostRaw =
-        typeof body.acaEstimatedCost === "string" ? body.acaEstimatedCost : undefined;
-      acaBudgetAmountRaw =
-        typeof body.acaBudgetAmount === "string" ? body.acaBudgetAmount : undefined;
-      acaDescriptionRaw =
-        typeof body.acaDescription === "string" ? body.acaDescription : undefined;
-      acaObjectiveRaw = typeof body.acaObjective === "string" ? body.acaObjective : undefined;
-      acaDateSubmittedRaw =
-        typeof body.acaDateSubmitted === "string" ? body.acaDateSubmitted : undefined;
-      acaImplementationDateRaw =
-        typeof body.acaImplementationDate === "string" ? body.acaImplementationDate : undefined;
-      acaSubmittedByNameRaw =
-        typeof body.acaSubmittedByName === "string" ? body.acaSubmittedByName : undefined;
-      acaRelatedTicketIdsRaw =
-        typeof body.acaRelatedTicketIds === "string" ? body.acaRelatedTicketIds : undefined;
-      acaRecommendedByAgentIdRaw =
-        typeof body.acaRecommendedByAgentId === "string" ? body.acaRecommendedByAgentId : undefined;
-      acaFinanceManagerAgentIdRaw =
-        typeof body.acaFinanceManagerAgentId === "string"
-          ? body.acaFinanceManagerAgentId
-          : undefined;
-      acaApprovingAgentIdsRaw = body.acaApprovingAgentIds;
     }
 
     const parsedIntakeApprovalAssignees = parseApprovalAssigneesPayload(approvalAssigneesRaw);
@@ -893,229 +817,6 @@ export async function POST(req: Request) {
       }
     }
 
-    let acaCreateSeed: ReturnType<typeof defaultAcaApprovalMeta> | null = null;
-    let acaFormattedTitle: string | null = null;
-    let acaFormattedDescription: string | null = null;
-    if (requestType === "AUTHORITY_TO_CONDUCT_ACTIVITY") {
-      const departmentStore = (departmentRaw ?? "").trim();
-      const acaCategory = (acaCategoryRaw ?? "").trim();
-      const acaNature = (acaNatureOfRequestRaw ?? "").trim();
-      const estimatedCostNormalized =
-        normalizeAcaAmountInput(acaEstimatedCostRaw ?? "") || (acaEstimatedCostRaw ?? "").trim();
-      const budgetAmountNormalized =
-        normalizeAcaAmountInput(acaBudgetAmountRaw ?? "") || (acaBudgetAmountRaw ?? "").trim();
-      const acaDescription = (acaDescriptionRaw ?? issueText).trim();
-      const acaObjective = (acaObjectiveRaw ?? "").trim();
-      const dateSubmitted = (acaDateSubmittedRaw ?? "").trim();
-      const implementationDate = (acaImplementationDateRaw ?? "").trim();
-      const submittedByName =
-        (acaSubmittedByNameRaw ?? "").trim() || (session.user.name ?? "").trim() || "Requester";
-      const relatedTicketIds = (acaRelatedTicketIdsRaw ?? "").trim();
-      let recommendedByAgentId = (acaRecommendedByAgentIdRaw ?? "").trim();
-      let financeManagerAgentId = (acaFinanceManagerAgentIdRaw ?? "").trim();
-      let approvingAgentIds = Array.isArray(acaApprovingAgentIdsRaw)
-        ? acaApprovingAgentIdsRaw
-            .map((v) => (typeof v === "string" ? v.trim() : ""))
-            .filter(Boolean)
-        : typeof acaApprovingAgentIdsRaw === "string" && acaApprovingAgentIdsRaw.trim()
-          ? (() => {
-              try {
-                const parsed = JSON.parse(acaApprovingAgentIdsRaw) as unknown;
-                return Array.isArray(parsed)
-                  ? parsed.map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean)
-                  : [];
-              } catch {
-                return [];
-              }
-            })()
-          : [];
-
-      if (
-        !acaCategory ||
-        !acaNature ||
-        !estimatedCostNormalized ||
-        !budgetAmountNormalized ||
-        !acaDescription ||
-        !acaObjective ||
-        !dateSubmitted ||
-        !implementationDate
-      ) {
-        return NextResponse.json(
-          {
-            error:
-              "Category, Nature of Request, Estimated Cost, Budget Amount, Description, Objective, Date Submitted, and Implementation Date are required for ACA.",
-          },
-          { status: 400 },
-        );
-      }
-
-      const estimatedCostNum = parseAcaAmountNumber(estimatedCostNormalized);
-      if (estimatedCostNum == null) {
-        return NextResponse.json({ error: "Estimated cost must be a valid amount." }, { status: 400 });
-      }
-
-      const resolution = resolveAcaAuthority({
-        category: acaCategory,
-        natureOfRequest: acaNature,
-        estimatedCost: estimatedCostNum,
-      });
-      if (!resolution.ok) {
-        return NextResponse.json(
-          { error: resolution.error || "Could not resolve Authority Matrix requirements." },
-          { status: 400 },
-        );
-      }
-      if (!resolution.requiresAca) {
-        return NextResponse.json(
-          {
-            error:
-              resolution.guidance ||
-              "ACA is not required for this amount. Do not submit an Authority to Conduct Activity.",
-          },
-          { status: 400 },
-        );
-      }
-
-      if (!resolution.recommendingLevel || !resolution.approvingPath) {
-        return NextResponse.json(
-          { error: "Authority Matrix path is incomplete for this request." },
-          { status: 400 },
-        );
-      }
-
-      const acaCompanyTeamId = intakeCompanyTeamId;
-      const positionAssignees = await resolveAcaAssigneesFromPositions({
-        recommendingLevel: resolution.recommendingLevel,
-        approvingPath: resolution.approvingPath,
-        approvingSeatCount: resolution.approvingSeatCount,
-        companyTeamId: acaCompanyTeamId,
-        requestorMergedSourceUserId,
-        useRequestorCompanyLock: acaRecommendedByUsesRequestorCompanyLock(resolution.recommendingLevel),
-      });
-      if (!recommendedByAgentId && positionAssignees.recommendedByAgentId) {
-        recommendedByAgentId = positionAssignees.recommendedByAgentId;
-      }
-      if (!financeManagerAgentId && positionAssignees.financeManagerAgentId) {
-        financeManagerAgentId = positionAssignees.financeManagerAgentId;
-      }
-      if (
-        approvingAgentIds.length === 0 &&
-        positionAssignees.approvingAgentIds.length === resolution.approvingSeatCount
-      ) {
-        approvingAgentIds = positionAssignees.approvingAgentIds;
-      } else if (approvingAgentIds.length < resolution.approvingSeatCount) {
-        for (const agentId of positionAssignees.approvingAgentIds) {
-          if (approvingAgentIds.length >= resolution.approvingSeatCount) break;
-          if (!approvingAgentIds.includes(agentId)) approvingAgentIds.push(agentId);
-        }
-      }
-
-      if (!recommendedByAgentId || !financeManagerAgentId) {
-        return NextResponse.json(
-          { error: "Recommended By and Finance Manager assignees are required." },
-          { status: 400 },
-        );
-      }
-      if (approvingAgentIds.length !== resolution.approvingSeatCount) {
-        return NextResponse.json(
-          {
-            error: `Assign exactly ${resolution.approvingSeatCount} approving seat(s) for ${resolution.approvingLabel ?? "this path"}.`,
-          },
-          { status: 400 },
-        );
-      }
-      if (approvingAgentIds.some((id) => !id)) {
-        return NextResponse.json({ error: "All approving seats must be assigned." }, { status: 400 });
-      }
-
-      const roleIds = [recommendedByAgentId, financeManagerAgentId, ...approvingAgentIds];
-      if (new Set(roleIds).size !== roleIds.length) {
-        return NextResponse.json(
-          { error: "Each ACA approval seat must be assigned to a different person." },
-          { status: 400 },
-        );
-      }
-
-      const found = await prisma.agent.findMany({
-        where: { id: { in: roleIds } },
-        select: { id: true },
-      });
-      if (found.length !== new Set(roleIds).size) {
-        return NextResponse.json(
-          { error: "One or more selected ACA approvers were not found." },
-          { status: 400 },
-        );
-      }
-
-      if (acaRecommendedByUsesRequestorCompanyLock(resolution.recommendingLevel)) {
-        const requestorCompanyId = await resolveStaffCompanyTeamId(session.user.email);
-        if (!requestorCompanyId) {
-          return NextResponse.json(
-            {
-              error:
-                "Your company must be assigned before selecting Recommended By for RA 1–2.",
-            },
-            { status: 400 },
-          );
-        }
-        const recommendedCompanyId = await resolveAgentDesignatedCompanyId(recommendedByAgentId);
-        if (!recommendedCompanyId || recommendedCompanyId !== requestorCompanyId) {
-          return NextResponse.json(
-            {
-              error:
-                "Recommended By for RA 1–2 must be someone from your company.",
-            },
-            { status: 400 },
-          );
-        }
-      }
-
-      const acaFields = {
-        departmentStore,
-        category: acaCategory,
-        natureOfRequest: acaNature,
-        estimatedCost: estimatedCostNormalized,
-        budgetAmount: budgetAmountNormalized,
-        description: acaDescription,
-        objective: acaObjective,
-        dateSubmitted,
-        implementationDate,
-        submittedByName,
-        relatedTicketIds,
-      };
-      acaFormattedTitle = formatAcaRequestTitle(acaFields);
-      acaFormattedDescription = formatAcaRequestDescription(acaFields);
-
-      const creatorAgent = await findSessionAgentId({
-        email: session.user.email,
-        name: session.user.name,
-      });
-      acaCreateSeed = defaultAcaApprovalMeta({
-        resolution,
-        submittedByAgentId: creatorAgent?.id ?? null,
-        recommendedByAgentId,
-        financeManagerAgentId,
-        approvingAgentIds,
-        fields: {
-          implementationDate,
-          estimatedCost: estimatedCostNormalized,
-          budgetAmount: budgetAmountNormalized,
-          departmentStore,
-          category: acaCategory,
-          natureOfRequest: acaNature,
-          submittedByName,
-          description: acaDescription,
-          objective: acaObjective,
-          relatedTicketIds: relatedTicketIds
-            ? relatedTicketIds
-                .split(/[,;\s]+/)
-                .map((s) => s.trim())
-                .filter(Boolean)
-            : [],
-        },
-      });
-    }
-
     const sessionCompanyId =
       typeof session.user.companyId === "string" && session.user.companyId.trim()
         ? session.user.companyId.trim()
@@ -1153,9 +854,6 @@ export async function POST(req: Request) {
     } else if (jobOrderFields) {
       normalizedTitle = (title || formatJobOrderTitle(jobOrderFields)).trim();
       normalizedDescription = formatJobOrderDescription(jobOrderFields);
-    } else if (acaFormattedTitle && acaFormattedDescription) {
-      normalizedTitle = (title || acaFormattedTitle).trim();
-      normalizedDescription = acaFormattedDescription;
     }
 
     if (!normalizedTitle || !normalizedDescription || !effectiveName || !effectiveRequestorEmail || !effectiveContactEmail) {
@@ -1772,43 +1470,6 @@ export async function POST(req: Request) {
         "SYSTEM",
         "Job order approval started",
         jobOrderProceduralStatusLabel(meta.proceduralStep) ?? "NOTED BY IS MISSING",
-      );
-    }
-    if (requestType === "AUTHORITY_TO_CONDUCT_ACTIVITY" && acaCreateSeed) {
-      const requestorCompanyId = await resolveStaffCompanyTeamId(session.user.email);
-      const requestorCompany = requestorCompanyId
-        ? await prisma.team.findUnique({
-            where: { id: requestorCompanyId },
-            select: { name: true },
-          })
-        : null;
-      const meta = {
-        ...acaCreateSeed,
-        formCode: resolveAcaFormCode(requestorCompany?.name ?? null),
-      };
-      await saveAcaApprovalMeta(ticket.id, meta);
-      const boardAssigneeId =
-        meta.levels.find((l) => l.key === meta.proceduralStep)?.agentId ?? null;
-      if (boardAssigneeId) {
-        await prisma.ticket.update({
-          where: { id: ticket.id },
-          data: {
-            assignedAgent: { connect: { id: boardAssigneeId } },
-            status: "IN_PROGRESS",
-          },
-        });
-      }
-      await logActivity(
-        ticket.id,
-        "SYSTEM",
-        "ACA approval started",
-        acaProceduralStatusLabel(meta) ?? "RECOMMENDED BY IS MISSING",
-      );
-      await logActivity(
-        ticket.id,
-        "SYSTEM",
-        "ACA approvers assigned",
-        `${meta.matrixSnapshot.guidance} Request is not green-lit until all seats mark Done.`,
       );
     }
     const requestSbuFreeText = customerRequestSbuText;

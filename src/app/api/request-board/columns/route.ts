@@ -7,7 +7,7 @@ import {
   listRequestBoardColumns,
   reorderRequestBoardColumns,
   requestBoardOwnerKey,
-} from "@/lib/request-board-columns";
+} from "@/modules/requests/request-board-columns";
 
 export async function GET() {
   const session = await requireSession();

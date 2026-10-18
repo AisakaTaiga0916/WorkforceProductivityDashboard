@@ -8,7 +8,7 @@ import {
   progressWithInvertedRecording,
   setInvertedRecording,
   taskUsesInvertedRecording,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 
 describe("inverted recording", () => {
   it("treats unchecked items as 100% and lowers percent when checked", () => {
@@ -60,8 +60,8 @@ describe("inverted recording", () => {
     expect(snapshot.missing).toBe(0);
     expect(snapshot.percent).toBe(100);
     expect(invertedRecordingPeriodClear(row, "Daily scan")).toBe(true);
-    expect(invertedContributorItemCredited({ id: "a", title: "A", done: false })).toBe(true);
-    expect(invertedContributorItemCredited({ id: "a", title: "A", done: true })).toBe(false);
+    expect(invertedContributorItemCredited({ done: false })).toBe(true);
+    expect(invertedContributorItemCredited({ done: true })).toBe(false);
   });
 
   it("marks flagged incidents as missing in snapshot progress after cadence reset", () => {

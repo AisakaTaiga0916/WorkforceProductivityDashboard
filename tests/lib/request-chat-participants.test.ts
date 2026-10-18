@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectRequestChatParticipantAgentIds } from "@/lib/ticket-chat-access";
+import { collectRequestChatParticipantAgentIds } from "@/modules/requests/ticket-chat-access";
 
 const base = {
   id: "t1",
@@ -16,7 +16,6 @@ const base = {
   itemRequisitionApprovalMeta: null,
   fundTransferApprovalMeta: null,
   jobOrderApprovalMeta: null,
-  acaApprovalMeta: null,
 };
 
 describe("collectRequestChatParticipantAgentIds", () => {

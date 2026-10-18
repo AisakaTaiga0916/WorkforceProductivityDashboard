@@ -7,9 +7,9 @@
 import {
   canonicalProfileFromMerged,
   syncPortalProfile,
-} from "../src/lib/auth/sync-portal-profile";
+} from "../src/modules/platform/auth/sync-portal-profile";
 import { MERGED_SOURCE_DATABASE } from "../src/lib/merged-database-sources";
-import { prismaAuth, prismaSecondary } from "../src/lib/prisma";
+import { prismaAuth, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 function resolveSourceTag(): string {
   return (

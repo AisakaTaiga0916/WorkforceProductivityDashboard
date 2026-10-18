@@ -12,8 +12,8 @@ import {
   syncPhaseDueFromSubtasks,
   usesProjectTimelineTracker,
   wrapItProjectSubKpis,
-} from "@/lib/it-project-subkpis";
-import { getLinkedJobOrderFromSubKpis, isProjectTask, markProjectTask, setLinkedJobOrderOnSubKpis } from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/it-project-subkpis";
+import { getLinkedJobOrderFromSubKpis, isProjectTask, markProjectTask, setLinkedJobOrderOnSubKpis } from "@/modules/tasks/kpi-subkpis";
 
 describe("phase target date from subtasks", () => {
   it("derives max due date and syncs onto the phase", () => {

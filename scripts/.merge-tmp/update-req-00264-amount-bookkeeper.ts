@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 const TICKET = "REQ-2026-00264";
 const BOOKKEEPER_ID = "cmrpro8a3002j10lf3uguet0d"; // michael madarang galapin

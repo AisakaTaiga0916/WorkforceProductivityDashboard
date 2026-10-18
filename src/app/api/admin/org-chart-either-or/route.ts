@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
-import { prismaPrimary } from "@/lib/prisma";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { prismaPrimary } from "@/modules/platform/db/prisma";
 
-async function guardSuperAdmin() {
+/** SuperAdmin-only guard. Writes additionally require the given RBAC permission. */
+async function guardSuperAdmin(permissionKey?: string) {
   const session = await requireSession();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (session.user.role !== "SuperAdmin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (permissionKey) {
+    const denied = await permissionDenied(session, permissionKey);
+    if (denied) return denied;
   }
   return null;
 }
@@ -45,7 +51,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const denied = await guardSuperAdmin();
+  const denied = await guardSuperAdmin("hierarchy.update");
   if (denied) return denied;
 
   let body: Record<string, unknown> = {};
@@ -104,7 +110,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const denied = await guardSuperAdmin();
+  const denied = await guardSuperAdmin("hierarchy.update");
   if (denied) return denied;
 
   const { searchParams } = new URL(req.url);

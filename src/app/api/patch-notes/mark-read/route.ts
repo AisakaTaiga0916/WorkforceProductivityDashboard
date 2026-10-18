@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
-import { prismaPrimary } from "@/lib/prisma";
+import { prismaPrimary } from "@/modules/platform/db/prisma";
 import {
   markAllPatchNotesViewedForKeys,
   markPatchNoteViewedForKeys,

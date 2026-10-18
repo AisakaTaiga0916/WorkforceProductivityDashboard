@@ -1,58 +1,59 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { isStaffPortalRole } from "@/lib/staff-role";
-import { logActivity, touchFirstResponse } from "@/lib/ticket-actions";
+import { logActivity, touchFirstResponse } from "@/modules/requests/ticket-actions";
 import {
   applyPaymentApprovalAssignees,
   assigneeFieldForStep,
   canAssignPaymentApprover,
   PAYMENT_APPROVAL_STEP_LABELS,
   paymentProceduralStatusLabel,
-} from "@/lib/request-for-payment-approval";
+} from "@/modules/requests/request-for-payment-approval";
 import {
   initPaymentApprovalMetaIfNeeded,
   savePaymentApprovalMeta,
-} from "@/lib/payment-approval-db";
+} from "@/modules/requests/payment-approval-db";
 import {
   applyItemRequisitionApprovalAssignees,
   ITEM_REQUISITION_APPROVAL_STEP_LABELS,
   itemRequisitionProceduralStatusLabel,
-} from "@/lib/item-requisition-approval";
+} from "@/modules/requests/item-requisition-approval";
 import {
   initItemRequisitionApprovalMetaIfNeeded,
   saveItemRequisitionApprovalMeta,
-} from "@/lib/item-requisition-approval-db";
+} from "@/modules/requests/item-requisition-approval-db";
 import {
   applyFundTransferApprovalAssignees,
   fundTransferAssigneeFieldForStep,
   FUND_TRANSFER_APPROVAL_STEP_LABELS,
   fundTransferProceduralStatusLabel,
-} from "@/lib/fund-transfer-approval";
+} from "@/modules/requests/fund-transfer-approval";
 import {
   initFundTransferApprovalMetaIfNeeded,
   saveFundTransferApprovalMeta,
-} from "@/lib/fund-transfer-approval-db";
+} from "@/modules/requests/fund-transfer-approval-db";
 import {
   applyJobOrderApprovalAssignees,
   jobOrderAssigneeFieldForStep,
   JOB_ORDER_APPROVAL_STEP_LABELS,
   jobOrderProceduralStatusLabel,
   markJobOrderExecutionAssigned,
-} from "@/lib/job-order-approval";
+} from "@/modules/requests/job-order-approval";
 import {
   initJobOrderApprovalMetaIfNeeded,
   saveJobOrderApprovalMeta,
-} from "@/lib/job-order-approval-db";
+} from "@/modules/requests/job-order-approval-db";
 import {
   resolveViewerOrgChartSectionScope,
   roleUsesCompanyDepartmentTaskAssignScope,
-} from "@/lib/org-chart-section-scope";
+} from "@/modules/platform/scope/org-chart-section-scope";
 import {
   resolveAgentDesignatedCompanyId,
   resolveStaffCompanyTeamId,
-} from "@/lib/staff-company-scope";
+} from "@/modules/platform/scope/staff-company-scope";
 
 type AssignBody = {
   ticketId?: string;
@@ -77,6 +78,9 @@ export async function POST(req: Request) {
   if (!(isSuperAdmin || isJwtAdmin)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const denied = await permissionDenied(session, "requests.assign");
+  if (denied) return denied;
 
   try {
     const body = (await req.json()) as AssignBody;

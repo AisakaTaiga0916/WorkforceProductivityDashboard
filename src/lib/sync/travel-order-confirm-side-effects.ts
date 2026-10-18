@@ -1,8 +1,8 @@
-import { triggerEfficiencyRecomputeBackground } from "@/lib/efficiency/trigger-efficiency-recompute";
+import { triggerEfficiencyRecomputeBackground } from "@/modules/tasks/efficiency/trigger-efficiency-recompute";
 import { syncConfirmedTravelOrderToMerged } from "@/lib/sync/travel-order-to-merged";
-import type { TravelOrderRow } from "@/lib/travel-order-db";
-import { findTravelOrderById } from "@/lib/travel-order-db";
-import { finalizeFieldAssignmentKpiFromTravelOrder } from "@/lib/travel-order-kpi-finalize";
+import type { TravelOrderRow } from "@/modules/work-plans/travel-order-db";
+import { findTravelOrderById } from "@/modules/work-plans/travel-order-db";
+import { finalizeFieldAssignmentKpiFromTravelOrder } from "@/modules/work-plans/travel-order-kpi-finalize";
 
 /**
  * After a Travel Order reaches CONFIRMED: finalize Field Assignment KPI if needed,

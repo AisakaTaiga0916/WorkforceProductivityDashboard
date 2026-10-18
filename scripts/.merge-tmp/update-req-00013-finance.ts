@@ -1,4 +1,4 @@
-import { prisma } from "../../src/lib/prisma";
+import { prisma } from "../../src/modules/platform/db/prisma";
 
 const TICKET_NUMBER = "REQ-2026-00013";
 /** Tanutan, Wyneth Maxine Deaño — selected in Ticket Controls */

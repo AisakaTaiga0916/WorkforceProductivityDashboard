@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
-import { computeTaskMetrics } from "../../src/lib/kpis";
-import { prisma } from "../../src/lib/prisma";
+import { computeTaskMetrics } from "../../src/modules/tasks/kpis";
+import { prisma } from "../../src/modules/platform/db/prisma";
 
 async function main() {
   const sm = await prisma.kpiMaintenance.findMany({

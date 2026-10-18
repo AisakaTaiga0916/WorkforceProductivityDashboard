@@ -6,8 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ArrowRight, ClipboardCheck, Pin, X } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { cn } from "@/lib/cn";
-import { formatTicketStatusLabel } from "@/lib/ticket-status-label";
-import { isTicketRequestorRole } from "@/lib/ticket-requestor";
+import { formatTicketStatusLabel } from "@/modules/requests/ticket-status-label";
+import { isTicketRequestorRole } from "@/modules/requests/ticket-requestor";
 
 type PendingTicket = {
   id: string;

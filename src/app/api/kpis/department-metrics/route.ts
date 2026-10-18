@@ -1,20 +1,20 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { computeDepartmentTaskMetrics } from "@/lib/department-task-metrics";
+import { computeDepartmentTaskMetrics } from "@/modules/tasks/department-task-metrics";
 import {
   filterHiddenDepartmentSections,
   getDepartmentMetricsVisibility,
-} from "@/lib/department-metrics-visibility";
-import { parseKpiRangeFromQuery } from "@/lib/kpis";
-import { normalizeTimeZone } from "@/lib/kpi-recurrence";
-import { prisma } from "@/lib/prisma";
+} from "@/modules/platform/settings/department-metrics-visibility";
+import { parseKpiRangeFromQuery } from "@/modules/tasks/kpis";
+import { normalizeTimeZone } from "@/modules/tasks/kpi-recurrence";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   resolveViewerOrgChartSectionScope,
   roleShowsDesignatedDepartmentLabel,
-} from "@/lib/org-chart-section-scope";
-import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
-import { parseTaskMetricsCadence } from "@/lib/task-metrics-range";
+} from "@/modules/platform/scope/org-chart-section-scope";
+import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { parseTaskMetricsCadence } from "@/modules/tasks/task-metrics-range";
 
 function rangeToYmd(from: Date, to: Date): { fromYmd: string; toYmd: string } {
   const ymd = (d: Date) =>

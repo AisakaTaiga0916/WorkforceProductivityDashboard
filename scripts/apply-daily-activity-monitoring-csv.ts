@@ -10,9 +10,9 @@ import { resolve } from "path";
 import { DateTime } from "luxon";
 
 import { parseCsvLine } from "../src/lib/csv-parse";
-import { applyDailyPillarPercentSnapshots } from "../src/lib/kpi-sheet-import-snapshots";
-import { normalizeTimeZone } from "../src/lib/kpi-recurrence";
-import { prisma } from "../src/lib/prisma";
+import { applyDailyPillarPercentSnapshots } from "../src/modules/tasks/kpi-sheet-import-snapshots";
+import { normalizeTimeZone } from "../src/modules/tasks/kpi-recurrence";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 type DailyActivityMonitoringRow = {
   ymd: string;

@@ -1,17 +1,17 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { findPortalByEmailOnly } from "@/lib/portal-account";
 import { loadPortalStaffAssignmentColorMap } from "@/lib/portal-staff-assignment-color-sql";
 import {
   resolveHrisSourceTags,
   resolveSecondaryDatabaseName,
 } from "@/lib/merged-database-sources";
-import { mapHrisToPortalRole } from "@/lib/auth/role-mapping";
-import type { UserRole } from "@/lib/auth";
-import { resolveRosterCompanyName } from "@/lib/hris-company-aliases";
-import { prismaPrimary, prismaSecondary } from "@/lib/prisma";
+import { mapHrisToPortalRole } from "@/modules/platform/auth/role-mapping";
+import type { UserRole } from "@/modules/platform/auth";
+import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
+import { prismaPrimary, prismaSecondary } from "@/modules/platform/db/prisma";
 import { normalizePersonName } from "@/lib/person-name";
 import { normalizePortalRole } from "@/lib/staff-role";
-import { Prisma } from "@prisma/client/secondary";
+import { Prisma } from "@prisma/client/primary";
 
 export type PersonnelRosterRow = {
   /** HRIS / merged_users primary key */
@@ -40,7 +40,7 @@ export type PersonnelAccountsPayload = {
   scopedCompanyName: string | null;
   scopeUnavailable: boolean;
   viewerMode: "superadmin" | "admin";
-  /** MySQL schema name from DATABASE_URL_SECONDARY (e.g. mergeddatabase-dev). */
+  /** Display label for the roster source (the imported HRIS snapshot). */
   secondaryDatabaseName: string;
 };
 
@@ -117,9 +117,10 @@ function scoreNames(a: string, b: string): number {
 }
 
 /**
- * Personnel roster from the secondary merge MySQL DB (HRIS users).
- * PostgreSQL portal/agent rows are not listed — only used to attach
- * assignment color / optional agent link for synced progress.
+ * Personnel roster from the main-DB `hris_users` snapshot (HRIS users from the
+ * merged-dump import). Portal/agent rows are not listed — only used to attach
+ * assignment color / optional agent link. KPI averages still come from the
+ * merged DB (efficiency data, not identity) and soft-fail when unavailable.
  */
 export async function loadPersonnelAccountsPayload(viewer: {
   role: UserRole;
@@ -128,10 +129,10 @@ export async function loadPersonnelAccountsPayload(viewer: {
   const email = (viewer.email ?? "").trim().toLowerCase();
   const isSuperAdmin = isElevatedUserRole(viewer.role);
   const sourceTags = resolveHrisSourceTags();
-  const secondaryDatabaseName = resolveSecondaryDatabaseName();
+  const secondaryDatabaseName = `the HRIS import (${resolveSecondaryDatabaseName()} dump)`;
 
   const [teams, agents, portals, mergedUsers, kpiAverages] = await Promise.all([
-    prismaPrimary.team.findMany({ orderBy: { name: "asc" } }),
+    prismaPrimary.team.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prismaPrimary.agent.findMany({ select: { id: true, email: true, name: true } }),
     prismaPrimary.portalAccount.findMany({
       where: {
@@ -147,11 +148,11 @@ export async function loadPersonnelAccountsPayload(viewer: {
         staffDesignatedCompanyId: true,
       },
     }),
-    prismaSecondary.$queryRaw<MergedStaffRow[]>`
+    prismaPrimary.$queryRaw<MergedStaffRow[]>`
       SELECT
         source_user_id, name, username, email, role, company_name, position, department, is_active
-      FROM merged_users
-      WHERE is_active = 1
+      FROM hris_users
+      WHERE is_active = true
         AND source_database IN (${Prisma.join(sourceTags)})
         -- Platform super_admin rows are excluded here just like the on-duty
         -- Activity loader, so both Workforce views filter the same people.
@@ -167,13 +168,11 @@ export async function loadPersonnelAccountsPayload(viewer: {
       `
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        if (message.includes("merged_kpi_user_averages") || message.includes("1146")) {
-          console.warn(
-            "[personnel] merged_kpi_user_averages missing; KPI % columns will be empty until sync.",
-          );
-          return [] as KpiAvgRow[];
-        }
-        throw err;
+        console.warn(
+          "[personnel] KPI averages unavailable from the merged DB; KPI % columns will be empty.",
+          message.split("\n")[0],
+        );
+        return [] as KpiAvgRow[];
       }),
   ]);
 
@@ -202,7 +201,13 @@ export async function loadPersonnelAccountsPayload(viewer: {
   const personnel: PersonnelRosterRow[] = mergedUsers.map((m) => {
     const id = m.source_user_id.toString();
     const portal = portalByMergedId.get(id) ?? null;
-    const company = matchTeamId(m.company_name, teams);
+    // Company assigned in the app (User Management / Workforce) wins over the HRIS snapshot.
+    const designatedTeam = portal?.staffDesignatedCompanyId
+      ? teams.find((t) => t.id === portal.staffDesignatedCompanyId)
+      : undefined;
+    const company = designatedTeam
+      ? { teamId: designatedTeam.id, teamName: designatedTeam.name }
+      : matchTeamId(m.company_name, teams);
     const mapped = mapHrisToPortalRole({
       hrisRole: m.role,
       position: m.position,

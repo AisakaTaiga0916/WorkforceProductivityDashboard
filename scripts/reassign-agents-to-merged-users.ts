@@ -16,7 +16,7 @@ import {
   buildCanonicalMergedIdMap,
   canonicalMergedId,
 } from "../src/lib/sync/merged-person-identity";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 type MergedRow = {
   source_user_id: bigint;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runHrisPortalSync } from "@/lib/auth/hris-sync-job";
+import { runHrisPortalSync } from "@/modules/platform/auth/hris-sync-job";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;

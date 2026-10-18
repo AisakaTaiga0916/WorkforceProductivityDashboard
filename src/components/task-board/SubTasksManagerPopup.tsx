@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Copy, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import type { SubTaskDto } from "@/lib/kpi-subtasks-rest";
+import type { SubTaskDto } from "@/modules/tasks/kpi-subtasks-rest";
 import {
   isUnsegmentedSegmentId,
   UNSEGMENTED_SEGMENT_ID,
   UNSEGMENTED_SEGMENT_LABEL,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 import { CopySubtaskToSegmentModal } from "@/components/task-board/CopySubtaskToSegmentModal";
 import {
   SubTasksKanbanView,

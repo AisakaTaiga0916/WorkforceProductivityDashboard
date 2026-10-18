@@ -1,5 +1,5 @@
 /** READ-ONLY: verify the ChartView hint data — per-pillar recordedRange from the DB. */
-import { computeTaskChecklistPillarMetrics } from "../src/lib/kpi-period-snapshots";
+import { computeTaskChecklistPillarMetrics } from "../src/modules/tasks/kpi-period-snapshots";
 
 async function main() {
   const now = new Date();

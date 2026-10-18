@@ -13,9 +13,9 @@
 import {
   canonicalProfileFromMerged,
   syncPortalProfile,
-} from "../src/lib/auth/sync-portal-profile";
+} from "../src/modules/platform/auth/sync-portal-profile";
 import { resolveHrisSourceTags } from "../src/lib/merged-database-sources";
-import { prismaAuth, prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaAuth, prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 type MergedRow = {
   source_user_id: bigint;
@@ -133,8 +133,6 @@ async function main() {
   );
 
   let legacyMarked = 0;
-  let passwordsCleared = 0;
-
   if (apply) {
     for (const portal of toLegacy) {
       await prismaPrimary.portalAccount.update({
@@ -148,27 +146,8 @@ async function main() {
       });
       legacyMarked++;
     }
-
-    const portalCredentialSource =
-      process.env.PORTAL_CREDENTIALS_SOURCE?.trim().toLowerCase() === "portal";
-    if (!portalCredentialSource) {
-      const cleared = await prismaPrimary.portalAccount.updateMany({
-        where: {
-          mergedSourceUserId: { not: null },
-          passwordHash: { not: null },
-        },
-        data: { passwordHash: null },
-      });
-      passwordsCleared = cleared.count;
-    }
   } else {
     legacyMarked = toLegacy.length;
-    passwordsCleared = await prismaPrimary.portalAccount.count({
-      where: {
-        mergedSourceUserId: { not: null },
-        passwordHash: { not: null },
-      },
-    });
   }
 
   const activeAfter = apply
@@ -183,7 +162,6 @@ async function main() {
   console.log(`  portal profiles synced: ${synced}`);
   console.log(`  sync failures: ${failed}`);
   console.log(`  portal rows → LEGACY_CONFLICT: ${legacyMarked}`);
-  console.log(`  portal password_hash cleared: ${passwordsCleared}`);
   if (apply) {
     console.log(`  ACTIVE portals after: ${activeAfter}`);
     console.log(`  ACTIVE+linked portals after: ${linkedAfter}`);

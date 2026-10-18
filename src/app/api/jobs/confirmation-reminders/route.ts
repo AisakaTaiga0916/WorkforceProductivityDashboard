@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runForConfirmationReminderSweep } from "@/lib/confirmation-reminders";
+import { runForConfirmationReminderSweep } from "@/modules/requests/confirmation-reminders";
 
 export const dynamic = "force-dynamic";
 

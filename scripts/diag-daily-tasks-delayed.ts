@@ -7,25 +7,25 @@
  *
  * Run: npx tsx scripts/diag-daily-tasks-delayed.ts
  */
-import { prisma } from "../src/lib/prisma";
+import { prisma } from "../src/modules/platform/db/prisma";
 import {
   taskKanbanDerivedStatus,
   recurringTaskHasDelay,
   recurringIncompleteRolloverHoldDays,
   recurringDeadlineExclusive,
-} from "../src/lib/kpi-cycle-state";
+} from "../src/modules/tasks/kpi-cycle-state";
 import {
   collectChecklistProgressItems,
   getTaskTargetDueDate,
   resolveEffectiveSubKpiDueDate,
   subKpiHasCustomDueDate,
-} from "../src/lib/kpi-subkpis";
-import { isNonRecurringSubKpiDelayed } from "../src/lib/kpi-cycle-state";
-import { kpiChecklistProgress, kpiChecklistMetricView } from "../src/lib/kpi-subkpis";
-import { kpiMainTaskLabel } from "../src/lib/kpi-main-task";
-import { subKpiRequirementsMet } from "../src/lib/sub-kpi-completion-mode";
-import { DEFAULT_TIME_ZONE } from "../src/lib/kpi-recurrence";
-import type { KpiFrequencyCode } from "../src/lib/kpi-recurrence";
+} from "../src/modules/tasks/kpi-subkpis";
+import { isNonRecurringSubKpiDelayed } from "../src/modules/tasks/kpi-cycle-state";
+import { kpiChecklistProgress, kpiChecklistMetricView } from "../src/modules/tasks/kpi-subkpis";
+import { kpiMainTaskLabel } from "../src/modules/tasks/kpi-main-task";
+import { subKpiRequirementsMet } from "../src/modules/tasks/sub-kpi-completion-mode";
+import { DEFAULT_TIME_ZONE } from "../src/modules/tasks/kpi-recurrence";
+import type { KpiFrequencyCode } from "../src/modules/tasks/kpi-recurrence";
 
 const TZ = DEFAULT_TIME_ZONE;
 

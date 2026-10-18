@@ -4,7 +4,7 @@ import {
   parseTravelerAgentIds,
   validateTravelOrderDraft,
   emptyTravelOrderDraft,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 
 describe("exempt requester from travelers", () => {
   it("omits the requestor when exempt is enabled", () => {

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AgentTicketDeepLink } from "@/components/AgentTicketDeepLink";
-import type { TicketLogEntry } from "@/lib/ticket-activity-log";
-import { formatRelativeAgo } from "@/lib/ticket-board-formatters";
+import type { TicketLogEntry } from "@/modules/requests/ticket-activity-log";
+import { formatRelativeAgo } from "@/modules/requests/ticket-board-formatters";
 
 export function TicketActivityLogPanel({
   entries,

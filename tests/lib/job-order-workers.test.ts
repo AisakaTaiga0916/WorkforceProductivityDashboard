@@ -14,11 +14,11 @@ import {
   promoteJobOrderPendingExecutionAssignee,
   setJobOrderPendingExecutionAssignee,
   canMarkJobOrderDone,
-} from "@/lib/job-order-approval";
+} from "@/modules/requests/job-order-approval";
 import {
   isJobOrderExecutionMember,
   jobOrderKpiCreditAgentIds,
-} from "@/lib/job-order-workers";
+} from "@/modules/requests/job-order-workers";
 
 describe("job order workers", () => {
   it("stores co-workers separately from the execution assignee", () => {

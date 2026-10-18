@@ -10,30 +10,30 @@
  */
 import { KpiFrequency } from "@prisma/client/primary";
 
-import { prisma } from "../../src/lib/prisma";
-import { getPeriodStartInclusive } from "../../src/lib/kpi-period-window";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { getPeriodStartInclusive } from "../../src/modules/tasks/kpi-period-window";
 import {
   computePeriodKey,
   normalizeTimeZone,
-} from "../../src/lib/kpi-recurrence";
+} from "../../src/modules/tasks/kpi-recurrence";
 import {
   recurringIncompleteRolloverEligibleAt,
   recurringIncompleteRolloverHoldDays,
   recurringTaskHasDelay,
   taskKanbanDerivedStatus,
-} from "../../src/lib/kpi-cycle-state";
+} from "../../src/modules/tasks/kpi-cycle-state";
 import {
   getPeriodEndExclusiveFromCycleStart,
   type KpiFrequencyCode,
-} from "../../src/lib/kpi-recurrence";
-import { isItProjectImplementationPillar } from "../../src/lib/it-task-pillar-titles";
-import { usesProjectTimelineTracker } from "../../src/lib/it-project-subkpis";
+} from "../../src/modules/tasks/kpi-recurrence";
+import { isItProjectImplementationPillar } from "../../src/modules/tasks/it-task-pillar-titles";
+import { usesProjectTimelineTracker } from "../../src/modules/tasks/it-project-subkpis";
 import {
   kpiChecklistMetricView,
   kpiChecklistProgress,
   taskUsesInvertedRecording,
-} from "../../src/lib/kpi-subkpis";
-import { kpiMainTaskLabel } from "../../src/lib/kpi-main-task";
+} from "../../src/modules/tasks/kpi-subkpis";
+import { kpiMainTaskLabel } from "../../src/modules/tasks/kpi-main-task";
 
 const TZ = normalizeTimeZone(
   process.env.KPI_SNAPSHOT_TZ ?? process.env.REPORT_TZ ?? process.env.APP_TIME_ZONE ?? "Asia/Manila",

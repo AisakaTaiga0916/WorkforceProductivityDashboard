@@ -22,22 +22,22 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 import { PointerDragGhostLayer, usePointerColumnDrag } from "@/lib/pointer-column-drag";
 import { BRAND_TITLE } from "@/lib/brand";
-import { extractPaymentBoardPreview } from "@/lib/request-for-payment";
-import { parseItemRequisitionDescription } from "@/lib/item-requisition";
-import { extractFundTransferPreview } from "@/lib/fund-transfer-request";
-import { extractJobOrderPreview } from "@/lib/job-order";
-import { requestTypeAcronym, requestTypeLabel } from "@/lib/request-types";
+import { extractPaymentBoardPreview } from "@/modules/requests/request-for-payment";
+import { parseItemRequisitionDescription } from "@/modules/requests/item-requisition";
+import { extractFundTransferPreview } from "@/modules/requests/fund-transfer-request";
+import { extractJobOrderPreview } from "@/modules/requests/job-order";
+import { requestTypeAcronym, requestTypeLabel } from "@/modules/requests/request-types";
 import {
   readRequestKanbanFlowMode,
   writeRequestKanbanFlowMode,
   type RequestKanbanFlowMode,
-} from "@/lib/request-kanban-flow";
+} from "@/modules/requests/request-kanban-flow";
 import {
   cleanIssuePreview,
   extractDepartmentFromDescription,
   formatRelativeAgo,
   priorityPillClass,
-} from "@/lib/ticket-board-formatters";
+} from "@/modules/requests/ticket-board-formatters";
 
 type TicketCard = {
   id: string;
@@ -97,10 +97,6 @@ function assignmentCardPreview(ticket: TicketCard): string {
   if (ticket.requestType === "JOB_ORDER") {
     const preview = extractJobOrderPreview(ticket.description);
     if (preview) return preview;
-  }
-  if (ticket.requestType === "AUTHORITY_TO_CONDUCT_ACTIVITY") {
-    const nature = ticket.description.match(/^Nature of Request:\s*(.*)$/im)?.[1]?.trim();
-    if (nature) return nature.slice(0, 120);
   }
   return cleanIssuePreview(ticket.description || ticket.title);
 }
@@ -960,7 +956,7 @@ export function ManualAssignmentBoard({
                       list: openFolderColumns.filter((c) => personnelRoleLabel(c.role) === "Admin"),
                     },
                     {
-                      label: "Personnel",
+                      label: "Employees",
                       list: openFolderColumns.filter(
                         (c) => personnelRoleLabel(c.role) === "Personnel",
                       ),

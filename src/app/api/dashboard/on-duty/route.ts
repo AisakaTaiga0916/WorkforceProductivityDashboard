@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import { loadOnDutySnapshot } from "@/lib/load-on-duty-snapshot";
-import { resolveAdminOnDutyCompanyFilter } from "@/lib/staff-company-scope";
+import { resolveAdminOnDutyCompanyFilter } from "@/modules/platform/scope/staff-company-scope";
 import { withTtlCache } from "@/lib/ttl-cache";
 
 export const dynamic = "force-dynamic";

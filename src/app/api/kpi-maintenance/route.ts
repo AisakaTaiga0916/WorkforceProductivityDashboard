@@ -1,20 +1,22 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { KpiFrequency, Prisma } from "@prisma/client/primary";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
 import {
   nextRolloverEligibleAtUtc,
   recurringIncompleteRolloverEligibleAt,
   recurringIncompleteRolloverHoldDays,
-} from "@/lib/kpi-cycle-state";
-import { getPeriodStartInclusive } from "@/lib/kpi-period-window";
+} from "@/modules/tasks/kpi-cycle-state";
+import { getPeriodStartInclusive } from "@/modules/tasks/kpi-period-window";
 import {
   computePeriodKey,
   getPeriodEndExclusiveFromCycleStart,
   isLegacyPeriodKey,
   normalizeTimeZone,
   type KpiFrequencyCode,
-} from "@/lib/kpi-recurrence";
+} from "@/modules/tasks/kpi-recurrence";
 import {
   applyPillarOnlyTaskCreate,
   collectAllSubKpiItems,
@@ -65,7 +67,7 @@ import {
   hasItemsInUnassignedSegment,
   invertedRecordingPeriodClear,
   taskUsesInvertedRecording,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 import {
   applyPhaseDelayNotifications,
   buildItProjectFromPhaseDrafts,
@@ -93,23 +95,23 @@ import {
   setItProjectPhaseDueDate,
   isTimelineProjectKpi,
   type ItProjectData,
-} from "@/lib/it-project-subkpis";
-import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
-import { kpiRowInCompanyScope } from "@/lib/kpi-company-board-scope";
+} from "@/modules/tasks/it-project-subkpis";
+import { isItProjectImplementationPillar } from "@/modules/tasks/it-task-pillar-titles";
+import { kpiRowInCompanyScope } from "@/modules/tasks/kpi-company-board-scope";
 import {
   kpiRowInSectionAgentScope,
   resolveViewerOrgChartSectionScope,
   roleUsesCompanyDepartmentTaskAssignScope,
-} from "@/lib/org-chart-section-scope";
-import { isValidLatLng } from "@/lib/travel-order";
-import { normalizeDelayPenaltyFrequency } from "@/lib/delay-penalty-frequency";
-import { triggerEfficiencyRecomputeBackground } from "@/lib/efficiency/trigger-efficiency-recompute";
-import { inferKpiPatchAudit, logKpiActivity } from "@/lib/kpi-activity";
-import { kpiMainTaskLabel } from "@/lib/kpi-main-task";
+} from "@/modules/platform/scope/org-chart-section-scope";
+import { isValidLatLng } from "@/modules/work-plans/travel-order";
+import { normalizeDelayPenaltyFrequency } from "@/modules/tasks/delay-penalty-frequency";
+import { triggerEfficiencyRecomputeBackground } from "@/modules/tasks/efficiency/trigger-efficiency-recompute";
+import { inferKpiPatchAudit, logKpiActivity } from "@/modules/tasks/kpi-activity";
+import { kpiMainTaskLabel } from "@/modules/tasks/kpi-main-task";
 import { isAgentOnDutyFromMergedDb } from "@/lib/load-on-duty-snapshot";
-import { isTaskAssignmentOnDutyRequired } from "@/lib/workforce-view-visibility-db";
-import { isTaskCompletionVerificationEnabled } from "@/lib/task-verification-settings-db";
-import { prisma } from "@/lib/prisma";
+import { isTaskAssignmentOnDutyRequired } from "@/modules/platform/settings/workforce-view-visibility-db";
+import { isTaskCompletionVerificationEnabled } from "@/modules/platform/settings/task-verification-settings-db";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   applySubKpiApproveVerification,
   applySubKpiRejectVerification,
@@ -123,22 +125,22 @@ import {
   isSubKpiPendingVerification,
   rejectCompletionDbPatch,
   resubmitCompletionDbPatch,
-} from "@/lib/task-completion-verification";
+} from "@/modules/tasks/task-completion-verification";
 import {
   canVerifyTaskCompletion,
   listPendingVerificationKpiIdsForOrgChartHead,
   pendingSubKpiItemsForVerification,
-} from "@/lib/task-completion-verification-access";
+} from "@/modules/tasks/task-completion-verification-access";
 import { rosterTeamNameFilter } from "@/lib/company-roster";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
-import { timeZoneFromPeriodKey, upsertKpiPeriodSnapshot } from "@/lib/kpi-period-snapshots";
+import { timeZoneFromPeriodKey, upsertKpiPeriodSnapshot } from "@/modules/tasks/kpi-period-snapshots";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
 import { isPlatformSuperAdminPortalRole } from "@/lib/staff-role";
 import {
   loadAgentIdsForCompanyTeam,
   resolveAgentDesignatedCompanyId,
   resolveStaffCompanyTeamId,
-} from "@/lib/staff-company-scope";
+} from "@/modules/platform/scope/staff-company-scope";
 import {
   hasBeforeAndAfterScreenshots,
   hasNumericalRecord,
@@ -156,14 +158,14 @@ import {
   isSubKpiCompletionMode,
   type SubKpiCompletionMode,
   type SubKpiCompletionRequirements,
-} from "@/lib/sub-kpi-completion-mode";
-import { MAX_TASK_SCREENSHOTS_PER_SLOT } from "@/lib/task-screenshot-constants";
-import type { TaskScreenshotMetaItem, TaskScreenshotSlot } from "@/lib/task-screenshot-meta";
+} from "@/modules/tasks/sub-kpi-completion-mode";
+import { MAX_TASK_SCREENSHOTS_PER_SLOT } from "@/modules/tasks/task-screenshot-constants";
+import type { TaskScreenshotMetaItem, TaskScreenshotSlot } from "@/modules/tasks/task-screenshot-meta";
 import {
   deleteTaskScreenshotsDir,
   persistTaskScreenshot,
   validateTaskScreenshotFile,
-} from "@/lib/task-screenshots";
+} from "@/modules/tasks/task-screenshots";
 
 const allowedFrequencies = new Set(Object.values(KpiFrequency));
 
@@ -363,8 +365,8 @@ export async function GET(req: Request) {
     kpiIdsWhereAgentIsTravelOrderTraveler,
     kpiIdsWithTravelOrders,
     travelOrderBoardSummariesByKpiIds,
-  } = await import("@/lib/travel-order-db");
-  const { kpiIdsWhereAgentIsJobOrderWorker } = await import("@/lib/job-order-workers-server");
+  } = await import("@/modules/work-plans/travel-order-db");
+  const { kpiIdsWhereAgentIsJobOrderWorker } = await import("@/modules/requests/job-order-workers-server");
 
   const viewerAgentId = !perms.canAssignWork
     ? (perms.operator?.id ?? null)
@@ -685,8 +687,8 @@ export async function GET(req: Request) {
     rows = rows.filter((r) => !archivedRowIds.has(r.id));
   }
 
-  const { isFieldAssignmentTask, getLinkedJobOrderFromSubKpis } = await import("@/lib/kpi-subkpis");
-  const { loadJobOrdersLinkedToProjects } = await import("@/lib/job-order-project");
+  const { isFieldAssignmentTask, getLinkedJobOrderFromSubKpis } = await import("@/modules/tasks/kpi-subkpis");
+  const { loadJobOrdersLinkedToProjects } = await import("@/modules/requests/job-order-project");
   const kpiIdList = rows.map((r) => r.id);
   const [fieldAssignmentIds, travelSummaries] = await Promise.all([
     kpiIdsWithTravelOrders(kpiIdList),
@@ -751,6 +753,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("tasks");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   if (!perms.canAssignWork) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -1114,7 +1118,7 @@ export async function POST(req: Request) {
     if (!joTicket || joTicket.requestType !== "JOB_ORDER") {
       return NextResponse.json({ error: "Linked Job Order was not found." }, { status: 404 });
     }
-    const { getTicketLinkedKpiMaintenanceId } = await import("@/lib/job-order-project");
+    const { getTicketLinkedKpiMaintenanceId } = await import("@/modules/requests/job-order-project");
     const alreadyLinked = await getTicketLinkedKpiMaintenanceId(joTicket.id);
     if (alreadyLinked) {
       return NextResponse.json(
@@ -1125,8 +1129,8 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
-    const { setLinkedJobOrderOnSubKpis } = await import("@/lib/kpi-subkpis");
-    const { parseJobOrderDescription } = await import("@/lib/job-order");
+    const { setLinkedJobOrderOnSubKpis } = await import("@/modules/tasks/kpi-subkpis");
+    const { parseJobOrderDescription } = await import("@/modules/requests/job-order");
     subKpisPersist = setLinkedJobOrderOnSubKpis(subKpisPersist, {
       ticketId: joTicket.id,
       ticketNumber: joTicket.ticketNumber,
@@ -1271,7 +1275,7 @@ export async function POST(req: Request) {
       : `New task '${mainTaskRaw}' created on ${createdDate}.`;
 
   if (linkedJobOrderTicketId) {
-    const { attachCreatedProjectToJobOrder } = await import("@/lib/job-order-project");
+    const { attachCreatedProjectToJobOrder } = await import("@/modules/requests/job-order-project");
     const linked = await attachCreatedProjectToJobOrder({
       ticketId: linkedJobOrderTicketId,
       kpiMaintenanceId: created.id,
@@ -1553,7 +1557,7 @@ export async function PATCH(req: Request) {
     if (!perms.canAssignWork) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const { isProjectTask } = await import("@/lib/kpi-subkpis");
+    const { isProjectTask } = await import("@/modules/tasks/kpi-subkpis");
     if (!isProjectTask(kpiRow.subKpis) && !isItProjectImplementationPillar(kpiRow.title)) {
       return NextResponse.json(
         { error: "Only Project cards can be moved to another task group." },
@@ -1747,6 +1751,8 @@ export async function PATCH(req: Request) {
       return NextResponse.json(updated);
     }
 
+    const verifyDenied = await permissionDenied(session, "tasks.verify");
+    if (verifyDenied) return verifyDenied;
     const mayVerify = await canVerifyTaskCompletion(
       kpiRow,
       {

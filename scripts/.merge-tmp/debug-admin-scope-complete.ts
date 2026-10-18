@@ -1,7 +1,7 @@
-import { prisma } from "../../src/lib/prisma";
-import { resolveStaffCompanyTeamId } from "../../src/lib/staff-company-scope";
-import { adminOutsideCompanyScope } from "../../src/lib/ticket-staff-access";
-import { parsePaymentApprovalMeta } from "../../src/lib/request-for-payment-approval";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { resolveStaffCompanyTeamId } from "../../src/modules/platform/scope/staff-company-scope";
+import { adminOutsideCompanyScope } from "../../src/modules/requests/ticket-staff-access";
+import { parsePaymentApprovalMeta } from "../../src/modules/requests/request-for-payment-approval";
 
 async function main() {
   const ticket = await prisma.ticket.findFirst({

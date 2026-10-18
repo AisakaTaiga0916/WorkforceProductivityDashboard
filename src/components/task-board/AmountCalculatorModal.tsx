@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Calculator, Delete, X } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { formatWorkPlanAmount } from "@/lib/work-plan";
+import { formatWorkPlanAmount } from "@/modules/work-plans/work-plan";
 
 type AmountCalculatorModalProps = {
   open: boolean;

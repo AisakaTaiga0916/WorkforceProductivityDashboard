@@ -87,7 +87,7 @@ JOIN merged_users u ON u.source_user_id = a.source_user_id
 WHERE LOWER(a.username) = LOWER('old_hris_user');
 ```
 
-Application: `findMergedUserByLogin()` in `src/lib/auth/merged-credentials.ts` checks username, email, employee_code, and `merged_username_aliases`.
+Application: `findMergedUserByLogin()` in `src/modules/platform/auth/merged-credentials.ts` checks username, email, employee_code, and `merged_username_aliases`.
 
 ## Phase 2: Tasks + KPI monitoring
 

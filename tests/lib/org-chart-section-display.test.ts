@@ -7,8 +7,8 @@ import {
   orgChartSubDepartments,
   resolveSendToDepartmentSelection,
   type OrgChartSectionOption,
-} from "@/lib/org-chart-section-display";
-import { recommendedSendToDepartmentName } from "@/lib/request-types";
+} from "@/modules/hierarchy/org-chart-section-display";
+import { recommendedSendToDepartmentName } from "@/modules/requests/request-types";
 
 const sections: OrgChartSectionOption[] = [
   {

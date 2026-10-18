@@ -4,27 +4,28 @@
  */
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
-import { ACTIVE_REQUEST_STATUSES } from "@/lib/active-request-statuses";
-import { prisma } from "@/lib/prisma";
-import { logActivity } from "@/lib/ticket-actions";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
+import { ACTIVE_REQUEST_STATUSES } from "@/modules/requests/active-request-statuses";
+import { prisma } from "@/modules/platform/db/prisma";
+import { logActivity } from "@/modules/requests/ticket-actions";
 import {
   persistTicketScreenshots,
   validateScreenshotFiles,
-} from "@/lib/ticket-intake-screenshots";
-import { MAX_SCREENSHOT_COUNT } from "@/lib/ticket-intake-screenshots-constants";
-import { parseIntakeScreenshotMeta } from "@/lib/ticket-intake-screenshots-meta";
-import { canAccessTicketScreenshot } from "@/lib/ticket-screenshot-access";
+} from "@/modules/requests/ticket-intake-screenshots";
+import { MAX_SCREENSHOT_COUNT } from "@/modules/requests/ticket-intake-screenshots-constants";
+import { parseIntakeScreenshotMeta } from "@/modules/requests/ticket-intake-screenshots-meta";
+import { canAccessTicketScreenshot } from "@/modules/requests/ticket-screenshot-access";
 import {
   isJobOrderAssistanceMember,
   isJobOrderExecutionWorkspaceOpen,
-} from "@/lib/job-order-approval";
-import { loadJobOrderApprovalMeta } from "@/lib/job-order-approval-db";
+} from "@/modules/requests/job-order-approval";
+import { loadJobOrderApprovalMeta } from "@/modules/requests/job-order-approval-db";
 import {
   JOB_ORDER_ATTACHMENT_SECTION_LABELS,
   normalizeJobOrderAttachmentSection,
   type JobOrderAttachmentSection,
-} from "@/lib/job-order-attachments";
-import { isJobOrderExecutionMember } from "@/lib/job-order-workers";
+} from "@/modules/requests/job-order-attachments";
+import { isJobOrderExecutionMember } from "@/modules/requests/job-order-workers";
 import { findSessionAgentWithTeam } from "@/lib/session-agent";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
 
@@ -35,6 +36,10 @@ export async function POST(
   const session = await requireSession();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (session.user.role !== "Customer") {
+    const moduleOff = await moduleDisabledResponse("requests");
+    if (moduleOff) return moduleOff;
   }
 
   const { id } = await ctx.params;

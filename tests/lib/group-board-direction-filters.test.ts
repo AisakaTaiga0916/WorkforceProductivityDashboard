@@ -3,7 +3,7 @@ import {
   buildGroupBoardDirectionFilterOptions,
   encodeGroupBoardDirectionFilter,
   parseGroupBoardDirectionFilter,
-} from "@/lib/group-board-direction-filters";
+} from "@/modules/requests/group-board-direction-filters";
 
 describe("group-board-direction-filters", () => {
   it("parses company and dept encodings", () => {

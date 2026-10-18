@@ -4,8 +4,8 @@ import {
   getNextDailyPeriodStartDt,
   getPeriodEndExclusiveFromCycleStart,
   getRolloverEligibleAfterCompletion,
-} from "@/lib/kpi-recurrence";
-import { getPeriodStartInclusive } from "@/lib/kpi-period-window";
+} from "@/modules/tasks/kpi-recurrence";
+import { getPeriodStartInclusive } from "@/modules/tasks/kpi-period-window";
 import { DateTime } from "luxon";
 
 const TZ = "Asia/Manila";

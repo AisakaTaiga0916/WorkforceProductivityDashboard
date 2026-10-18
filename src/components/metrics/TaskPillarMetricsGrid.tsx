@@ -18,25 +18,25 @@ import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
 import { SimplePaginationBar } from "@/components/ui/SimplePaginationBar";
 import { DatePickerField } from "@/components/ui/DatePickerField";
-import { JOB_ORDER_REQUEST_PILLAR_TITLE } from "@/lib/it-task-pillar-titles";
-import type { TaskMetricsCadence } from "@/lib/task-metrics-range";
+import { JOB_ORDER_REQUEST_PILLAR_TITLE } from "@/modules/tasks/it-task-pillar-titles";
+import type { TaskMetricsCadence } from "@/modules/tasks/task-metrics-range";
 import {
   isInvertedChecklistPillar,
   kpiChecklistMetricView,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 import type {
   TaskChecklistIncludedTask,
   TaskChecklistPillarMetrics,
   TaskMetricsHelpdeskTickets,
   TaskMetricsUserSupportTickets,
-} from "@/lib/kpis";
-import type { TaskMetricsTaskType } from "@/lib/task-metrics-task-type";
+} from "@/modules/tasks/kpis";
+import type { TaskMetricsTaskType } from "@/modules/tasks/task-metrics-task-type";
 import {
   combinedPersonnelEfficiency,
   mergePersonnelRequestMetrics,
   personnelEfficiencyBracket,
   type PersonnelCombinedMetricCard,
-} from "@/lib/task-personnel-metrics";
+} from "@/modules/tasks/task-personnel-metrics";
 import {
   KPI_DONUT_COLORS,
   KINETIC_PALETTE,

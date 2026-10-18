@@ -4,13 +4,13 @@ import {
   defaultJobOrderApprovalMeta,
   isJobOrderCurrentStepLastApprover,
   isJobOrderExecutionWorkspaceOpen,
-} from "@/lib/job-order-approval";
+} from "@/modules/requests/job-order-approval";
 import {
   hasJobOrderJobOutputUploaded,
   partitionJobOrderAttachments,
-} from "@/lib/job-order-attachments";
-import { isJobOrderExecutionOutsideSendToDepartment } from "@/lib/job-order-assistance-scope";
-import type { IntakeScreenshotMetaItem } from "@/lib/ticket-intake-screenshots-meta";
+} from "@/modules/requests/job-order-attachments";
+import { isJobOrderExecutionOutsideSendToDepartment } from "@/modules/requests/job-order-assistance-scope";
+import type { IntakeScreenshotMetaItem } from "@/modules/requests/ticket-intake-screenshots-meta";
 
 function file(partial: Partial<IntakeScreenshotMetaItem>): IntakeScreenshotMetaItem {
   return {

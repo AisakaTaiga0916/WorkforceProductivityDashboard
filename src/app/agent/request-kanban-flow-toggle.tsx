@@ -7,7 +7,7 @@ import {
   readRequestKanbanFlowMode,
   writeRequestKanbanFlowMode,
   type RequestKanbanFlowMode,
-} from "@/lib/request-kanban-flow";
+} from "@/modules/requests/request-kanban-flow";
 
 const OPTIONS: Array<{ id: RequestKanbanFlowMode; label: string; icon: typeof Building2 }> = [
   { id: "company", label: "Company", icon: Building2 },

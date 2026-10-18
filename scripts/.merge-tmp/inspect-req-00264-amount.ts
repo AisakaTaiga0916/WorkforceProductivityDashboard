@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 async function main() {
   const ticket = await prisma.ticket.findFirst({

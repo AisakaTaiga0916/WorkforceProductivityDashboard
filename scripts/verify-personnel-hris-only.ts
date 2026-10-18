@@ -1,6 +1,6 @@
-import type { UserRole } from "../src/lib/auth";
+import type { UserRole } from "../src/modules/platform/auth";
 import { loadPersonnelAccountsPayload } from "../src/lib/personnel-accounts-data";
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const payload = await loadPersonnelAccountsPayload({

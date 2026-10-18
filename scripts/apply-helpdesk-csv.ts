@@ -13,8 +13,8 @@ import {
   HELPDESK_CSV_FOR_CONFIRMATION,
   parseHelpdeskExportCsv,
   syncHelpdeskCsvToDatabase,
-} from "../src/lib/helpdesk-csv";
-import { normalizeTimeZone } from "../src/lib/kpi-recurrence";
+} from "../src/modules/requests/helpdesk-csv";
+import { normalizeTimeZone } from "../src/modules/tasks/kpi-recurrence";
 
 async function main() {
   const filePath = resolve(process.argv[2] ?? "");

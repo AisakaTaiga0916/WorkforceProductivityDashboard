@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client/primary";
 import { requireSession } from "@/lib/access";
-import { prismaPrimary, prismaSecondary } from "@/lib/prisma";
-import { resolveRosterCompanyName } from "@/lib/hris-company-aliases";
-import { mapHrisToPortalRole } from "@/lib/auth/role-mapping";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { prismaPrimary } from "@/modules/platform/db/prisma";
+import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
+import { mapHrisToPortalRole } from "@/modules/platform/auth/role-mapping";
 
 /** SuperAdmin-only guard. Note: hasRole() intentionally lets HighAdmin pass
- *  elevated gates, so the org chart must be explicitly limited to SuperAdmin. */
-async function guardSuperAdmin() {
+ *  elevated gates, so the org chart must be explicitly limited to SuperAdmin.
+ *  Writes additionally require the given RBAC permission. */
+async function guardSuperAdmin(permissionKey?: string) {
   const session = await requireSession();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -15,13 +17,17 @@ async function guardSuperAdmin() {
   if (session.user.role !== "SuperAdmin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  if (permissionKey) {
+    const denied = await permissionDenied(session, permissionKey);
+    if (denied) return denied;
+  }
   return null;
 }
 
 async function snapshotPerson(mergedSourceUserId: string) {
   const id = Number(mergedSourceUserId);
   if (!Number.isInteger(id) || id <= 0) return null;
-  const person = await prismaSecondary.mergedUser.findFirst({
+  const person = await prismaPrimary.hrisUser.findFirst({
     where: { sourceUserId: BigInt(id), isActive: true },
     select: { name: true, role: true, position: true, department: true, companyName: true },
   });
@@ -142,7 +148,7 @@ export async function GET() {
     .filter((id) => Number.isInteger(id) && id > 0);
 
   if (mergedIds.length > 0) {
-    const people = await prismaSecondary.mergedUser.findMany({
+    const people = await prismaPrimary.hrisUser.findMany({
       where: { sourceUserId: { in: mergedIds.map((id) => BigInt(id)) }, isActive: true },
       select: {
         sourceUserId: true,
@@ -208,7 +214,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const denied = await guardSuperAdmin();
+  const denied = await guardSuperAdmin("hierarchy.update");
   if (denied) return denied;
 
   const body = (await req.json()) as Record<string, unknown>;
@@ -346,7 +352,7 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const denied = await guardSuperAdmin();
+  const denied = await guardSuperAdmin("hierarchy.update");
   if (denied) return denied;
 
   const body = await req.json();
@@ -700,7 +706,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const denied = await guardSuperAdmin();
+  const denied = await guardSuperAdmin("hierarchy.update");
   if (denied) return denied;
 
   const { searchParams } = new URL(req.url);

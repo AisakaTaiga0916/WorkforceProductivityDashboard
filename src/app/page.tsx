@@ -1,4 +1,4 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { isPersonnelGuardPortalRole } from "@/lib/staff-role";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -7,7 +7,7 @@ import { PersonalizedStaffDashboard } from "@/components/dashboard/PersonalizedS
 import {
   customerHasPendingResolvedTicket,
   customerPendingTicketHref,
-} from "@/lib/customer-pending-resolution";
+} from "@/modules/requests/customer-pending-resolution";
 import { loadStaffDashboardHome } from "@/lib/dashboard-home";
 import { safeGetServerSession } from "@/lib/server-session";
 

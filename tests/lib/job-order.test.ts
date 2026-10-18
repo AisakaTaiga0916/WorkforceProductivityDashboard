@@ -4,7 +4,7 @@ import {
   formatJobOrderDescription,
   parseJobOrderDescription,
   validateJobOrderFields,
-} from "@/lib/job-order";
+} from "@/modules/requests/job-order";
 
 describe("job-order", () => {
   it("rejects target date before start date", () => {

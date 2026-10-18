@@ -1,6 +1,6 @@
 "use client";
 
-import { isElevatedPlatformRole } from "@/lib/staff-role";
+import { isElevatedPlatformRole, portalRoleDisplayLabel } from "@/lib/staff-role";
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -34,6 +34,8 @@ import { SidebarOpsWidget } from "@/components/SidebarOpsWidget";
 import { closeStaffMobileNav, subscribeStaffMobileNav } from "@/lib/staff-mobile-nav";
 import { SESSION_PROFILE_IMAGE_ROUTE } from "@/lib/session-profile-image";
 import { cn } from "@/lib/cn";
+import { useSystemModules } from "@/modules/platform/settings/system-modules-client";
+import { isHrefVisibleForModules, type SystemModuleVisibility } from "@/modules/platform/settings/system-modules";
 
 type NavChild = { href: string; label: string };
 type NavItem =
@@ -103,6 +105,15 @@ function linksForRole(role: string | undefined): NavItem[] {
     return [{ kind: "link", href: "/travel-orders", label: "Travel Orders" }];
   }
   return [{ kind: "link", href: "/", label: "Home" }];
+}
+
+/** Drop links (and emptied groups) for modules turned off in System Settings. */
+function filterLinksByModules(links: NavItem[], modules: SystemModuleVisibility): NavItem[] {
+  return links.flatMap((item): NavItem[] => {
+    if (item.kind === "link") return isHrefVisibleForModules(item.href, modules) ? [item] : [];
+    const children = item.children.filter((c) => isHrefVisibleForModules(c.href, modules));
+    return children.length > 0 ? [{ ...item, children }] : [];
+  });
 }
 
 function iconForLink(label: string) {
@@ -264,7 +275,8 @@ function GlobalSidebarInner({ initialRole }: { initialRole?: string }) {
   const searchParams = useSearchParams();
   const { data } = useSession();
   const role = data?.user?.role ?? initialRole;
-  const roleLabel = role === "HighAdmin" || role === "SuperAdmin" ? role : role ?? "Staff";
+  const modules = useSystemModules(Boolean(role) && role !== "Customer");
+  const roleLabel = portalRoleDisplayLabel(role) || "Staff";
   const userName = data?.user?.name ?? data?.user?.email ?? "Account";
   const userEmail = data?.user?.email ?? "";
   const avatarEmail = userEmail.trim().toLowerCase();
@@ -351,7 +363,7 @@ function GlobalSidebarInner({ initialRole }: { initialRole?: string }) {
     return null;
   }
 
-  const links = linksForRole(role);
+  const links = filterLinksByModules(linksForRole(role), modules);
 
   function toggleCollapsed() {
     setCollapsed((prev) => {

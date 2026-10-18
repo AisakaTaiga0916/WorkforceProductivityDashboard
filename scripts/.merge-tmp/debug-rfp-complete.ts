@@ -1,9 +1,9 @@
-import { prisma } from "../../src/lib/prisma";
+import { prisma } from "../../src/modules/platform/db/prisma";
 import {
   canAssignPaymentApprover,
   canCompletePaymentApprovalStep,
   parsePaymentApprovalMeta,
-} from "../../src/lib/request-for-payment-approval";
+} from "../../src/modules/requests/request-for-payment-approval";
 
 async function main() {
   const rows = await prisma.$queryRaw<

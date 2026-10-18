@@ -1,5 +1,5 @@
 #!/usr/bin/env npx tsx
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const snaps = await prismaPrimary.kpiMaintenancePeriodSnapshot.findMany({

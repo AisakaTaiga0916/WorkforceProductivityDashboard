@@ -3,7 +3,7 @@ import {
   getLinkedJobOrderFromSubKpis,
   setLinkedJobOrderOnSubKpis,
   markProjectTask,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 
 describe("job order project link envelope", () => {
   it("stores and clears linked Job Order meta on project subKpis", () => {

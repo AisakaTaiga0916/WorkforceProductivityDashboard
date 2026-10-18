@@ -6,12 +6,12 @@ import {
   setSubKpiItemAssistanceRequested,
   setSubKpiItemsAssistanceRequested,
   type SubKpiItem,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 import {
   parseItProjectSubKpis,
   setItProjectSubKpiAssistanceRequested,
   wrapItProjectSubKpis,
-} from "@/lib/it-project-subkpis";
+} from "@/modules/tasks/it-project-subkpis";
 
 describe("subtask assignee unlock helpers", () => {
   it("unlocks when parent flag is enabled", () => {

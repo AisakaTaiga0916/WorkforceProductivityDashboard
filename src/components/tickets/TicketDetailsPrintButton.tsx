@@ -2,7 +2,7 @@
 
 import { Printer } from "lucide-react";
 
-import { openTicketDetailsPrint, type TicketPrintModel } from "@/lib/ticket-details-print";
+import { openTicketDetailsPrint, type TicketPrintModel } from "@/modules/requests/ticket-details-print";
 
 type Props = {
   model: TicketPrintModel;

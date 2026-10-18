@@ -1,4 +1,4 @@
-import { prismaPrimary as prisma } from "../../src/lib/prisma";
+import { prismaPrimary as prisma } from "../../src/modules/platform/db/prisma";
 
 async function main() {
   const agc = "3fe47d9d-b558-42ad-8cee-d84752f883b1";

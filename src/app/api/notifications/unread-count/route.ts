@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import { loadStaffNotificationUnreadCount } from "@/lib/staff-notifications";
-import { runForConfirmationReminderSweep } from "@/lib/confirmation-reminders";
+import { runForConfirmationReminderSweep } from "@/modules/requests/confirmation-reminders";
 
 export const dynamic = "force-dynamic";
 

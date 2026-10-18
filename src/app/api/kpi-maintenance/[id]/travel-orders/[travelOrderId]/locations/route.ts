@@ -1,18 +1,19 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   isTravelOrderApproved,
   isTravelOrderTraveler,
   TRAVEL_ORDER_STATUS,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 import {
   addTravelOrderLocation,
   findTravelOrderById,
   serializeTravelOrder,
-} from "@/lib/travel-order-db";
-import { isWorkPlanOrder } from "@/lib/work-plan";
+} from "@/modules/work-plans/travel-order-db";
+import { isWorkPlanOrder } from "@/modules/work-plans/work-plan";
 
 const MAX_LOCATIONS_PER_ORDER = 30;
 
@@ -28,6 +29,8 @@ export async function POST(
 ) {
   const { session, unauthorized } = await requireRole(["Admin", "Personnel"]);
   if (unauthorized || !session) return unauthorized;
+  const moduleOff = await moduleDisabledResponse("work_plans");
+  if (moduleOff) return moduleOff;
   const perms = await resolveOpsPermissions(session);
   const { id, travelOrderId } = await ctx.params;
 

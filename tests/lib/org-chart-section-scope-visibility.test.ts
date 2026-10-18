@@ -5,7 +5,7 @@ import {
   kpiRowInSectionAgentScope,
   roleUsesCompanyDepartmentTaskAssignScope,
   roleUsesOrgChartSectionBoardScope,
-} from "@/lib/org-chart-section-scope";
+} from "@/modules/platform/scope/org-chart-section-scope";
 
 const tree = [
   { id: "corp", parentId: null },

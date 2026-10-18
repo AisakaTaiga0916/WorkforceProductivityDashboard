@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
-import { buildOrgChartDepartmentFilterOptions } from "@/lib/org-chart-section-display";
-import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
+import { buildOrgChartDepartmentFilterOptions } from "@/modules/hierarchy/org-chart-section-display";
+import { listOrgChartSectionOptions } from "@/modules/hierarchy/org-chart-section-roster";
 import {
   resolveViewerOrgChartSectionScope,
   roleUsesCompanyDepartmentTaskAssignScope,
-} from "@/lib/org-chart-section-scope";
-import { prisma } from "@/lib/prisma";
+} from "@/modules/platform/scope/org-chart-section-scope";
+import { prisma } from "@/modules/platform/db/prisma";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
 import {
   loadAgentIdsForCompanyTeam,
   resolveStaffCompanyTeamId,
-} from "@/lib/staff-company-scope";
+} from "@/modules/platform/scope/staff-company-scope";
 
 /**
  * Roster scope for Task Board reassignment:

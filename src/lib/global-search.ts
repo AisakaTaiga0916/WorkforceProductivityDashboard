@@ -1,4 +1,4 @@
-import type { RequestTypeId } from "@/lib/request-types";
+import type { RequestTypeId } from "@/modules/requests/request-types";
 import { flattenStaffNavItems } from "@/lib/staff-navigation";
 
 export type GlobalSearchResultKind =
@@ -127,12 +127,11 @@ const NAV_ACTION_KEYWORDS: Record<string, string[]> = {
   unassigned: ["unassigned", "triage"],
   kpi: ["metrics", "reports", "insights", "kpi"],
   process: ["process", "sop", "guide", "controls"],
-  settings: ["settings", "org chart", "superadmin", "superadmin settings", "priority alerts", "access controls", "faq"],
-  "superadmin-settings": ["superadmin", "settings", "priority alerts", "access controls", "faq", "escalation"],
+  settings: ["settings", "org chart", "superadmin", "superadmin settings", "roles", "users", "system settings", "priority alerts"],
+  "superadmin-settings": ["superadmin", "settings", "roles", "permissions", "users", "system settings", "modules", "priority alerts", "escalation"],
   workforce: ["workforce", "users", "positions", "personnel", "activities"],
   "priority-alerts": ["alerts", "priority", "escalation"],
   sectioning: ["sections", "sectioning", "departments", "either or", "link relations", "org chart"],
-  "access-controls": ["access", "permissions", "roles", "controls"],
   faq: ["faq", "help", "sign-in"],
   account: ["account", "profile", "my account"],
 };

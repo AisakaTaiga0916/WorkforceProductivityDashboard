@@ -8,7 +8,7 @@ import {
   applyPaymentApprovalAssignees,
   completePaymentApprovalStep,
   paymentStepAllowsRepeatSigner,
-} from "../../src/lib/request-for-payment-approval";
+} from "../../src/modules/requests/request-for-payment-approval";
 
 describe("RFP one-person-one-approval", () => {
   it("rejects assigning a prior role holder when the later step already has a different assignee", () => {

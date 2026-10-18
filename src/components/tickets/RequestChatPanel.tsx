@@ -4,14 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Check, CheckCheck, ChevronDown, ChevronUp, Paperclip, Send } from "lucide-react";
 import { getRealtimeSocket } from "@/lib/realtime-client";
-import { INTAKE_ATTACHMENT_ACCEPT } from "@/lib/ticket-intake-screenshots-constants";
+import { INTAKE_ATTACHMENT_ACCEPT } from "@/modules/requests/ticket-intake-screenshots-constants";
 import { cn } from "@/lib/cn";
 import type {
   ChatDeliveryStatus,
   ChatParticipant,
   SerializedChatMessage,
-} from "@/lib/request-chat-types";
-import { resolveChatDeliveryStatus } from "@/lib/request-chat-types";
+} from "@/modules/requests/request-chat-types";
+import { resolveChatDeliveryStatus } from "@/modules/requests/request-chat-types";
 
 type Props = {
   /** Ticket / request id */

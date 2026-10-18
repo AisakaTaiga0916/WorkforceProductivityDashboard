@@ -12,24 +12,24 @@
  */
 import { DateTime } from "luxon";
 import { Prisma } from "@prisma/client/primary";
-import { prisma } from "../../src/lib/prisma";
-import { ACTIVE_REQUEST_STATUSES, OPEN_PIPELINE_STATUSES } from "../../src/lib/active-request-statuses";
-import { parseAcaApprovalMeta } from "../../src/lib/aca-approval";
-import { parsePaymentApprovalMeta } from "../../src/lib/request-for-payment-approval";
-import { parseItemRequisitionApprovalMeta } from "../../src/lib/item-requisition-approval";
-import { parseFundTransferApprovalMeta } from "../../src/lib/fund-transfer-approval";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { ACTIVE_REQUEST_STATUSES, OPEN_PIPELINE_STATUSES } from "../../src/modules/requests/active-request-statuses";
+import { parseAcaApprovalMeta } from "../../src/modules/requests/aca-approval";
+import { parsePaymentApprovalMeta } from "../../src/modules/requests/request-for-payment-approval";
+import { parseItemRequisitionApprovalMeta } from "../../src/modules/requests/item-requisition-approval";
+import { parseFundTransferApprovalMeta } from "../../src/modules/requests/fund-transfer-approval";
 import {
   computeTaskMetrics,
   helpdeskSupportPercent,
   type PersonnelTicketMetric,
-} from "../../src/lib/kpis";
+} from "../../src/modules/tasks/kpis";
 import {
   enumerateYmdDaysInRange,
   snapshotTimeZoneForTaskMetrics,
-} from "../../src/lib/kpi-period-snapshots";
-import { normalizeTimeZone } from "../../src/lib/kpi-recurrence";
+} from "../../src/modules/tasks/kpi-period-snapshots";
+import { normalizeTimeZone } from "../../src/modules/tasks/kpi-recurrence";
 import { normalizePersonName } from "../../src/lib/person-name";
-import { mergePersonnelRequestMetrics, type PersonnelCombinedMetricCard } from "../../src/lib/task-personnel-metrics";
+import { mergePersonnelRequestMetrics, type PersonnelCombinedMetricCard } from "../../src/modules/tasks/task-personnel-metrics";
 
 const PROCEDURAL = [
   "REQUEST_FOR_PAYMENT",

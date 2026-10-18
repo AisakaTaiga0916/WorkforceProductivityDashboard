@@ -14,15 +14,15 @@ import {
   resolveTicketBoardColumnId,
   targetStatusForBoardColumn,
   type RequestBoardColumnDto,
-} from "@/lib/request-board-columns-shared";
-import { formatTicketStatusLabel } from "@/lib/ticket-status-label";
-import { requestTypeAcronym, requestTypeLabel } from "@/lib/request-types";
-import { extractPaymentBoardPreview } from "@/lib/request-for-payment";
-import { parseItemRequisitionDescription } from "@/lib/item-requisition";
-import { extractFundTransferPreview } from "@/lib/fund-transfer-request";
-import { extractJobOrderPreview } from "@/lib/job-order";
+} from "@/modules/requests/request-board-columns-shared";
+import { formatTicketStatusLabel } from "@/modules/requests/ticket-status-label";
+import { requestTypeAcronym, requestTypeLabel } from "@/modules/requests/request-types";
+import { extractPaymentBoardPreview } from "@/modules/requests/request-for-payment";
+import { parseItemRequisitionDescription } from "@/modules/requests/item-requisition";
+import { extractFundTransferPreview } from "@/modules/requests/fund-transfer-request";
+import { extractJobOrderPreview } from "@/modules/requests/job-order";
 import { PointerDragGhostLayer, usePointerColumnDrag } from "@/lib/pointer-column-drag";
-import { isBoardLaneOverdue } from "@/lib/sla-shared";
+import { isBoardLaneOverdue } from "@/modules/requests/sla-shared";
 import { useRequestBoardEditMode } from "./request-board-edit-mode";
 
 export type KanbanTicket = {
@@ -39,7 +39,7 @@ export type KanbanTicket = {
   requestType?: string | null;
   /** Latest audit-trail timestamp (Job Order overdue clock). */
   lastActivityAt?: string | null;
-  /** When the ticket entered FOR_CONFIRMATION (RFP / FTR / R.S. / A.C.A. overdue clock). */
+  /** When the ticket entered FOR_CONFIRMATION (RFP / FTR / R.S. overdue clock). */
   forConfirmationAt?: string | null;
   resolvedAt?: string | null;
   createdAt?: string | null;
@@ -130,10 +130,6 @@ function kanbanCardPreview(ticket: KanbanTicket): string {
   if (ticket.requestType === "JOB_ORDER") {
     const preview = extractJobOrderPreview(ticket.description);
     if (preview) return preview;
-  }
-  if (ticket.requestType === "AUTHORITY_TO_CONDUCT_ACTIVITY") {
-    const nature = ticket.description.match(/^Nature of Request:\s*(.*)$/im)?.[1]?.trim();
-    if (nature) return nature.slice(0, 120);
   }
   return (ticket.description || ticket.title).trim();
 }

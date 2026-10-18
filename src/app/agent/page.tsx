@@ -1,51 +1,53 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { TicketPriority, TicketStatus } from "@prisma/client/primary";
 import { Prisma } from "@prisma/client/primary";
 import { requireSession } from "@/lib/access";
+import { isSystemModuleEnabled } from "@/modules/platform/settings/system-modules-db";
+import { ModuleDisabledNotice } from "@/components/ModuleDisabledNotice";
 import { rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
-import { getCompanyBoardAggregates, loadCompanyBoard, loadDepartmentBoard } from "@/lib/company-board";
-import { ACTIVE_REQUEST_STATUSES, OPEN_PIPELINE_STATUSES } from "@/lib/active-request-statuses";
-import { loadTicketActivityLogForSession } from "@/lib/ticket-activity-log";
-import { prisma } from "@/lib/prisma";
+import { getCompanyBoardAggregates, loadCompanyBoard, loadDepartmentBoard } from "@/modules/requests/company-board";
+import { ACTIVE_REQUEST_STATUSES, OPEN_PIPELINE_STATUSES } from "@/modules/requests/active-request-statuses";
+import { loadTicketActivityLogForSession } from "@/modules/requests/ticket-activity-log";
+import { prisma } from "@/modules/platform/db/prisma";
 import { loadStaffAssignmentColorsForAgents } from "@/lib/assignee-assignment-color";
 import { personnelAssigneeHighlightStyleFromKey } from "@/lib/personnel-assignment-colors";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
-import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
+import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
 import { findSessionAgentWithTeam } from "@/lib/session-agent";
 import {
   getOperatorActionableApprovalLevel,
   hasHierarchicalApprovals,
   travelOrderApprovedByLabel,
-} from "@/lib/travel-order";
-import { listPendingTravelApprovalsForAgent } from "@/lib/travel-order-db";
+} from "@/modules/work-plans/travel-order";
+import { listPendingTravelApprovalsForAgent } from "@/modules/work-plans/travel-order-db";
 import { AgentTicketDeepLink } from "@/components/AgentTicketDeepLink";
 import { AssigneeColorHighlight } from "@/components/ticket/AssigneeColorHighlight";
 import { OrchestrationQueueNav } from "@/components/OrchestrationQueueNav";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BRAND_TITLE } from "@/lib/brand";
-import { formatTicketPriorityLabel } from "@/lib/ticket-priority-label";
-import { isRequestTypeId } from "@/lib/request-types";
-import { visibleIntakeRequestTypes } from "@/lib/intake-request-type-visibility";
-import { getIntakeRequestTypeVisibility } from "@/lib/intake-request-type-visibility-db";
+import { formatTicketPriorityLabel } from "@/modules/requests/ticket-priority-label";
+import { isRequestTypeId } from "@/modules/requests/request-types";
+import { visibleIntakeRequestTypes } from "@/modules/platform/settings/intake-request-type-visibility";
+import { getIntakeRequestTypeVisibility } from "@/modules/platform/settings/intake-request-type-visibility-db";
 import {
   listOrgChartSectionOptions,
   resolveAgentIdsForOrgChartSection,
-} from "@/lib/org-chart-section-roster";
+} from "@/modules/hierarchy/org-chart-section-roster";
 import {
   roleUsesOrgChartSectionBoardScope,
   sectionScopedTicketWhere,
   resolveViewerOrgChartSectionScope,
   resolveOrgChartDownlineScopeForMergedUser,
   ticketWhereForOrgChartSectionFilter,
-} from "@/lib/org-chart-section-scope";
+} from "@/modules/platform/scope/org-chart-section-scope";
 import {
   buildGroupBoardDirectionFilterOptions,
   encodeGroupBoardDirectionFilter,
   parseGroupBoardDirectionFilter,
-} from "@/lib/group-board-direction-filters";
-import { resolveMergedSourceUserIdForSessionEmail } from "@/lib/approval-position-resolver";
+} from "@/modules/requests/group-board-direction-filters";
+import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/hierarchy/approval-position-resolver";
 import { MyRequestsBoard } from "@/components/my-requests/MyRequestsBoard";
 import { AgentKanban, type KanbanTicket } from "./agent-kanban";
 import {
@@ -59,32 +61,29 @@ import {
   loadTicketLastActivityAtMap,
   requestBoardOwnerKey,
   resolveTicketBoardColumnId,
-} from "@/lib/request-board-columns";
-import { paymentProceduralStatusLabel, type PaymentApprovalMeta } from "@/lib/request-for-payment-approval";
-import { loadPaymentApprovalMetaMap } from "@/lib/payment-approval-db";
-import { loadAcaApprovalMetaMap } from "@/lib/aca-approval-db";
-import { acaProceduralStatusLabel } from "@/lib/aca-approval";
-import type { AcaApprovalMeta } from "@/lib/aca-approval";
-import { personnelRequestBoardWhere } from "@/lib/rfp-request-board";
+} from "@/modules/requests/request-board-columns";
+import { paymentProceduralStatusLabel, type PaymentApprovalMeta } from "@/modules/requests/request-for-payment-approval";
+import { loadPaymentApprovalMetaMap } from "@/modules/requests/payment-approval-db";
+import { personnelRequestBoardWhere } from "@/modules/requests/rfp-request-board";
 import {
   itemRequisitionProceduralStatusLabel,
   type ItemRequisitionApprovalMeta,
-} from "@/lib/item-requisition-approval";
-import { loadItemRequisitionApprovalMetaMap } from "@/lib/item-requisition-approval-db";
+} from "@/modules/requests/item-requisition-approval";
+import { loadItemRequisitionApprovalMetaMap } from "@/modules/requests/item-requisition-approval-db";
 import {
   fundTransferProceduralStatusLabel,
   type FundTransferApprovalMeta,
-} from "@/lib/fund-transfer-approval";
-import { loadFundTransferApprovalMetaMap } from "@/lib/fund-transfer-approval-db";
+} from "@/modules/requests/fund-transfer-approval";
+import { loadFundTransferApprovalMetaMap } from "@/modules/requests/fund-transfer-approval-db";
 import {
   jobOrderProceduralStatusLabel,
   isJobOrderAwaitingExecutionAssignee,
   type JobOrderApprovalMeta,
-} from "@/lib/job-order-approval";
+} from "@/modules/requests/job-order-approval";
 import {
   loadJobOrderApprovalMetaMap,
   reconcileJobOrdersAwaitingExecutionAssignee,
-} from "@/lib/job-order-approval-db";
+} from "@/modules/requests/job-order-approval-db";
 import { CompanyKanban } from "./company-kanban";
 import { RequestKanbanFlowToggle } from "./request-kanban-flow-toggle";
 import { AgentKpiKanbanFlow } from "./kpi-kanban-flow";
@@ -161,6 +160,7 @@ export default async function AgentHome({
   const session = await requireSession();
   if (!session?.user) redirect("/signin");
   if (!["SuperAdmin", "HighAdmin", "Personnel", "Admin"].includes(session.user.role)) redirect("/");
+  if (!(await isSystemModuleEnabled("requests"))) return <ModuleDisabledNotice module="requests" />;
 
   const params = await searchParams;
   if (firstQuery(params.view) === "approvals") {
@@ -643,7 +643,6 @@ export default async function AgentHome({
   let boardRequisitionMetaById = new Map<string, ItemRequisitionApprovalMeta>();
   let boardFundTransferMetaById = new Map<string, FundTransferApprovalMeta>();
   let boardJobOrderMetaById = new Map<string, JobOrderApprovalMeta>();
-  let boardAcaMetaById = new Map<string, AcaApprovalMeta>();
   if (isBoard && ticketsBoardEnriched.length > 0) {
     const ids = ticketsBoardEnriched.map((t) => t.id);
     const rows = await prisma.$queryRaw<Array<{ id: string; request_type: string | null }>>`
@@ -656,7 +655,6 @@ export default async function AgentHome({
     boardRequisitionMetaById = await loadItemRequisitionApprovalMetaMap(ids);
     boardFundTransferMetaById = await loadFundTransferApprovalMetaMap(ids);
     boardJobOrderMetaById = await loadJobOrderApprovalMetaMap(ids);
-    boardAcaMetaById = await loadAcaApprovalMetaMap(ids);
 
     const joAwaitingExecutionIds = ids.filter((ticketId) => {
       if (boardRequestTypeById.get(ticketId) !== "JOB_ORDER") return false;
@@ -902,9 +900,6 @@ export default async function AgentHome({
             return jobOrderProceduralStatusLabel(
               boardJobOrderMetaById.get(t.id)?.proceduralStep ?? "NOTED_BY",
             );
-          }
-          if (rt === "AUTHORITY_TO_CONDUCT_ACTIVITY") {
-            return acaProceduralStatusLabel(boardAcaMetaById.get(t.id) ?? null);
           }
           return null;
         })(),

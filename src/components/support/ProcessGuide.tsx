@@ -12,11 +12,10 @@ import {
   Layers,
   RefreshCw,
   Send,
-  Shield,
   Users,
   Wallet,
 } from "lucide-react";
-import { REQUEST_TYPES } from "@/lib/request-types";
+import { REQUEST_TYPES } from "@/modules/requests/request-types";
 import { BRAND_TITLE } from "@/lib/brand";
 
 const LIFECYCLE = [
@@ -120,18 +119,6 @@ const APPROVAL_LANES = [
     steps: ["Set approvers", "Job Done", "Approved By", "For confirmation", "Closed"],
     note: "Create the Job Order and set approvers. After Job Done, the final Approved By (recommended as HR Approver) sends the request for confirmation.",
   },
-  {
-    title: "Authority to Conduct Activity",
-    acronym: "A.C.A.",
-    tone: "from-rose-500/15 to-transparent",
-    steps: [
-      "Recommended By",
-      "Validated By (Finance)",
-      "AP 1–3 or ExeCom table",
-      "Green-lit",
-    ],
-    note: "Authority Matrix drives RA level and AP / 4 ExeComs / All ExeCom (5 seats). ExeCom seats appear on each listed person’s board; feedback required on ExeCom Done.",
-  },
 ] as const;
 
 const REQUEST_ICONS: Record<string, typeof FileText> = {
@@ -140,7 +127,6 @@ const REQUEST_ICONS: Record<string, typeof FileText> = {
   ITEM_REQUISITION_SLIP: ClipboardList,
   FUND_TRANSFER_REQUEST: Building2,
   JOB_ORDER: GitBranch,
-  AUTHORITY_TO_CONDUCT_ACTIVITY: Shield,
 };
 
 function FlowNode({
@@ -205,7 +191,7 @@ export function ProcessGuide() {
           </h1>
           <p className="max-w-2xl text-sm leading-relaxed text-zinc-400 sm:text-base">
             How requests move from intake through assignment, procedural approvals, confirmation,
-            and closure — including Issue/Concern, RFP, R.S., FTR, Job Order, and ACA.
+            and closure — including Issue/Concern, RFP, R.S., FTR, and Job Order.
           </p>
           <div className="flex flex-wrap gap-3 pt-1">
             <Link

@@ -9,7 +9,7 @@
  *   npx tsx scripts/migrate-phase2-tasks-kpi-to-merged.ts --apply
  */
 import { runPortalWorkToMergedSync } from "../src/lib/sync/portal-work-to-merged";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const dryRun = !process.argv.includes("--apply");

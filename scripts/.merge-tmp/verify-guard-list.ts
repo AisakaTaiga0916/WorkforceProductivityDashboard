@@ -1,5 +1,5 @@
-import { findTravelOrdersVisibleToAgent } from "../../src/lib/travel-order-db";
-import { prisma } from "../../src/lib/prisma";
+import { findTravelOrdersVisibleToAgent } from "../../src/modules/work-plans/travel-order-db";
+import { prisma } from "../../src/modules/platform/db/prisma";
 
 async function main() {
   const agentId = "cmsif3zz700011h0ykiu42kzx";

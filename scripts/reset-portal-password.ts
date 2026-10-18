@@ -7,7 +7,7 @@
  */
 import bcrypt from "bcryptjs";
 import { DEFAULT_PASSWORD_RESET } from "../src/lib/default-reset-password";
-import { prisma } from "../src/lib/prisma";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 const loginId = (process.argv[2] ?? "").trim();
 if (!loginId) {

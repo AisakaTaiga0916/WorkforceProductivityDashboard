@@ -2,17 +2,17 @@ import { readFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { isItProjectEnvelope, itProjectAllItems, parseItProjectSubKpis } from "@/lib/it-project-subkpis";
+import { isItProjectEnvelope, itProjectAllItems, parseItProjectSubKpis } from "@/modules/tasks/it-project-subkpis";
 import {
   collectAllSubKpiItems,
   getArchivedTaskScreenshots,
   getPillarScreenshots,
   hasSubKpiAssignedTo,
   normalizeSubKpis,
-} from "@/lib/kpi-subkpis";
-import { prisma } from "@/lib/prisma";
+} from "@/modules/tasks/kpi-subkpis";
+import { prisma } from "@/modules/platform/db/prisma";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { taskScreenshotsUploadDir } from "@/lib/task-screenshots";
+import { taskScreenshotsUploadDir } from "@/modules/tasks/task-screenshots";
 
 export async function GET(
   _req: Request,

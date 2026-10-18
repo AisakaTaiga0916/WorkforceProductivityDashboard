@@ -1,28 +1,28 @@
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { NextResponse } from "next/server";
 import type { Prisma, TicketStatus } from "@prisma/client/primary";
 import { requireRole } from "@/lib/access";
 import { findSessionAgentId } from "@/lib/session-agent";
 import { isAgentOnDutyFromMergedDb, loadOnDutySnapshot } from "@/lib/load-on-duty-snapshot";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   resolveAdminOnDutyCompanyFilter,
   resolveStaffCompanyTeamId,
-} from "@/lib/staff-company-scope";
+} from "@/modules/platform/scope/staff-company-scope";
 import {
   resolveViewerDepartmentScopeLabel,
   roleShowsDesignatedDepartmentLabel,
   sectionScopedTicketWhere,
-} from "@/lib/org-chart-section-scope";
+} from "@/modules/platform/scope/org-chart-section-scope";
 import {
   formatDepartmentDesignationWithExecutiveTitle,
   resolveExecutiveTitle,
-} from "@/lib/org-chart-executive-titles";
-import { resolveMergedSourceUserIdForSessionEmail } from "@/lib/approval-position-resolver";
-import { countTaskBoardLanes } from "@/lib/task-board-lane-counts";
+} from "@/modules/hierarchy/org-chart-executive-titles";
+import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/hierarchy/approval-position-resolver";
+import { countTaskBoardLanes } from "@/modules/tasks/task-board-lane-counts";
 import { withTtlCache } from "@/lib/ttl-cache";
-import { getWorkforceViewVisibility } from "@/lib/workforce-view-visibility-db";
-import { isWorkforceViewVisible } from "@/lib/workforce-view-visibility";
+import { getWorkforceViewVisibility } from "@/modules/platform/settings/workforce-view-visibility-db";
+import { isWorkforceViewVisible } from "@/modules/platform/settings/workforce-view-visibility";
 
 export const dynamic = "force-dynamic";
 

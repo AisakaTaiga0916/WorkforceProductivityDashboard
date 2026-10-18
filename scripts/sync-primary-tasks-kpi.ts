@@ -10,7 +10,7 @@
  *   npm run db:sync:tasks-kpi -- --dry-run
  */
 import { runPortalWorkToMergedSync } from "../src/lib/sync/portal-work-to-merged";
-import { prismaPrimary } from "../src/lib/prisma";
+import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const dryRun = process.argv.includes("--dry-run");

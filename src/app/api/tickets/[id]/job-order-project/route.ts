@@ -4,21 +4,21 @@ import { requireSession } from "@/lib/access";
 import {
   buildJobOrderProjectPrefill,
   projectDisplayName,
-} from "@/lib/job-order-project";
+} from "@/modules/requests/job-order-project";
 import {
   JO_PROJECT_REQUEST_CANCELLED_SUMMARY,
   JO_PROJECT_REQUEST_FULFILLED_SUMMARY,
   JO_PROJECT_REQUESTED_SUMMARY,
   jobOrderProjectRequestPendingFromActivities,
-} from "@/lib/job-order-project-request";
-import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
-import { kpiRowInCompanyScope } from "@/lib/kpi-company-board-scope";
-import { isProjectTask } from "@/lib/kpi-subkpis";
-import { prisma } from "@/lib/prisma";
-import { loadAgentIdsForCompanyTeam } from "@/lib/staff-company-scope";
+} from "@/modules/requests/job-order-project-request";
+import { isItProjectImplementationPillar } from "@/modules/tasks/it-task-pillar-titles";
+import { kpiRowInCompanyScope } from "@/modules/tasks/kpi-company-board-scope";
+import { isProjectTask } from "@/modules/tasks/kpi-subkpis";
+import { prisma } from "@/modules/platform/db/prisma";
+import { loadAgentIdsForCompanyTeam } from "@/modules/platform/scope/staff-company-scope";
 import { findSessionAgentWithTeam } from "@/lib/session-agent";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
-import { loadHrisAssignableStaff } from "@/lib/hris-staff-roster";
+import { loadHrisAssignableStaff } from "@/modules/hierarchy/hris-staff-roster";
 import { isAdminPortalRole } from "@/lib/staff-role";
 
 /**

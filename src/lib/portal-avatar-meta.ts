@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client/primary";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { agentProfileImageSrc } from "@/lib/session-profile-image";
 
 export type PortalAvatarMeta = {

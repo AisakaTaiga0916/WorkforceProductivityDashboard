@@ -3,9 +3,9 @@ import {
   penaltyAccrualDays,
   subKpiAccruedPenalty,
   subKpiPenaltyDays,
-} from "@/lib/task-delay-penalty";
-import { applyPenaltyToTaskEfficiency } from "@/lib/task-personnel-metrics";
-import type { SubKpiItem } from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/task-delay-penalty";
+import { applyPenaltyToTaskEfficiency } from "@/modules/tasks/task-personnel-metrics";
+import type { SubKpiItem } from "@/modules/tasks/kpi-subkpis";
 
 const TZ = "Asia/Manila";
 

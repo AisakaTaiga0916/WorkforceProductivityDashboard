@@ -1,6 +1,6 @@
-import { prisma } from "../../src/lib/prisma";
-import { loadAgentIdsForCompanyTeam, resolveAgentDesignatedCompanyId } from "../../src/lib/staff-company-scope";
-import { findTravelOrdersVisibleToAgent } from "../../src/lib/travel-order-db";
+import { prisma } from "../../src/modules/platform/db/prisma";
+import { loadAgentIdsForCompanyTeam, resolveAgentDesignatedCompanyId } from "../../src/modules/platform/scope/staff-company-scope";
+import { findTravelOrdersVisibleToAgent } from "../../src/modules/work-plans/travel-order-db";
 import { isPersonnelGuardPortalRole, normalizePortalRole } from "../../src/lib/staff-role";
 
 async function main() {

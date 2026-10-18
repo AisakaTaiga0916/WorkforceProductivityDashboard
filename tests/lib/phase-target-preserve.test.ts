@@ -3,7 +3,7 @@ import {
   parseItProjectSubKpis,
   seedJoLinkedProjectTimeline,
   syncPhaseDueFromSubtasks,
-} from "@/lib/it-project-subkpis";
+} from "@/modules/tasks/it-project-subkpis";
 import {
   markProjectTask,
   setLinkedJobOrderOnSubKpis,
@@ -11,7 +11,7 @@ import {
   UNSEGMENTED_SEGMENT_ID,
   UNSEGMENTED_SEGMENT_LABEL,
   wrapForPersist,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 
 describe("phase target dates survive project seed", () => {
   it("keeps distinct phase due dates from Make Phases create", () => {

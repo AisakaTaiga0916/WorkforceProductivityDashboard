@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, UserPlus, Users, X, CheckCircle2 } from "lucide-react";
+import { Loader2, UserPlus, Users, X } from "lucide-react";
 import {
   CompanyUserSearchField,
   type CompanyUserOption,
 } from "@/components/tickets/CompanyUserSearchField";
-import { parseJobOrderWorkerAgentIds, type JobOrderApprovalMeta } from "@/lib/job-order-approval";
-import { JOB_ORDER_EXECUTION_TEAM_SECTION_ID } from "@/lib/job-order-section-ids";
+import { ApprovalStepper } from "@/components/ui/approval-stepper";
+import { parseJobOrderWorkerAgentIds, type JobOrderApprovalMeta } from "@/modules/requests/job-order-approval";
+import { jobOrderExecutionUiSteps } from "@/modules/requests/job-order-execution-ui";
+import { JOB_ORDER_EXECUTION_TEAM_SECTION_ID } from "@/modules/requests/job-order-section-ids";
 
 type AgentOption = CompanyUserOption;
 
@@ -390,19 +392,18 @@ export function JobOrderWorkersPanel({
                   : ""}
                 .
               </p>
-              <button
-                type="button"
-                disabled={jobDoneBusy}
-                onClick={() => void markJobDone()}
-                className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-500 disabled:opacity-50"
-              >
-                {jobDoneBusy ? (
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <CheckCircle2 className="size-3.5" aria-hidden />
-                )}
-                Job Done
-              </button>
+              <ApprovalStepper
+                steps={jobOrderExecutionUiSteps({
+                  meta: jobOrderApprovalMeta,
+                  executionAssigneeName: assigneeName,
+                  ticketStatus,
+                })}
+                canAct
+                busy={jobDoneBusy}
+                compact
+                approveLabel="Job Done"
+                onApprove={() => void markJobDone()}
+              />
             </div>
           ) : (
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
 import {
   getWorkforceViewVisibility,
   setWorkforceViewVisibility,
-} from "@/lib/workforce-view-visibility-db";
-import { parseWorkforceViewVisibility } from "@/lib/workforce-view-visibility";
+} from "@/modules/platform/settings/workforce-view-visibility-db";
+import { parseWorkforceViewVisibility } from "@/modules/platform/settings/workforce-view-visibility";
 
 /**
  * GET /api/admin/workforce-view-visibility
@@ -25,10 +26,13 @@ export async function GET() {
  */
 export async function PUT(req: Request) {
   const { session, unauthorized } = await requireRole(["SuperAdmin"]);
-  if (unauthorized) return unauthorized;
-  if (session?.user?.role !== "SuperAdmin") {
+  if (unauthorized || !session) return unauthorized;
+  if (session.user.role !== "SuperAdmin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const denied = await permissionDenied(session, "settings.update");
+  if (denied) return denied;
 
   const body = (await req.json().catch(() => ({}))) as { hiddenViews?: unknown };
   const next = parseWorkforceViewVisibility({

@@ -1,5 +1,5 @@
 import { COMPANY_ROSTER, rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 const LEGACY_ACI_APMC_NAME = "ACI/APMC";
 /** Legacy queue labels; canonical roster name is MCHISI LPG. */

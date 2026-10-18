@@ -1,5 +1,5 @@
 import type { Agent, Team } from "@prisma/client/primary";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { normalizePersonName } from "@/lib/person-name";
 
 export { normalizePersonName };

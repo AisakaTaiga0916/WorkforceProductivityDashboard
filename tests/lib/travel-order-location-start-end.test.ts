@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   travelOrderLocationVisitStatus,
   travelOrderLocationVisitStatusLabel,
-} from "@/lib/travel-order";
+} from "@/modules/work-plans/travel-order";
 
 describe("travel order location start/end status", () => {
   it("is pending before start", () => {

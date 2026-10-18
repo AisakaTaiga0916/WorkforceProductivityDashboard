@@ -16,9 +16,9 @@ import {
   applyDailyPercentSnapshotsByTitle,
   enumerateYmdDaysInMonth,
   type DailyPillarPercentRow,
-} from "../src/lib/kpi-sheet-import-snapshots";
-import { getMonthlyPeriodKey, normalizeTimeZone } from "../src/lib/kpi-recurrence";
-import { prisma } from "../src/lib/prisma";
+} from "../src/modules/tasks/kpi-sheet-import-snapshots";
+import { getMonthlyPeriodKey, normalizeTimeZone } from "../src/modules/tasks/kpi-recurrence";
+import { prisma } from "../src/modules/platform/db/prisma";
 
 function parseArgs(argv: string[]) {
   const flags = new Map<string, string>();

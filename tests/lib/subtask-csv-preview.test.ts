@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { TaskMetricsCadence } from "@/lib/task-metrics-range";
+import type { TaskMetricsCadence } from "@/modules/tasks/task-metrics-range";
 import { DateTime } from "luxon";
-import { getDailyPeriodKey } from "@/lib/kpi-recurrence";
-import { wrapForPersist } from "@/lib/kpi-subkpis";
+import { getDailyPeriodKey } from "@/modules/tasks/kpi-recurrence";
+import { wrapForPersist } from "@/modules/tasks/kpi-subkpis";
 import {
   buildSubtaskCsvPreviewForPillar,
   type KpiRowForSnapshot,
-} from "@/lib/kpi-period-snapshots";
+} from "@/modules/tasks/kpi-period-snapshots";
 
 function kpiRow(overrides: Partial<KpiRowForSnapshot> & Pick<KpiRowForSnapshot, "id" | "frequency">): KpiRowForSnapshot {
   return {
@@ -14,7 +14,7 @@ function kpiRow(overrides: Partial<KpiRowForSnapshot> & Pick<KpiRowForSnapshot, 
     subKpis: wrapForPersist({
       segmented: false,
       flat: [
-        { id: "ali", title: "ALI", done: true },
+        { id: "ali", title: "ALI", done: true, completionVerificationStatus: "VERIFIED" },
         { id: "aci", title: "ACI", done: false },
       ],
     }),

@@ -2,10 +2,10 @@ import { readFile } from "fs/promises";
 import path from "path";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
-import { parseIntakeScreenshotMeta } from "@/lib/ticket-intake-screenshots-meta";
-import { ticketScreenshotsUploadDir } from "@/lib/ticket-intake-screenshots";
-import { canAccessTicketScreenshot } from "@/lib/ticket-screenshot-access";
+import { prisma } from "@/modules/platform/db/prisma";
+import { parseIntakeScreenshotMeta } from "@/modules/requests/ticket-intake-screenshots-meta";
+import { ticketScreenshotsUploadDir } from "@/modules/requests/ticket-intake-screenshots";
+import { canAccessTicketScreenshot } from "@/modules/requests/ticket-screenshot-access";
 
 export async function GET(
   _req: Request,

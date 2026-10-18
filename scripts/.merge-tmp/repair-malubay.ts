@@ -9,7 +9,7 @@
  *   npx tsx scripts/.merge-tmp/repair-malubay.ts --apply
  */
 import { mergeAgentOwnership } from "../../src/lib/reconcile-duplicate-agents";
-import { prismaAuth, prismaPrimary, prismaSecondary } from "../../src/lib/prisma";
+import { prismaAuth, prismaPrimary, prismaSecondary } from "../../src/modules/platform/db/prisma";
 
 const SOURCE_USER_ID = 1660n;
 const LEGACY_AGENT_ID = "cmrpyuvty000111lydrm8c8qk";

@@ -1,44 +1,44 @@
 import type { Session } from "next-auth";
 import type { Prisma, TicketPriority, TicketStatus } from "@prisma/client/primary";
-import { isElevatedUserRole } from "@/lib/auth";
-import { ACTIVE_REQUEST_STATUSES, OPEN_PIPELINE_STATUSES } from "@/lib/active-request-statuses";
-import { prisma } from "@/lib/prisma";
+import { isElevatedUserRole } from "@/modules/platform/auth";
+import { ACTIVE_REQUEST_STATUSES, OPEN_PIPELINE_STATUSES } from "@/modules/requests/active-request-statuses";
+import { prisma } from "@/modules/platform/db/prisma";
 import { findSessionAgentId } from "@/lib/session-agent";
-import { getTicketSlaState } from "@/lib/sla";
+import { getTicketSlaState } from "@/modules/requests/sla";
 import {
   loadTicketBoardLaneEnteredAtMap,
   loadTicketForConfirmationEnteredAtMap,
   loadTicketLastActivityAtMap,
-} from "@/lib/request-board-columns";
-import { resolveStaffCompanyTeamId } from "@/lib/staff-company-scope";
+} from "@/modules/requests/request-board-columns";
+import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
 import {
   resolveViewerDepartmentScopeLabel,
   sectionScopedTicketWhere,
-} from "@/lib/org-chart-section-scope";
-import { countTaskBoardLanes } from "@/lib/task-board-lane-counts";
+} from "@/modules/platform/scope/org-chart-section-scope";
+import { countTaskBoardLanes } from "@/modules/tasks/task-board-lane-counts";
 import {
   listPendingTravelApprovalsForAgent,
   listPendingTravelConfirmationsForAgent,
-} from "@/lib/travel-order-db";
-import { requestTypeAcronym } from "@/lib/request-types";
-import { formatTicketStatusLabel } from "@/lib/ticket-status-label";
-import { formatTicketPriorityLabel } from "@/lib/ticket-priority-label";
-import { DEFAULT_TIME_ZONE } from "@/lib/kpi-recurrence";
-import { taskKanbanDerivedStatus } from "@/lib/kpi-cycle-state";
-import { kpiMainTaskLabel } from "@/lib/kpi-main-task";
+} from "@/modules/work-plans/travel-order-db";
+import { requestTypeAcronym } from "@/modules/requests/request-types";
+import { formatTicketStatusLabel } from "@/modules/requests/ticket-status-label";
+import { formatTicketPriorityLabel } from "@/modules/requests/ticket-priority-label";
+import { DEFAULT_TIME_ZONE } from "@/modules/tasks/kpi-recurrence";
+import { taskKanbanDerivedStatus } from "@/modules/tasks/kpi-cycle-state";
+import { kpiMainTaskLabel } from "@/modules/tasks/kpi-main-task";
 import {
   hasSubKpiAssignedTo,
   isFieldAssignmentTask,
   isProjectTask,
   kpiChecklistProgress,
   taskUsesInvertedRecording,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 import {
   itProjectChecklistProgressFromRaw,
   usesProjectTimelineTracker,
-} from "@/lib/it-project-subkpis";
-import { isItProjectImplementationPillar } from "@/lib/it-task-pillar-titles";
-import { isCompletionEffectivelyVerified } from "@/lib/task-completion-verification";
+} from "@/modules/tasks/it-project-subkpis";
+import { isItProjectImplementationPillar } from "@/modules/tasks/it-task-pillar-titles";
+import { isCompletionEffectivelyVerified } from "@/modules/tasks/task-completion-verification";
 
 export type DashboardActionItem = {
   id: string;
@@ -213,10 +213,10 @@ async function listTasksAssignedToAgent(
   agentId: string,
   take = 8,
 ): Promise<DashboardActionItem[]> {
-  const { kpiIdsWhereAgentIsTravelOrderTraveler } = await import("@/lib/travel-order-db");
-  const { kpiIdsWhereAgentIsJobOrderWorker } = await import("@/lib/job-order-workers-server");
+  const { kpiIdsWhereAgentIsTravelOrderTraveler } = await import("@/modules/work-plans/travel-order-db");
+  const { kpiIdsWhereAgentIsJobOrderWorker } = await import("@/modules/requests/job-order-workers-server");
   const { isTaskCompletionVerificationEnabled } = await import(
-    "@/lib/task-verification-settings-db"
+    "@/modules/platform/settings/task-verification-settings-db"
   );
   const [travelerKpiIds, jobOrderWorkerKpiIds, rows, verificationEnabled] = await Promise.all([
     kpiIdsWhereAgentIsTravelOrderTraveler(agentId),

@@ -1,5 +1,5 @@
-import { prisma, prismaSecondary } from "@/lib/prisma";
-import { resolveRosterCompanyName } from "@/lib/hris-company-aliases";
+import { prisma, prismaSecondary } from "@/modules/platform/db/prisma";
+import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
 import { Prisma } from "@prisma/client/secondary";
 
 async function main() {

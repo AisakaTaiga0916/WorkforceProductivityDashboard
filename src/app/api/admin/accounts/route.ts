@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import { sortByRosterOrder, rosterTeamNameFilter } from "@/lib/company-roster";
 import { loadPersonnelAccountsPayload } from "@/lib/personnel-accounts-data";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 export async function GET() {
   const { session, unauthorized } = await requireRole(["Admin"]);

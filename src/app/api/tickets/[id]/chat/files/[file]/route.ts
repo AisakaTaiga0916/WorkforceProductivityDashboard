@@ -5,9 +5,9 @@ import { requireSession } from "@/lib/access";
 import {
   canAccessRequestChat,
   loadTicketForChatAccess,
-} from "@/lib/ticket-chat-access";
-import { chatUploadDir, parseChatAttachments } from "@/lib/request-chat";
-import { prisma } from "@/lib/prisma";
+} from "@/modules/requests/ticket-chat-access";
+import { chatUploadDir, parseChatAttachments } from "@/modules/requests/request-chat";
+import { prisma } from "@/modules/platform/db/prisma";
 
 export const dynamic = "force-dynamic";
 

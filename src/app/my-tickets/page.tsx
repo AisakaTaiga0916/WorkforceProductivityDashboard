@@ -3,8 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import { requireSession } from "@/lib/access";
-import { customerTicketWhereBySessionEmail } from "@/lib/customer-pending-resolution";
-import { prisma } from "@/lib/prisma";
+import { customerTicketWhereBySessionEmail } from "@/modules/requests/customer-pending-resolution";
+import { prisma } from "@/modules/platform/db/prisma";
 import { findSessionAgentId } from "@/lib/session-agent";
 import { BRAND_TITLE, BRAND_TAGLINE_CUSTOMER } from "@/lib/brand";
 

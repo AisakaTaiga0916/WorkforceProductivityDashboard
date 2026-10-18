@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { runPortalToMergedSync } from "@/lib/auth/portal-to-merged-sync";
-import { runComputeUserEfficiencyBreakdowns } from "@/lib/efficiency/user-efficiency-breakdown";
+import { runPortalToMergedSync } from "@/modules/platform/auth/portal-to-merged-sync";
+import { runComputeUserEfficiencyBreakdowns } from "@/modules/tasks/efficiency/user-efficiency-breakdown";
 import { runPortalWorkToMergedSync } from "@/lib/sync/portal-work-to-merged";
 
 export const dynamic = "force-dynamic";

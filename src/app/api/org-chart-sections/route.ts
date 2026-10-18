@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { isElevatedUserRole } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
+import { isElevatedUserRole } from "@/modules/platform/auth";
+import { prisma } from "@/modules/platform/db/prisma";
+import { listOrgChartSectionOptions } from "@/modules/hierarchy/org-chart-section-roster";
 import {
   resolveViewerOrgChartSectionScope,
   roleShowsDesignatedDepartmentLabel,
-} from "@/lib/org-chart-section-scope";
+} from "@/modules/platform/scope/org-chart-section-scope";
 
 /** Read-only org-chart sections for ticket intake + Insights department filter. */
 export async function GET(req: Request) {

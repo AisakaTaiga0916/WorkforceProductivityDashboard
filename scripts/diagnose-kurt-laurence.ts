@@ -1,5 +1,5 @@
 #!/usr/bin/env npx tsx
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   for (const name of ["Kurt", "Laurence", "Miñoza", "Minoza", "Magsadia", "Mark Anthony", "Reginald"]) {

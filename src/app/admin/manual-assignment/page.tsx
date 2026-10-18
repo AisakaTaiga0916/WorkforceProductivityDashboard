@@ -1,19 +1,19 @@
 import { Prisma, type TicketStatus } from "@prisma/client/primary";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/access";
-import { loadHrisAssignableStaff } from "@/lib/hris-staff-roster";
-import { filterOrgChartSectionsByCompanyTeam } from "@/lib/org-chart-section-display";
-import { listOrgChartSectionOptions } from "@/lib/org-chart-section-roster";
+import { loadHrisAssignableStaff } from "@/modules/hierarchy/hris-staff-roster";
+import { filterOrgChartSectionsByCompanyTeam } from "@/modules/hierarchy/org-chart-section-display";
+import { listOrgChartSectionOptions } from "@/modules/hierarchy/org-chart-section-roster";
 import {
   resolveViewerOrgChartSectionScope,
   roleUsesCompanyDepartmentTaskAssignScope,
-} from "@/lib/org-chart-section-scope";
-import { prisma } from "@/lib/prisma";
+} from "@/modules/platform/scope/org-chart-section-scope";
+import { prisma } from "@/modules/platform/db/prisma";
 import { loadStaffAssignmentColorsForAgents } from "@/lib/assignee-assignment-color";
 import { ensureRosterTeamsInDb } from "@/lib/roster-teams";
 import {
   resolveStaffCompanyTeamId,
-} from "@/lib/staff-company-scope";
+} from "@/modules/platform/scope/staff-company-scope";
 import { ManualAssignmentBoard } from "./ui";
 
 export const dynamic = "force-dynamic";

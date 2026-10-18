@@ -3,7 +3,7 @@
  * Usage: npx tsx scripts/inspect-portal-merged-overlap.ts
  */
 import { normalizePersonName } from "../src/lib/person-name";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 
 type MergedRow = {
   source_user_id: bigint;

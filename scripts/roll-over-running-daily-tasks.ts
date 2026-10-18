@@ -13,27 +13,27 @@
  */
 import { KpiFrequency } from "@prisma/client/primary";
 
-import { prisma } from "../src/lib/prisma";
-import { getPeriodStartInclusive } from "../src/lib/kpi-period-window";
+import { prisma } from "../src/modules/platform/db/prisma";
+import { getPeriodStartInclusive } from "../src/modules/tasks/kpi-period-window";
 import {
   computePeriodKey,
   getPeriodEndExclusiveFromCycleStart,
   isLegacyPeriodKey,
   normalizeTimeZone,
   type KpiFrequencyCode,
-} from "../src/lib/kpi-recurrence";
+} from "../src/modules/tasks/kpi-recurrence";
 import {
   recurringIncompleteRolloverEligibleAt,
   recurringIncompleteRolloverHoldDays,
-} from "../src/lib/kpi-cycle-state";
-import { upsertKpiPeriodSnapshot } from "../src/lib/kpi-period-snapshots";
+} from "../src/modules/tasks/kpi-cycle-state";
+import { upsertKpiPeriodSnapshot } from "../src/modules/tasks/kpi-period-snapshots";
 import {
   collectChecklistProgressItems,
   hasItemsInUnassignedSegment,
   resetAllSubKpiDone,
-} from "../src/lib/kpi-subkpis";
-import { subKpiRequirementsMet } from "../src/lib/sub-kpi-completion-mode";
-import { kpiMainTaskLabel } from "../src/lib/kpi-main-task";
+} from "../src/modules/tasks/kpi-subkpis";
+import { subKpiRequirementsMet } from "../src/modules/tasks/sub-kpi-completion-mode";
+import { kpiMainTaskLabel } from "../src/modules/tasks/kpi-main-task";
 
 const FREQ = "DAILY" as KpiFrequencyCode;
 

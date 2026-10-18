@@ -1,11 +1,14 @@
 import { Prisma } from "@prisma/client/primary";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { prisma } from "@/modules/platform/db/prisma";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const { unauthorized } = await requireRole(["Admin"]);
-  if (unauthorized) return unauthorized;
+  const { session, unauthorized } = await requireRole(["Admin"]);
+  if (unauthorized || !session) return unauthorized;
+  const denied = await permissionDenied(session, "users.update");
+  if (denied) return denied;
   const { id } = await ctx.params;
   const body = (await req.json()) as { teamId?: string };
 
@@ -39,8 +42,10 @@ export async function DELETE(
   _req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  const { unauthorized } = await requireRole(["Admin"]);
-  if (unauthorized) return unauthorized;
+  const { session, unauthorized } = await requireRole(["Admin"]);
+  if (unauthorized || !session) return unauthorized;
+  const denied = await permissionDenied(session, "users.update");
+  if (denied) return denied;
   const { id } = await ctx.params;
 
   const agent = await prisma.agent.findUnique({

@@ -12,14 +12,14 @@
  */
 import { Prisma } from "@prisma/client/primary";
 import { ensureAgentRowForPortalStaff } from "../src/lib/admin-roster";
-import { samePersonName } from "../src/lib/auth/person-match";
+import { samePersonName } from "../src/modules/platform/auth/person-match";
 import {
   canonicalProfileFromMerged,
   syncPortalProfile,
-} from "../src/lib/auth/sync-portal-profile";
-import { resolveRosterCompanyName } from "../src/lib/hris-company-aliases";
+} from "../src/modules/platform/auth/sync-portal-profile";
+import { resolveRosterCompanyName } from "../src/modules/hierarchy/hris-company-aliases";
 import { ensureRosterTeamsInDb } from "../src/lib/roster-teams";
-import { prismaPrimary, prismaSecondary } from "../src/lib/prisma";
+import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 import { isStaffPortalRole } from "../src/lib/staff-role";
 
 type MergedRow = {

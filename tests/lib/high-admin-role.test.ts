@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { hasRole } from "@/lib/access";
-import { mapPortalRoleToMergedHrisRole } from "@/lib/auth/portal-to-merged-role";
-import { canBeAssignedStaffWork, canManageAllCompanies } from "@/lib/auth/portal-permissions";
+import { mapPortalRoleToMergedHrisRole } from "@/modules/platform/auth/portal-to-merged-role";
+import { canBeAssignedStaffWork, canManageAllCompanies } from "@/modules/platform/auth/portal-permissions";
 import {
   isElevatedPlatformRole,
   isPlatformSuperAdminPortalRole,

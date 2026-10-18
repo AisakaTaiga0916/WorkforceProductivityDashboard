@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { portalRoleDisplayLabel } from "@/lib/staff-role";
 import { PointerDragGhostLayer, usePointerColumnDrag } from "@/lib/pointer-column-drag";
 import {
   compareOutlineLabels,
@@ -1172,7 +1173,9 @@ export function OrgChartSectionsPanel({
                     ) : null}
                   </span>
                   <span className="shrink-0 truncate text-xs text-zinc-500">
-                    {[n.personRole, n.companyName].filter(Boolean).join(" · ")}
+                    {[n.personRole ? portalRoleDisplayLabel(n.personRole) : null, n.companyName]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
                   {canSetPortalRoles && mergedId ? (
                     portalRole === "SuperAdmin" ||
@@ -1182,7 +1185,7 @@ export function OrgChartSectionsPanel({
                         className="shrink-0 rounded-md border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
                         title="Change this role from ListView"
                       >
-                        {portalRole}
+                        {portalRoleDisplayLabel(portalRole)}
                       </span>
                     ) : (
                       <label
@@ -1205,9 +1208,9 @@ export function OrgChartSectionsPanel({
                           }}
                           className="h-7 max-w-[8.5rem] rounded-md border border-amber-300 bg-amber-50 px-1.5 text-[11px] font-semibold text-amber-950 outline-none focus:border-orange-500/60 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
                         >
-                          <option value="Personnel">Personnel</option>
-                          <option value="Admin">Admin</option>
-                          <option value="HighAdmin">HighAdmin</option>
+                          <option value="Personnel">{portalRoleDisplayLabel("Personnel")}</option>
+                          <option value="Admin">{portalRoleDisplayLabel("Admin")}</option>
+                          <option value="HighAdmin">{portalRoleDisplayLabel("HighAdmin")}</option>
                         </select>
                       </label>
                     )
@@ -1974,7 +1977,9 @@ export function OrgChartSectionsPanel({
                         {n.personName}
                       </span>
                       <span className="shrink-0 truncate text-xs text-zinc-500">
-                        {[n.personRole, n.companyName].filter(Boolean).join(" · ")}
+                        {[n.personRole ? portalRoleDisplayLabel(n.personRole) : null, n.companyName]
+                      .filter(Boolean)
+                      .join(" · ")}
                       </span>
                     </li>
                   );

@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { requireSession } from "@/lib/access";
 import { verifyEmailVerificationToken } from "@/lib/email-verification-token";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import { EmailVerificationClient } from "@/app/verification/email/ui";
 
 export const dynamic = "force-dynamic";

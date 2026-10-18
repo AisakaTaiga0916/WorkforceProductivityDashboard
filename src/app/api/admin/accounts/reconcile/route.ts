@@ -4,7 +4,8 @@ import {
   pickCanonicalAgentForPortal,
 } from "@/lib/admin-roster";
 import { requireRole } from "@/lib/access";
-import { prisma } from "@/lib/prisma";
+import { permissionDenied } from "@/modules/platform/rbac/permissions";
+import { prisma } from "@/modules/platform/db/prisma";
 import { isStaffPortalRole } from "@/lib/staff-role";
 
 /**
@@ -12,8 +13,11 @@ import { isStaffPortalRole } from "@/lib/staff-role";
  * Keeps the canonical agent (portal email match, else oldest), reassigns tickets/tasks/KPIs, deletes extras.
  */
 export async function POST() {
-  const { unauthorized } = await requireRole(["Admin"]);
-  if (unauthorized) return unauthorized;
+  const { session, unauthorized } = await requireRole(["Admin"]);
+  if (unauthorized || !session) return unauthorized;
+
+  const denied = await permissionDenied(session, "users.update");
+  if (denied) return denied;
 
   let agents = await prisma.agent.findMany({ orderBy: { createdAt: "asc" } });
   const portalStaff = await prisma.portalAccount.findMany({

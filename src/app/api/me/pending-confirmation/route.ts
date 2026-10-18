@@ -3,9 +3,9 @@ import { requireSession } from "@/lib/access";
 import {
   customerPendingTicketHref,
   listTicketsAwaitingCustomerConfirmation,
-} from "@/lib/customer-pending-resolution";
+} from "@/modules/requests/customer-pending-resolution";
 import { ensureTicketRemarksColumn } from "@/lib/ensure-ticket-remarks-column";
-import { isTicketRequestorRole } from "@/lib/ticket-requestor";
+import { isTicketRequestorRole } from "@/modules/requests/ticket-requestor";
 
 /**
  * Tickets awaiting the signed-in requestor's confirmation (FOR_CONFIRMATION / RESOLVED).

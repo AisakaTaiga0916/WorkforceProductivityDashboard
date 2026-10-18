@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client/primary";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 /**
  * Reads/writes `portal_accounts.staff_assignment_color` via raw SQL so the app

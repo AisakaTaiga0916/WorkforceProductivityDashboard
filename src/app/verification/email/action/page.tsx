@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { verifyEmailVerificationToken } from "@/lib/email-verification-token";
-import { prisma } from "@/lib/prisma";
-import { isAwaitingCustomerConfirmation } from "@/lib/customer-pending-resolution";
-import { logActivity } from "@/lib/ticket-actions";
-import { normalizeFeedbackComment, validateFeedbackForRating } from "@/lib/ticket-feedback-policy";
+import { prisma } from "@/modules/platform/db/prisma";
+import { isAwaitingCustomerConfirmation } from "@/modules/requests/customer-pending-resolution";
+import { logActivity } from "@/modules/requests/ticket-actions";
+import { normalizeFeedbackComment, validateFeedbackForRating } from "@/modules/requests/ticket-feedback-policy";
 
 const RATING_ALLOWED_STATUSES = ["FOR_CONFIRMATION", "RESOLVED", "CLOSED"];
 

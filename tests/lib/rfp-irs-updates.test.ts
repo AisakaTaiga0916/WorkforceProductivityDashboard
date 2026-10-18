@@ -12,12 +12,12 @@ import {
   completePaymentApprovalStep,
   paymentStepRequiresApprovedAck,
   PAYMENT_APPROVAL_STEPS,
-} from "@/lib/request-for-payment-approval";
+} from "@/modules/requests/request-for-payment-approval";
 import {
   applyRequisitionPricingDerivedFields,
   computeRequisitionPriceQuotation,
   sumRequisitionListedItemsTotal,
-} from "@/lib/item-requisition";
+} from "@/modules/requests/item-requisition";
 
 describe("RFP procedural approval chain", () => {
   it("starts at NOTED_BY and advances through Accounting and Finance", () => {

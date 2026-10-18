@@ -1,12 +1,12 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 import {
   parsePaymentApprovalMeta,
   currentPaymentStepBoardAssigneeId,
-} from "@/lib/request-for-payment-approval";
+} from "@/modules/requests/request-for-payment-approval";
 import {
   parseJobOrderApprovalMeta,
   currentJobOrderStepBoardAssigneeId,
-} from "@/lib/job-order-approval";
+} from "@/modules/requests/job-order-approval";
 
 type Fix = {
   ticketNumber: string;

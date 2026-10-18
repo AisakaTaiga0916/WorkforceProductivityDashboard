@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { isElevatedUserRole } from "@/lib/auth";
+import { isElevatedUserRole } from "@/modules/platform/auth";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { prisma } from "@/lib/prisma";
-import { resolveAgentDesignatedCompanyId } from "@/lib/staff-company-scope";
+import { prisma } from "@/modules/platform/db/prisma";
+import { resolveAgentDesignatedCompanyId } from "@/modules/platform/scope/staff-company-scope";
 import { isPersonnelGuardPortalRole } from "@/lib/staff-role";
 import {
   findTravelOrdersVisibleToAgent,
   serializeTravelOrder,
-} from "@/lib/travel-order-db";
+} from "@/modules/work-plans/travel-order-db";
 
 /** Dev/Windows: add work_plan_meta if migrations have not run yet. */
 let workPlanMetaColumnReady = false;

@@ -7,8 +7,8 @@
  *   npx tsx scripts/sync-hris-clockins.ts
  *   HRIS_LIVE_SOURCE_DB=hris npx tsx scripts/sync-hris-clockins.ts
  */
-import { runHrisAttendanceSync } from "../src/lib/auth/hris-attendance-sync";
-import { prismaSecondary } from "../src/lib/prisma";
+import { runHrisAttendanceSync } from "../src/modules/platform/auth/hris-attendance-sync";
+import { prismaSecondary } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const result = await runHrisAttendanceSync();

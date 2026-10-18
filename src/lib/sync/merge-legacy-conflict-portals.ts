@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { pickCanonicalAgentForPortal } from "@/lib/admin-roster";
 import { normalizePersonName } from "@/lib/person-name";
 import { mergeAgentOwnership } from "@/lib/reconcile-duplicate-agents";
-import { prismaAuth, prismaPrimary, prismaSecondary } from "@/lib/prisma";
+import { prismaAuth, prismaPrimary, prismaSecondary } from "@/modules/platform/db/prisma";
 
 const STAFF_ROLES = ["Admin", "Personnel", "SuperAdmin"] as const;
 

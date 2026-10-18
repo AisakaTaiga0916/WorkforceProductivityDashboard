@@ -8,7 +8,7 @@ import {
   JO_PROJECT_REQUESTED_SUMMARY,
   JO_PROJECT_REQUEST_FULFILLED_SUMMARY,
   JO_PROJECT_REQUEST_CANCELLED_SUMMARY,
-} from "@/lib/job-order-project-request";
+} from "@/modules/requests/job-order-project-request";
 
 describe("job order project request", () => {
   it("round-trips request payload", () => {

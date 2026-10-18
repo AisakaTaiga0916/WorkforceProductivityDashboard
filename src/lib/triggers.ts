@@ -1,5 +1,5 @@
 import type { TicketPriority } from "@prisma/client/primary";
-import { prisma } from "./prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 export async function getEscalationTrigger(priority: TicketPriority) {
   return prisma.escalationTrigger.findUnique({ where: { priority } });

@@ -1,11 +1,11 @@
-import { prisma } from "../../src/lib/prisma";
+import { prisma } from "../../src/modules/platform/db/prisma";
 import { DateTime } from "luxon";
-import { normalizeTimeZone } from "../../src/lib/kpi-recurrence";
+import { normalizeTimeZone } from "../../src/modules/tasks/kpi-recurrence";
 import {
   recurringDeadlineExclusive,
   recurringTaskHasDelay,
   taskKanbanDerivedStatus,
-} from "../../src/lib/kpi-cycle-state";
+} from "../../src/modules/tasks/kpi-cycle-state";
 
 const TZ = "Asia/Taipei";
 

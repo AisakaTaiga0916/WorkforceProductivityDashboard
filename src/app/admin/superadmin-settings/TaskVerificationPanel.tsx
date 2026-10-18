@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, RotateCcw, Save, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import type { TaskVerificationSettings } from "@/lib/task-verification-settings";
+import type { TaskVerificationSettings } from "@/modules/platform/settings/task-verification-settings";
 
 export function TaskVerificationPanel() {
   const [enabled, setEnabled] = useState(true);

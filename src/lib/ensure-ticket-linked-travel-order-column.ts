@@ -1,7 +1,7 @@
 /**
  * Dev/Windows: add tickets.linked_travel_order_id if migrations have not run yet.
  */
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/modules/platform/db/prisma";
 
 let ensured = false;
 

@@ -11,7 +11,7 @@ import {
   UNSEGMENTED_SEGMENT_ID,
   UNSEGMENTED_SEGMENT_LABEL,
   type SubKpiItem,
-} from "@/lib/kpi-subkpis";
+} from "@/modules/tasks/kpi-subkpis";
 import { CopySubtaskToSegmentModal } from "@/components/task-board/CopySubtaskToSegmentModal";
 import {
   segmentsToKanbanBoards,

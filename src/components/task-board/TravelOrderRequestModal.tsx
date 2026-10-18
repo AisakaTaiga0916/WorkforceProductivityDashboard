@@ -25,7 +25,7 @@ import {
   fetchTravelOrderWithTimeout,
   isTravelOrderNetworkFailure,
 } from "@/lib/offline/travel-order-sync";
-import { type TravelOrderApprovalLevelDraft, approvalLevelsAllowOptional } from "@/lib/travel-order";
+import { type TravelOrderApprovalLevelDraft, approvalLevelsAllowOptional } from "@/modules/work-plans/travel-order";
 import {
   WORK_PLAN_APPROVAL_TOP_ORG_LAYER,
   WORK_PLAN_WIZARD_STEPS,
@@ -41,9 +41,9 @@ import {
   workPlanVenueLabels,
   type WorkPlanDraft,
   type WorkPlanSectionId,
-} from "@/lib/work-plan";
-import { collapseDuplicateDesignation } from "@/lib/org-chart-executive-titles";
-import type { WorkPlanOrgChartApprovalPath } from "@/lib/work-plan-org-chart-path";
+} from "@/modules/work-plans/work-plan";
+import { collapseDuplicateDesignation } from "@/modules/hierarchy/org-chart-executive-titles";
+import type { WorkPlanOrgChartApprovalPath } from "@/modules/work-plans/work-plan-org-chart-path";
 
 type AgentOption = {
   id: string;
