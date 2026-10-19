@@ -5,7 +5,9 @@ export type BreadcrumbSegment = {
 
 const ROUTE_LABELS: Record<string, string> = {
   agent: "Assign Requests",
-  tasks: "Kanban / Task Board",
+  work: "Work",
+  tasks: "Tasks",
+  projects: "Projects",
   tickets: "Requests",
   insights: "KPI / Insights",
   process: "Process Controls",
@@ -39,7 +41,7 @@ const QUERY_CRUMBS: Array<{
   },
   {
     match: (params) => params.get("board") === "kpi",
-    segments: [{ label: "Kanban / Task Board", href: "/agent/tasks" }],
+    segments: [{ label: "Tasks", href: "/work/tasks" }],
   },
 ];
 
@@ -75,17 +77,33 @@ export function buildStaffBreadcrumbs(
     ];
   }
 
-  if (parts[0] === "agent" && parts[1] === "tasks") {
+  if (parts[0] === "work" && parts[1] === "tasks") {
     const taskId = params.get("task");
     if (taskId) {
       return [
         home,
-        { label: "Boards", href: "/agent/tasks" },
-        { label: "Kanban / Task Board", href: "/agent/tasks" },
+        { label: "Work", href: "/work/tasks" },
+        { label: "Tasks", href: "/work/tasks" },
         { label: taskId },
       ];
     }
-    return [home, { label: "Boards", href: "/agent" }, { label: "Kanban / Task Board" }];
+    return [home, { label: "Work", href: "/work/tasks" }, { label: "Tasks" }];
+  }
+
+  if (parts[0] === "work" && parts[1] === "projects") {
+    const projectId = parts[2];
+    return projectId
+      ? [
+          home,
+          { label: "Work", href: "/work/tasks" },
+          { label: "Projects", href: "/work/projects" },
+          { label: projectId },
+        ]
+      : [home, { label: "Work", href: "/work/tasks" }, { label: "Projects" }];
+  }
+
+  if (parts[0] === "work") {
+    return [home, { label: "Work", href: "/work/tasks" }];
   }
 
   if (parts[0] === "agent" && parts[1] === "approvals") {

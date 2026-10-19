@@ -77,7 +77,7 @@ const SHORTCUT_CATALOG: ShortcutDef[] = [
   { id: "c-board", href: "/agent?board=company", label: "Group Board", icon: Building2, adminOnly: true },
   { id: "r-board", href: "/agent?board=ticket", label: "r.board", icon: Ticket },
   { id: "m-requests", href: "/agent?pane=mine", label: "m.requests", icon: UserRound },
-  { id: "tasks", href: "/agent/tasks", label: "Tasks", icon: CheckSquare },
+  { id: "tasks", href: "/work/tasks", label: "Tasks", icon: CheckSquare },
   { id: "workforce", href: "/admin/workforce", label: "Workforce", icon: Users, adminOnly: true },
   {
     id: "alerts",
@@ -354,19 +354,19 @@ export function SidebarOpsWidget({ className, compact = false }: Props) {
           </div>
           <div className="mt-2 grid grid-cols-3 gap-1.5">
             <QueueStat
-              href="/agent/tasks"
+              href="/work/tasks"
               label="Current"
               value={summary.tasksCurrent}
               tone="sky"
             />
             <QueueStat
-              href="/agent/tasks"
+              href="/work/tasks"
               label="Done"
               value={summary.tasksDone}
               tone="orange"
             />
             <QueueStat
-              href="/agent/tasks"
+              href="/work/tasks"
               label="Delayed"
               value={summary.tasksDelayed}
               tone="rose"

@@ -51,7 +51,7 @@ function linksForRole(role: string | undefined): NavItem[] {
         label: "Operations",
         children: [
           { href: "/agent", label: "Requests" },
-          { href: "/agent/tasks", label: "Tasks" },
+          { href: "/work/tasks", label: "Work" },
         ],
       },
       {
@@ -76,7 +76,7 @@ function linksForRole(role: string | undefined): NavItem[] {
         label: "Operations",
         children: [
           { href: "/agent", label: "Requests" },
-          { href: "/agent/tasks", label: "Tasks" },
+          { href: "/work/tasks", label: "Work" },
         ],
       },
       {
@@ -95,7 +95,7 @@ function linksForRole(role: string | undefined): NavItem[] {
         label: "Operations",
         children: [
           { href: "/agent", label: "Requests" },
-          { href: "/agent/tasks", label: "Tasks" },
+          { href: "/work/tasks", label: "Work" },
         ],
       },
       { kind: "group", label: "Reports", children: [{ href: "/insights", label: "Metrics & Reports" }] },
@@ -122,6 +122,7 @@ function iconForLink(label: string) {
   if (key.includes("my request")) return LayoutDashboard;
   if (key === "tickets") return Ticket;
   if (key === "tasks") return CheckSquare;
+  if (key === "work") return CheckSquare;
   if (key.includes("ticket board")) return Ticket;
   if (key.includes("task board")) return CheckSquare;
   if (key.includes("home") || key.includes("dashboard")) return Home;

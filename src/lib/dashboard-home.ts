@@ -292,7 +292,7 @@ async function listTasksAssignedToAgent(
       kind: "task",
       title: label || pillar || "Task",
       subtitle: pillar && pillar.toLowerCase() !== label.toLowerCase() ? pillar : undefined,
-      href: `/agent/tasks?task=${encodeURIComponent(row.id)}`,
+      href: `/work/tasks?task=${encodeURIComponent(row.id)}`,
       status: isDone ? "Done" : "Pending",
       badge,
       updatedAt: row.updatedAt.toISOString(),
@@ -562,8 +562,8 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
       title: row.orderRequest?.trim() || "Travel order approval",
       subtitle: row.kpiMainTask || row.kpiTitle || undefined,
       href: row.kpiMaintenanceId
-        ? `/agent/tasks?task=${encodeURIComponent(row.kpiMaintenanceId)}`
-        : "/agent/tasks",
+        ? `/work/tasks?task=${encodeURIComponent(row.kpiMaintenanceId)}`
+        : "/work/tasks",
       status: "Awaiting approval",
       badge: "T.O.",
       updatedAt: row.updatedAt?.toISOString?.() ?? now.toISOString(),
@@ -574,8 +574,8 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
       title: row.orderRequest?.trim() || "Travel order confirmation",
       subtitle: row.kpiMainTask || row.kpiTitle || undefined,
       href: row.kpiMaintenanceId
-        ? `/agent/tasks?task=${encodeURIComponent(row.kpiMaintenanceId)}`
-        : "/agent/tasks",
+        ? `/work/tasks?task=${encodeURIComponent(row.kpiMaintenanceId)}`
+        : "/work/tasks",
       status: "Awaiting confirmation",
       badge: "T.O.",
       updatedAt: row.updatedAt?.toISOString?.() ?? now.toISOString(),

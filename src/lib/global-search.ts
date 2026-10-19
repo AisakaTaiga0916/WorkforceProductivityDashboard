@@ -178,7 +178,7 @@ export function buildQuickActions(role: string | undefined): QuickAction[] {
         id: "create-work-plan",
         label: "Create Travel Order",
         subtitle: "Open Tasks board · Travel Orders",
-        href: "/agent/tasks",
+        href: "/work/tasks",
         keywords: ["travel", "work plan", "travel order", "field assignment"],
       },
     );

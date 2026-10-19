@@ -179,7 +179,7 @@ export default async function AgentHome({
     if (assigned) qs.set("assigned", assigned);
     if (task) qs.set("task", task);
     const s = qs.toString();
-    redirect(s ? `/agent/tasks?${s}` : "/agent/tasks");
+    redirect(s ? `/work/tasks?${s}` : "/work/tasks");
   }
   /** Personnel cannot view the Company Board: force them back to the Request Board. */
   if (rawBoard === "company" && session.user.role === "Personnel") {
@@ -1023,7 +1023,7 @@ export default async function AgentHome({
                       return (
                         <Link
                           key={`to-approve-${order.id}`}
-                          href={`/agent/tasks?task=${encodeURIComponent(order.kpiMaintenanceId)}`}
+                          href={`/work/tasks?task=${encodeURIComponent(order.kpiMaintenanceId)}`}
                           className="block rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2 hover:bg-orange-500/15 dark:border-orange-500/30 dark:bg-orange-500/10 dark:hover:bg-orange-500/15"
                         >
                           <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">

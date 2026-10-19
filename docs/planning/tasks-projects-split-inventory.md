@@ -124,6 +124,31 @@ Delivered:
 - Tests: `tests/lib/project-migration-classify.test.ts` (10 cases) covering every signal and exception rule.
 - Production runbook (later): run the dry run against prod, review the CSV exceptions, then build/run the apply script (inserts into `projects`/`project_phases`/`project_items` keyed by `legacyKpiMaintenanceId`, then retires the source rows per the cutover plan).
 
-## 10. Next — step 4
+## 10. Step 4 — Work area + projects board (done 2026-10-19)
 
-`/work/tasks` & `/work/projects` routes with tabs, dashboard/search links to the specific tab, module gating for the new path, and the separate `ProjectStatusBoard` (shared primitives only).
+Routes / shell:
+
+- `/work` layout (`src/app/work/layout.tsx`) — staff gate + brand header + `WorkTabs` (Tasks | Projects, hidden per module visibility).
+- `/work/tasks` — task board moved from `/agent/tasks` (filter bar + `AgentKpiKanbanFlow`); `/agent/tasks?...` is now a query-preserving redirect to `/work/tasks`.
+- `/work/projects` — new `ProjectStatusBoard` (client) with four status lanes, project cards (company/lead/date/progress), create modal, and detail modal (status, target date, phases + items with inline rename/add/remove/due dates).
+- `/work` redirects to the first enabled tab (tasks → projects fallback).
+- Module gating: new `projects` system module in `system-modules.ts` + SuperAdmin Settings toggle icon; `tasks` maps `["/work/tasks", "/agent/tasks"]`, `projects` maps `["/work/projects"]`.
+
+API:
+
+- `GET /api/projects` (list + create options + `canCreate`), `POST /api/projects` (create + first phase, `activePhaseId` set), `PATCH /api/projects/[id]` (single-action union: `setStatus`, `setDueDate`, `addPhase`, `renamePhase`, `removePhase`, `setPhaseDueDate`, `addItem`, `renameItem`, `setItemStatus`, `setItemDueDate`, `removeItem`).
+- RBAC: `projects.read` / `projects.create` / `projects.update` with the same staff-role gate as the task board; company scope = viewer company memberships + lead/phase/item assignment (SuperAdmin/HighAdmin global). Creation defaults to the viewer's first company so Personnel-created projects stay visible to their company. Deleting the last phase is rejected.
+- Service/queries: `src/modules/projects/project-service.ts` (viewer scope, DTOs, list/create/action) + `src/modules/projects/project-status.ts` (client-safe statuses/labels).
+
+Nav & links:
+
+- Sidebar "Work" (was "Tasks") + staff nav "Work (Tasks & Projects)"; active-state + breadcrumbs (`Home > Work > Tasks/Projects`).
+- All dashboard/search/shortcut/offline deep links moved to `/work/tasks` (dashboard-home, PersonalizedStaffDashboard, SidebarOpsWidget, global search, Travel Orders quick access, service-worker shell, `?board=kpi` redirect).
+
+Verification (2026-10-19): `tsc` clean, eslint clean on new code, 91 files / **516 tests** pass; live smoke — 24 API checks (create/mutate/validate/cleanup) + Puppeteer page checks (tabs, redirects, lanes render) all pass. Dev server restart was needed to pick up the regenerated Prisma client.
+
+Known limits (v1): no drag-and-drop between lanes (status via detail select); assignee pickers on phases/items and project delete are not exposed yet; no audit trail on project edits. Still staged until cutover: the task board continues to show legacy project rows (`category=project`) from `kpi_maintenance` until the production migration runs.
+
+## 11. Next — step 5
+
+JO linkage teardown: stop auto-link/request flows (`JobOrderProjectLinkPanel`, `job-order-project*` modules/routes), drop project-link joins from JO credit (`kpi-maintenance` sections 1151–1219, 1357–1374), and update `user-efficiency-breakdown` to execution-team credit only. Then step 6: remove migration shims and confirm projects carry no schedule/KPI/verification features.

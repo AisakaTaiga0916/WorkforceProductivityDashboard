@@ -48,7 +48,7 @@ const BOARDS: StaffNavSection = {
       label: "Assign Requests",
       adminOnly: true,
     },
-    { id: "task-board", href: "/agent/tasks", label: "Kanban / Task Board" },
+    { id: "work", href: "/work/tasks", label: "Work (Tasks & Projects)" },
     { id: "travel-orders", href: "/travel-orders", label: "Travel Orders" },
     { id: "unassigned", href: "/agent?assigned=UNASSIGNED", label: "Unassigned", adminOnly: true },
   ],

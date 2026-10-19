@@ -2,7 +2,7 @@
 
 import type { EscalationTrigger } from "@prisma/client/primary";
 import { useCallback, useEffect, useState } from "react";
-import { CheckSquare, Map as MapIcon, RotateCcw, Save, Ticket } from "lucide-react";
+import { CheckSquare, FolderKanban, Map as MapIcon, RotateCcw, Save, Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 import { SYSTEM_MODULES_CHANGED_EVENT } from "@/modules/platform/settings/system-modules-client";
@@ -21,6 +21,7 @@ import { TaskVerificationPanel } from "./TaskVerificationPanel";
 const MODULE_ICONS: Record<SystemModuleId, typeof Ticket> = {
   requests: Ticket,
   tasks: CheckSquare,
+  projects: FolderKanban,
   work_plans: MapIcon,
 };
 

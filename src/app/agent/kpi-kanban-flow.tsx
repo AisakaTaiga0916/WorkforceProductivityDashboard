@@ -2427,7 +2427,7 @@ export function AgentKpiKanbanFlow({
       const worker = navigator.serviceWorker?.controller;
       worker?.postMessage({
         type: "WARM_TRAVEL_ORDER_SHELL",
-        urls: ["/offline-travel-orders.html", "/agent/tasks", window.location.pathname],
+        urls: ["/offline-travel-orders.html", "/work/tasks", window.location.pathname],
       });
     }
     const unsub = subscribeTravelOrderConnectivity(() => {

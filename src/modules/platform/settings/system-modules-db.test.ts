@@ -12,7 +12,7 @@ const getSetting = vi.mocked(getPlatformSettingJson);
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  await setSystemModuleVisibility({ requests: true, tasks: true, work_plans: true });
+  await setSystemModuleVisibility({ requests: true, tasks: true, projects: true, work_plans: true });
 });
 
 describe("moduleDisabledResponse", () => {
@@ -21,7 +21,7 @@ describe("moduleDisabledResponse", () => {
   });
 
   it("returns a MODULE_DISABLED 403 when the module is off", async () => {
-    await setSystemModuleVisibility({ requests: true, tasks: false, work_plans: true });
+    await setSystemModuleVisibility({ requests: true, tasks: false, projects: true, work_plans: true });
     const res = await moduleDisabledResponse("tasks");
     expect(res?.status).toBe(403);
     expect(await res?.json()).toMatchObject({ code: "MODULE_DISABLED", module: "tasks" });

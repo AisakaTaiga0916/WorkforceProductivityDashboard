@@ -25,6 +25,15 @@ export function navLinkActive(
   }
 
   if (path === "/") return pathname === "/";
+  if (path === "/work/tasks") {
+    return pathname === "/work/tasks" || pathname.startsWith("/work/tasks/");
+  }
+  if (path === "/work/projects") {
+    return pathname === "/work/projects" || pathname.startsWith("/work/projects/");
+  }
+  if (path === "/work") {
+    return pathname === "/work" || pathname.startsWith("/work/");
+  }
   if (path === "/agent/tasks") {
     return pathname === "/agent/tasks" || pathname.startsWith("/agent/tasks/");
   }

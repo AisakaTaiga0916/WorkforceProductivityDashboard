@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Workbox } from "workbox-window";
 import { flushTravelOrderPendingQueue } from "@/lib/offline/travel-order-sync";
 
-const SHELL_WARM_URLS = ["/offline-travel-orders.html", "/agent/tasks"];
+const SHELL_WARM_URLS = ["/offline-travel-orders.html", "/work/tasks"];
 
 function warmTravelOrderShell(registration?: ServiceWorkerRegistration | null) {
   const worker = registration?.active || navigator.serviceWorker.controller;

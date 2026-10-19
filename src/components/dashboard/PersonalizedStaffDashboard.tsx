@@ -39,7 +39,7 @@ export function PersonalizedStaffDashboard({ data, nowLabel }: Props) {
           id: "delayed-tasks",
           label: "Delayed tasks",
           value: summary.tasksDelayed,
-          href: "/agent/tasks",
+          href: "/work/tasks",
           tone: summary.tasksDelayed > 0 ? "warning" : "default",
         },
       ]
@@ -189,7 +189,7 @@ export function PersonalizedStaffDashboard({ data, nowLabel }: Props) {
                   : "No overdue or at-risk items."
               }
               items={data.overdueItems}
-              viewAllHref={data.isPersonnelView ? "/agent/tasks" : "/agent"}
+              viewAllHref={data.isPersonnelView ? "/work/tasks" : "/agent"}
             />
           </div>
         </section>

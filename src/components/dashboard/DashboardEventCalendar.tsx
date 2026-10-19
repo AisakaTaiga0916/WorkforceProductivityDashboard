@@ -103,7 +103,7 @@ export function DashboardEventCalendar({ storageKey }: { storageKey: string }) {
         category: "Task",
         tags: ["Work"],
         readOnly: true,
-        href: `/agent/tasks?task=${encodeURIComponent(task.id)}`,
+        href: `/work/tasks?task=${encodeURIComponent(task.id)}`,
       };
     });
 
@@ -136,7 +136,7 @@ export function DashboardEventCalendar({ storageKey }: { storageKey: string }) {
     <EventManager
       storageKey={storageKey}
       externalEvents={externalEvents}
-      taskBoardHref="/agent/tasks"
+      taskBoardHref="/work/tasks"
       categories={["Meeting", "Task", "Travel Order", "Reminder", "Personal"]}
       className="rounded-xl border border-zinc-200 bg-white p-3 shadow-[0_8px_28px_rgba(0,0,0,0.06)] sm:p-5 dark:border-zinc-800 dark:bg-surface dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
     />

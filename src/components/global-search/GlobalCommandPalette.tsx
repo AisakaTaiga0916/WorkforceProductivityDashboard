@@ -53,7 +53,7 @@ function iconForQuickAction(action: QuickAction): LucideIcon {
   if (id === "create-rfp" || label.includes("payment")) return FileText;
   if (id === "create-job-order" || label.includes("job order")) return ClipboardList;
   if (id === "create-travel-order" || label.includes("travel")) return MapPin;
-  if (id === "task-board" || href.includes("/agent/tasks")) return CheckSquare;
+  if (id === "task-board" || href.includes("/work/tasks")) return CheckSquare;
   if (id === "my-assigned" || href === "/agent" || href.startsWith("/agent?")) return Ticket;
   if (id === "my-requests" || href.includes("my-requests")) return FileText;
   if (id === "assignment-board") return ClipboardList;
