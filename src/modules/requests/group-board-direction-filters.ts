@@ -71,7 +71,7 @@ async function emailsForCompanyTeam(companyTeamId: string): Promise<string[]> {
   const portals = await prisma.portalAccount.findMany({
     where: {
       OR: [
-        { staffDesignatedCompanyId: companyTeamId },
+        { companyMemberships: { some: { companyId: companyTeamId } } },
         { companyId: companyTeamId },
       ],
     },

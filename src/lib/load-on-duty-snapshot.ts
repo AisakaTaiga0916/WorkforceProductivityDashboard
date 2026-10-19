@@ -6,7 +6,7 @@
 
 import { pickCanonicalAgentForPortal } from "@/lib/admin-roster";
 import { mapHrisToPortalRole } from "@/modules/platform/auth/role-mapping";
-import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
+import { loadCompanyDirectory } from "@/modules/platform/companies/company-directory";
 import {
   dutyStatusFromLatestClockIn,
   formatClockInLocalTime,
@@ -66,7 +66,10 @@ export type OnDutyAgentSnapshot = {
   /** Normalized portal role (SuperAdmin/HighAdmin/Admin/Personnel/…) when the
    *  person has a linked portal account; falls back to the merged HRIS role. */
   role?: string;
+  /** Default company (membership), else the HRIS company label. */
   companyName: string;
+  /** Every company the person belongs to (company filters match any of these). */
+  companyNames?: string[];
   /** @deprecated Prefer `dutyStatus` / `isOnDuty` — kept for older clients. */
   isOnline: boolean;
   dutyStatus: DutyStatus;
@@ -109,13 +112,6 @@ function formatLastActivity(clockInAt: Date | null, dutyStatus: DutyStatus): str
   return `Clocked in ${formatClockInLocalTime(clockInAt, DEFAULT_TIME_ZONE)}`;
 }
 
-/** Company label straight from merged_users.company_name (personnel source of truth). */
-function companyLabel(mergedCompanyName: string | null | undefined): string {
-  const merged = mergedCompanyName?.trim();
-  if (merged) return resolveRosterCompanyName(merged) ?? merged;
-  return "Unassigned";
-}
-
 type PortalProfileRow = {
   email: string;
   name: string;
@@ -125,6 +121,8 @@ type PortalProfileRow = {
   profileImageZoom: number;
   profileImagePosX: number;
   profileImagePosY: number;
+  /** Membership company names, default first. */
+  companyNames: string[];
 };
 
 type MergedRosterRow = {
@@ -146,7 +144,15 @@ type MergedRosterRow = {
 export async function loadOnDutySnapshot(options: LoadOnDutyOptions = {}): Promise<OnDutySnapshot> {
   const pageSize = Math.min(48, Math.max(1, options.pageSize ?? 6));
   const pageRaw = Math.max(1, options.page ?? 1);
-  const companyFilter = resolveRosterCompanyName(options.companyFilter) ?? options.companyFilter?.trim() ?? "";
+  const directory = await loadCompanyDirectory();
+  const companyFilter = options.companyFilter?.trim()
+    ? (directory.resolveLabel(options.companyFilter)?.name ?? options.companyFilter.trim())
+    : "";
+  const companyLabel = (mergedCompanyName: string | null | undefined): string => {
+    const merged = mergedCompanyName?.trim();
+    if (merged) return directory.resolveLabel(merged)?.name ?? merged;
+    return "Unassigned";
+  };
   const searchQuery = options.searchQuery?.trim().toLowerCase() ?? "";
   const roleFilter = normalizePortalRole(options.roleFilter) ?? "";
   const sourceTags = new Set(resolveHrisSourceTags());
@@ -170,6 +176,10 @@ export async function loadOnDutySnapshot(options: LoadOnDutyOptions = {}): Promi
         profileImageZoom: true,
         profileImagePosX: true,
         profileImagePosY: true,
+        companyMemberships: {
+          where: { company: { isActive: true } },
+          select: { isDefault: true, company: { select: { name: true } } },
+        },
       },
     }),
     prisma.agent.findMany({
@@ -202,6 +212,9 @@ export async function loadOnDutySnapshot(options: LoadOnDutyOptions = {}): Promi
       profileImageZoom: p.profileImageZoom,
       profileImagePosX: p.profileImagePosX,
       profileImagePosY: p.profileImagePosY,
+      companyNames: [...p.companyMemberships]
+        .sort((a, b) => Number(b.isDefault) - Number(a.isDefault))
+        .map((m) => m.company.name),
     };
     // Roster-consistent lookup: prefer the ACTIVE portal profile over a
     // LEGACY_CONFLICT duplicate sharing the same email, so the avatar used
@@ -289,13 +302,17 @@ export async function loadOnDutySnapshot(options: LoadOnDutyOptions = {}): Promi
       row.role ??
       "";
 
+    const membershipCompanies =
+      portalsByCanonicalId.get(sourceKey)?.[0]?.companyNames ?? portalProfile?.companyNames ?? [];
+
     allAgents.push({
       id,
       name: row.name,
       email: (row.email ?? "").trim().toLowerCase(),
       username: row.username,
       role,
-      companyName: companyLabel(row.company_name),
+      companyName: membershipCompanies[0] ?? companyLabel(row.company_name),
+      companyNames: membershipCompanies,
       isOnline: isOnDuty,
       dutyStatus,
       isOnDuty,
@@ -318,7 +335,10 @@ export async function loadOnDutySnapshot(options: LoadOnDutyOptions = {}): Promi
   );
 
   let filtered = companyFilter
-    ? allAgents.filter((agent) => agent.companyName === companyFilter)
+    ? allAgents.filter(
+        (agent) =>
+          agent.companyName === companyFilter || (agent.companyNames ?? []).includes(companyFilter),
+      )
     : allAgents;
 
   if (searchQuery) {

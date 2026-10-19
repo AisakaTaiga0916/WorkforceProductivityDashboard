@@ -19,6 +19,7 @@ export const PERMISSION_RESOURCES = [
   "work_plans",
   "hierarchy",
   "users",
+  "companies",
   "settings",
   "reports",
   "rbac",
@@ -31,6 +32,7 @@ export const PERMISSION_RESOURCE_LABELS: Record<PermissionResource, string> = {
   work_plans: "Work Plans",
   hierarchy: "Hierarchy / Org Chart",
   users: "Users",
+  companies: "Companies",
   settings: "System Settings",
   reports: "Reports",
   rbac: "Roles & Permissions",
@@ -239,6 +241,32 @@ const CATALOG = [
     resource: "users",
     action: "assign",
     description: "Assign a primary role to a user within the user's permitted scope.",
+  },
+
+  // Company directory (SuperAdmin Settings → Companies)
+  {
+    key: "companies.read",
+    resource: "companies",
+    action: "read",
+    description: "View the company directory, including archived companies.",
+  },
+  {
+    key: "companies.create",
+    resource: "companies",
+    action: "create",
+    description: "Create companies.",
+  },
+  {
+    key: "companies.update",
+    resource: "companies",
+    action: "update",
+    description: "Rename, re-code, and reorder companies.",
+  },
+  {
+    key: "companies.archive",
+    resource: "companies",
+    action: "archive",
+    description: "Archive or restore companies (history is retained).",
   },
 
   // Platform settings

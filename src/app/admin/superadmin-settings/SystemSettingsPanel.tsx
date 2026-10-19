@@ -15,6 +15,7 @@ import {
   type SystemModuleVisibility,
 } from "@/modules/platform/settings/system-modules";
 import { EscalationTriggersClient } from "../escalation-triggers/ui";
+import { TaskSchedulePanel } from "./TaskSchedulePanel";
 import { TaskVerificationPanel } from "./TaskVerificationPanel";
 
 const MODULE_ICONS: Record<SystemModuleId, typeof Ticket> = {
@@ -231,6 +232,8 @@ export function SystemSettingsPanel({ initialTriggers }: { initialTriggers: Trig
       </section>
 
       <TaskVerificationPanel />
+
+      <TaskSchedulePanel />
     </div>
   );
 }

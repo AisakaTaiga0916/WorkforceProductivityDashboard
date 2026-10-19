@@ -3,7 +3,7 @@
 import { CompanyUserSearchField } from "@/components/tickets/CompanyUserSearchField";
 import { TicketDetailsPrintButton } from "@/components/tickets/TicketDetailsPrintButton";
 import { TravelOrderApprovalModal } from "@/components/task-board/TravelOrderApprovalModal";
-import type { Agent, Team, Ticket, TicketActivity, TicketMessage } from "@prisma/client/primary";
+import type { Agent, Company, Ticket, TicketActivity, TicketMessage } from "@prisma/client/primary";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FileText, Paperclip, Loader2 } from "lucide-react";
@@ -109,7 +109,7 @@ import type { JobOrderScrollSection } from "@/modules/requests/job-order-section
 type TransferRecipient = { id: string; name: string; email: string };
 
 type TicketDetail = Ticket & {
-  team: Team | null;
+  team: Company | null;
   assignedAgent: Agent | null;
   activities: TicketActivity[];
   messages: TicketMessage[];
@@ -1124,7 +1124,7 @@ export function AgentWorkspace({
     } else if (fundTransferDetails) {
       fields.push(
         {
-          label: "Requesting department",
+          label: "Requesting team",
           value: fundTransferDetails.requestingDepartmentBusinessUnit || "—",
         },
         {
@@ -1768,7 +1768,7 @@ export function AgentWorkspace({
               <dl className="space-y-2 text-sm">
                 <div>
                   <dt className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-500">
-                    Requesting department
+                    Requesting team
                   </dt>
                   <dd className="mt-0.5 break-words font-medium text-zinc-800 dark:text-zinc-200">
                     {fundTransferDetails.requestingDepartmentBusinessUnit || "—"}

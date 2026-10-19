@@ -3,7 +3,7 @@ import { resolveStaffCompanyTeamId } from "../../src/modules/platform/scope/staf
 import { resolveViewerOrgChartSectionScope } from "../../src/modules/platform/scope/org-chart-section-scope";
 import { listOrgChartSectionOptions } from "../../src/modules/hierarchy/org-chart-section-roster";
 import { filterOrgChartSectionsByCompanyTeam } from "../../src/modules/hierarchy/org-chart-section-display";
-import { resolveMergedSourceUserIdForSessionEmail } from "../../src/modules/hierarchy/approval-position-resolver";
+import { resolveMergedSourceUserIdForSessionEmail } from "../../src/modules/platform/approvals/approval-position-resolver";
 
 async function main() {
   const admins = await prisma.portalAccount.findMany({

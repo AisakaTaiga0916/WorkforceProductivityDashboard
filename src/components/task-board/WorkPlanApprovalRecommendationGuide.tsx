@@ -35,8 +35,8 @@ export function WorkPlanApprovalRecommendationGuide({
     confirmation?.agentName?.trim() || (confirmation?.agentId ? "Assigned personnel" : null);
 
   const helpText = usedFallback
-    ? "Recommended path walks your managers up the org chart, then the department head confirms. The top of the chart is excluded. Fill any missing seat below."
-    : "Recommended path walks your managers up the org chart, then the department head confirms. The top of the chart is excluded. You can still override any seat.";
+    ? "Recommended path walks your managers up the org chart, then the team head confirms. The top of the chart is excluded. Fill any missing seat below."
+    : "Recommended path walks your managers up the org chart, then the team head confirms. The top of the chart is excluded. You can still override any seat.";
 
   return (
     <div className="rounded-xl border border-orange-200/80 bg-orange-50/40 p-3 dark:border-orange-500/25 dark:bg-orange-950/15 sm:p-4">
@@ -182,7 +182,7 @@ export function WorkPlanApprovalRecommendationGuide({
                 </p>
               ) : !confirmationName ? (
                 <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Department head — assign manually below if none is set.
+                  Team head — assign manually below if none is set.
                 </p>
               ) : null}
             </div>

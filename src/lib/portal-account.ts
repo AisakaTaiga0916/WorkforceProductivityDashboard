@@ -158,53 +158,6 @@ export async function createPortalAccount(input: {
   }
 }
 
-export type StaffPortalCreateRole = "Admin" | "Personnel";
-
-/**
- * SuperAdmin-only: create a staff portal account (Admin or Personnel) with an
- * optional password and designated company queue. OAuth-only staff omit password.
- */
-export async function createStaffPortalAccount(input: {
-  username: string;
-  email: string;
-  name: string;
-  password?: string;
-  role: StaffPortalCreateRole;
-  staffDesignatedCompanyId: string;
-}): Promise<{ ok: true } | { ok: false; code: "DUPLICATE" | "ERROR" }> {
-  const id = randomUUID();
-  const passwordHash =
-    input.password && input.password.length > 0
-      ? await bcrypt.hash(input.password, SALT_ROUNDS)
-      : null;
-  const username = input.username.trim().toLowerCase();
-  const email = input.email.trim().toLowerCase();
-  const teamId = input.staffDesignatedCompanyId.trim();
-  if (!teamId) return { ok: false, code: "ERROR" };
-  try {
-    await prisma.portalAccount.create({
-      data: {
-        id,
-        username,
-        email,
-        name: input.name.trim(),
-        passwordHash,
-        role: input.role,
-        roleId: (await rbacRoleIdForLegacyRole(input.role)) ?? null,
-        headPrivileges: input.role === "Admin",
-        companyId: null,
-        customerOrgRole: null,
-        staffDesignatedCompanyId: teamId,
-      },
-    });
-    return { ok: true };
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const duplicate = msg.includes("Unique") || msg.includes("duplicate");
-    return { ok: false, code: duplicate ? "DUPLICATE" : "ERROR" };
-  }
-}
-
 /** @deprecated Prefer {@link syncOAuthUser} from `@/modules/platform/auth/sync-oauth-user`. */
 export async function upsertPortalOAuthAccount(input: {
   email: string;

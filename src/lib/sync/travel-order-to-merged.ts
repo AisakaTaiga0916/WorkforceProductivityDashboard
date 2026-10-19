@@ -74,7 +74,7 @@ export async function syncConfirmedTravelOrderToMerged(
   const bootstrapUrl = bootstrapMysqlUrl(writeUrl);
 
   const company = order.companyTeamId
-    ? await prisma.team.findUnique({
+    ? await prisma.company.findUnique({
         where: { id: order.companyTeamId },
         select: { id: true, name: true },
       })

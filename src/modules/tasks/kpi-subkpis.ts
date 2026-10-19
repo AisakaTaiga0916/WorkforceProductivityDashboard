@@ -1440,6 +1440,7 @@ function clearActiveSubKpiForReset(
     frequency?: KpiFrequencyCode | null;
     timeZone?: string;
     advanceSteps?: number;
+    workingDays?: readonly number[] | null;
   },
 ): SubKpiItem {
   let next = { ...it, done: false };
@@ -1460,7 +1461,7 @@ function clearActiveSubKpiForReset(
     const zone = normalizeTimeZone(opts.timeZone);
     let due = (next.dueDate ?? "").trim();
     for (let i = 0; i < opts.advanceSteps; i += 1) {
-      const advanced = advanceDueDateYmdForFrequency(due, opts.frequency, zone);
+      const advanced = advanceDueDateYmdForFrequency(due, opts.frequency, zone, opts.workingDays);
       if (!advanced) break;
       due = advanced;
     }
@@ -1478,6 +1479,8 @@ export type ResetSubKpiDoneOptions = {
   fromCycleStart?: Date | null;
   /** New cycle start after rollover. */
   toCycleStart?: Date | null;
+  /** Per-company working days (1=Mon…7=Sun) for advancing DAILY due dates. */
+  workingDays?: readonly number[] | null;
 };
 
 export function resetAllSubKpiDone(
@@ -1501,11 +1504,12 @@ export function resetAllSubKpiDone(
       opts.recurrenceWeekday,
       opts.recurrenceMonthDay,
       zone,
+      opts.workingDays,
     );
   }
   const clearOpts =
     advanceSteps > 0 && frequency
-      ? { frequency, timeZone: zone, advanceSteps }
+      ? { frequency, timeZone: zone, advanceSteps, workingDays: opts?.workingDays }
       : undefined;
 
   const n = normalizeSubKpis(raw);

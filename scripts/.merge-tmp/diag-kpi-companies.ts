@@ -2,7 +2,7 @@ import { prisma } from "../../src/modules/platform/db/prisma.ts";
 import { loadAgentIdsForCompanyTeam } from "../../src/modules/platform/scope/staff-company-scope.ts";
 
 void (async () => {
-  const teams = await prisma.team.findMany({ select: { id: true, name: true } });
+  const teams = await prisma.company.findMany({ select: { id: true, name: true } });
   const kpis = await prisma.kpiMaintenance.findMany({
     where: {
       OR: [

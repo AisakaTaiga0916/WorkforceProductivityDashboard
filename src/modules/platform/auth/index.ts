@@ -16,6 +16,16 @@ import {
   SESSION_JWT_MAX_AGE_SECONDS,
   computeSessionExpiresAt,
 } from "@/lib/session-expiry-policy";
+import { cookies } from "next/headers";
+import { CURRENT_COMPANY_COOKIE } from "@/modules/platform/scope/company-access-core";
+
+async function clearCompanyContextCookie(): Promise<void> {
+  try {
+    (await cookies()).delete(CURRENT_COMPANY_COOKIE);
+  } catch {
+    // Not in a mutable request context.
+  }
+}
 
 export type UserRole =
   | "SuperAdmin"
@@ -213,6 +223,8 @@ export const authOptions: NextAuthOptions = {
     },
     async signIn({ user, account }) {
       if (!account) return false;
+      // A fresh login opens the default company, not the last switcher choice.
+      await clearCompanyContextCookie();
       if (account.provider === "credentials") return true;
       if (account.provider !== "google") return false;
       const email = (user.email ?? "").trim().toLowerCase();

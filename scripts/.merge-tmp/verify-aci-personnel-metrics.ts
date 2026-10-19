@@ -27,7 +27,7 @@ import {
 } from "../../src/modules/tasks/task-personnel-metrics";
 
 async function main() {
-  const aciTeam = await prisma.team.findFirst({
+  const aciTeam = await prisma.company.findFirst({
     where: { name: { equals: "ACI", mode: "insensitive" } },
     select: { id: true, name: true },
   });

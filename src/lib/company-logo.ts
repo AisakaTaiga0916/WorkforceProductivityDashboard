@@ -41,7 +41,6 @@ const COMPANY_LOGO_FILENAMES: Record<string, string> = {
   aci: "aci.png",
   apmc: "apmc.png",
   awic: "awic.png",
-  agoc: "agoc.png",
   eazzygas: "eazzygas.png",
   eazygaz: "eazzygas.png",
   easygas: "eazzygas.png",

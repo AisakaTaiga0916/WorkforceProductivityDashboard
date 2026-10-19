@@ -42,8 +42,8 @@ export function TravelOrderApprovalRecommendationGuide({
   const hasAnySeat = seats.length > 0 || confirmation != null;
 
   const helpText = usedFallback
-    ? "Recommended path: immediate head → HR team head → major department head, then confirm with the immediate head. Missing seats can be filled from any department head on the org chart."
-    : "Recommended path: immediate head → HR team head → major department head, then confirm with the immediate head. You can still assign heads from other departments below.";
+    ? "Recommended path: immediate head → HR team head → major team head, then confirm with the immediate head. Missing seats can be filled from any team head on the org chart."
+    : "Recommended path: immediate head → HR team head → major team head, then confirm with the immediate head. You can still assign heads from other teams below.";
 
   const confirmationName =
     confirmation?.agentName?.trim() ||
@@ -156,7 +156,7 @@ export function TravelOrderApprovalRecommendationGuide({
                           </p>
                         ) : !name ? (
                           <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                            Assign any department head from the org chart below.
+                            Assign any team head from the org chart below.
                           </p>
                         ) : null}
                       </div>
@@ -209,7 +209,7 @@ export function TravelOrderApprovalRecommendationGuide({
                 </p>
               ) : !confirmationName ? (
                 <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-                  Immediate department head — assign manually below if none is set.
+                  Immediate team head — assign manually below if none is set.
                 </p>
               ) : null}
             </div>
@@ -217,7 +217,7 @@ export function TravelOrderApprovalRecommendationGuide({
         </div>
       ) : (
         <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-          No recommendations yet. Assign department heads from the org chart below.
+          No recommendations yet. Assign team heads from the org chart below.
         </p>
       )}
     </div>

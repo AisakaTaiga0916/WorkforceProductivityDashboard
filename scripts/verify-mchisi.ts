@@ -2,10 +2,10 @@ import { prisma } from "../src/modules/platform/db/prisma";
 
 async function main() {
   const oldId = "3cd2fdf9-7e56-4c5c-89d2-5558b5acff70";
-  const oldTeam = await prisma.team.findUnique({ where: { id: oldId }, select: { id: true, name: true } });
+  const oldTeam = await prisma.company.findUnique({ where: { id: oldId }, select: { id: true, name: true } });
   console.log("old UUID team still exists:", oldTeam);
 
-  const all = await prisma.team.findMany({
+  const all = await prisma.company.findMany({
     where: { OR: [{ name: { contains: "MCHISI" } }, { id: oldId }] },
     select: {
       id: true,

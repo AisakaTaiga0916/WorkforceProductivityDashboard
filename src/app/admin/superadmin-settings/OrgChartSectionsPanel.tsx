@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StaffAssignmentColorSelect } from "@/components/admin/StaffAssignmentColorSelect";
 import { portalRoleDisplayLabel } from "@/lib/staff-role";
 import { PointerDragGhostLayer, usePointerColumnDrag } from "@/lib/pointer-column-drag";
 import {
@@ -36,6 +37,8 @@ export type OrgChartSectionRow = {
   name: string;
   description: string | null;
   sortOrder: number;
+  /** False = archived: hidden from team pickers, kept on the chart and in history. */
+  isActive?: boolean;
   parentId: string | null;
   companyTeamId: string | null;
   companyName: string | null;
@@ -117,9 +120,10 @@ export function OrgChartSectionsPanel({
   onError,
   setBusy,
   readOnly = false,
-  canSetPortalRoles = false,
+  canEditAssignmentColor = false,
+  staffAssignmentColorByMergedId = {},
+  onStaffAssignmentColorChange,
   portalRoleByMergedId = {},
-  onPortalRoleChange,
 }: {
   sections: OrgChartSectionRow[];
   nodes: OrgChartNodeRow[];
@@ -137,9 +141,14 @@ export function OrgChartSectionsPanel({
   onError: (msg: string | null) => void;
   setBusy: (busy: boolean) => void;
   readOnly?: boolean;
-  canSetPortalRoles?: boolean;
+  /** Show the assignment-color editor on member rows (Admin / Super Admin). */
+  canEditAssignmentColor?: boolean;
+  /** Stored assignment colors keyed by merged user id. */
+  staffAssignmentColorByMergedId?: Record<string, string>;
+  /** Persist an assignment color change for a merged user id. */
+  onStaffAssignmentColorChange?: (mergedSourceUserId: string, nextColor: string) => void | Promise<void>;
+  /** Display-only portal roles (roles are managed in Settings → User Management). */
   portalRoleByMergedId?: Record<string, string>;
-  onPortalRoleChange?: (mergedSourceUserId: string, role: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [creating, setCreating] = useState(false);
@@ -150,6 +159,7 @@ export function OrgChartSectionsPanel({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [companyTeamId, setCompanyTeamId] = useState("");
+  const [teamActive, setTeamActive] = useState(true);
   const [dragNodeId, setDragNodeId] = useState<string | null>(null);
   const [dragSectionId, setDragSectionId] = useState<string | null>(null);
   const [dropSectionId, setDropSectionId] = useState<string | null>(null);
@@ -446,11 +456,12 @@ export function OrgChartSectionsPanel({
     setName(section.name);
     setDescription(section.description ?? "");
     setCompanyTeamId(section.companyTeamId ?? "");
+    setTeamActive(section.isActive !== false);
   }
 
   const reloadSections = useCallback(async () => {
     const res = await fetch("/api/admin/org-chart-sections", { cache: "no-store" });
-    if (!res.ok) throw new Error("Could not reload departments.");
+    if (!res.ok) throw new Error("Could not reload teams.");
     const body = (await res.json()) as OrgChartSectionRow[];
     onSectionsChange(body);
   }, [onSectionsChange]);
@@ -462,62 +473,14 @@ export function OrgChartSectionsPanel({
     onNodesChange(body);
   }, [onNodesChange]);
 
-  async function setMemberPortalRole(node: OrgChartNodeRow, role: string) {
-    const mergedId = (node.mergedSourceUserId ?? "").trim();
-    if (!mergedId) {
-      onError("This person is not linked to an HRIS user.");
-      return;
-    }
-    setBusy(true);
-    onError(null);
-    onMessage(null);
-    try {
-      const res = await fetch("/api/admin/org-chart/portal-role", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nodeId: node.id, mergedSourceUserId: mergedId, role }),
-      });
-      const body = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        role?: string;
-        clearedHead?: boolean;
-      };
-      if (!res.ok) throw new Error(body.error || "Could not update portal role.");
-      const nextRole = body.role ?? role;
-      onPortalRoleChange?.(mergedId, nextRole);
-      onSectionsChange(
-        sections.map((s) => {
-          if (body.clearedHead && s.headNodeId === node.id) {
-            return {
-              ...s,
-              headNodeId: null,
-              headName: null,
-              headRole: null,
-              headCompanyName: null,
-            };
-          }
-          if (s.headNodeId === node.id) {
-            return { ...s, headRole: nextRole };
-          }
-          return s;
-        }),
-      );
-      onMessage(
-        `Set ${node.personName} to ${nextRole} (reflected on ListView).${
-          body.clearedHead ? " Cleared department head." : ""
-        }`,
-      );
-    } catch (e) {
-      onError(e instanceof Error ? e.message : "Could not update portal role.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function saveSection() {
     const trimmed = name.trim();
     if (!trimmed) {
-      onError("Enter a department name.");
+      onError("Enter a team name.");
+      return;
+    }
+    if (!companyTeamId) {
+      onError("Choose the company this team belongs to.");
       return;
     }
     setBusy(true);
@@ -527,10 +490,11 @@ export function OrgChartSectionsPanel({
       const payload: Record<string, unknown> = {
         name: trimmed,
         description: description.trim() || null,
-        companyTeamId: companyTeamId || null,
+        companyTeamId,
       };
       if (editId) {
         payload.id = editId;
+        payload.isActive = teamActive;
       }
       if (reportsToTarget.startsWith("person:")) {
         // People-chart edge only — keep department nesting (parentId) intact.
@@ -562,10 +526,10 @@ export function OrgChartSectionsPanel({
         );
       }
       await reloadSections();
-      onMessage(editId ? `Updated department “${trimmed}”.` : `Created department “${trimmed}”.`);
+      onMessage(editId ? `Updated team “${trimmed}”.` : `Created team “${trimmed}”.`);
       resetForm();
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Could not save department.");
+      onError(e instanceof Error ? e.message : "Could not save team.");
     } finally {
       setBusy(false);
     }
@@ -593,15 +557,17 @@ export function OrgChartSectionsPanel({
 
     const descendantIds = collectDescendantIds(section.id);
     const members = countMembersInSubtree(section.id);
+    if (members > 0) {
+      onMessage(null);
+      onError(
+        `“${section.name}” still has ${members} member${members === 1 ? "" : "s"}. Move them to another team before deleting.`,
+      );
+      return;
+    }
     const bits: string[] = [];
     if (descendantIds.length > 0) {
       bits.push(
         `${descendantIds.length} nested department${descendantIds.length === 1 ? "" : "s"} will also be deleted`,
-      );
-    }
-    if (members > 0) {
-      bits.push(
-        `${members} department membership${members === 1 ? "" : "s"} will be removed (hierarchy stays)`,
       );
     }
     const ok = window.confirm(
@@ -660,14 +626,11 @@ export function OrgChartSectionsPanel({
           body.headName ??
           nodesBySection.get(sectionId)?.find((n) => n.id === headNodeId)?.personName ??
           "Member";
-        const roleNote = section?.parentId
-          ? "Portal role set to Admin (sub-department head)."
-          : "Portal role set to Admin (department head).";
-        onMessage(`Set ${personName} as head of “${section?.name ?? body.name}”. ${roleNote}`);
-      } else {
         onMessage(
-          `Cleared head for “${section?.name ?? body.name}”. Portal Admin/Personnel roles were re-synced from the org chart.`,
+          `Set ${personName} as head of “${section?.name ?? body.name}”. Portal roles are unchanged — assign them in Settings → User Management.`,
         );
+      } else {
+        onMessage(`Cleared head for “${section?.name ?? body.name}”.`);
       }
     } catch (e) {
       onError(e instanceof Error ? e.message : "Could not update section head.");
@@ -944,9 +907,9 @@ export function OrgChartSectionsPanel({
         );
       }
       await reloadSections();
-      onMessage("Updated department order.");
+      onMessage("Updated team order.");
     } catch (e) {
-      onError(e instanceof Error ? e.message : "Could not reorder departments.");
+      onError(e instanceof Error ? e.message : "Could not reorder teams.");
       await reloadSections();
     } finally {
       setBusy(false);
@@ -1017,7 +980,7 @@ export function OrgChartSectionsPanel({
             <label className="flex flex-wrap items-center gap-2 text-xs">
               <span className="inline-flex items-center gap-1 font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
                 <Crown className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                {section.parentId ? "Sub-department head" : "Department head"}
+                {section.parentId ? "Sub-team head" : "Team head"}
               </span>
               <select
                 disabled={busy}
@@ -1028,8 +991,8 @@ export function OrgChartSectionsPanel({
                 }}
                 title={
                   section.parentId
-                    ? "Sub-department head → portal Admin. Non-heads stay Personnel. Custom section roles stay as membership labels."
-                    : "Department head → portal Admin. Non-heads stay Personnel. Custom section roles stay as membership labels."
+                    ? "Sub-team head (org structure only). Portal roles are set in Settings → User Management."
+                    : "Team head (org structure only). Portal roles are set in Settings → User Management."
                 }
                 className="h-8 min-w-[12rem] flex-1 rounded-lg border border-zinc-300 bg-white px-2 text-xs outline-none focus:border-orange-500/60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               >
@@ -1173,47 +1136,22 @@ export function OrgChartSectionsPanel({
                     ) : null}
                   </span>
                   <span className="shrink-0 truncate text-xs text-zinc-500">
-                    {[n.personRole ? portalRoleDisplayLabel(n.personRole) : null, n.companyName]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    {[portalRoleDisplayLabel(portalRole), n.companyName].filter(Boolean).join(" · ")}
                   </span>
-                  {canSetPortalRoles && mergedId ? (
-                    portalRole === "SuperAdmin" ||
-                    portalRole === "Customer" ||
-                    portalRole === "Personnel-Guard" ? (
-                      <span
-                        className="shrink-0 rounded-md border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                        title="Change this role from ListView"
-                      >
-                        {portalRoleDisplayLabel(portalRole)}
-                      </span>
-                    ) : (
-                      <label
-                        className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <span className="sr-only">Portal role</span>
-                        <select
-                          disabled={busy}
-                          value={
-                            portalRole === "Personnel" ||
-                            portalRole === "Admin" ||
-                            portalRole === "HighAdmin"
-                              ? portalRole
-                              : "Personnel"
-                          }
-                          title="Elevate portal role (ListView)"
-                          onChange={(e) => {
-                            void setMemberPortalRole(n, e.target.value);
-                          }}
-                          className="h-7 max-w-[8.5rem] rounded-md border border-amber-300 bg-amber-50 px-1.5 text-[11px] font-semibold text-amber-950 outline-none focus:border-orange-500/60 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
-                        >
-                          <option value="Personnel">{portalRoleDisplayLabel("Personnel")}</option>
-                          <option value="Admin">{portalRoleDisplayLabel("Admin")}</option>
-                          <option value="HighAdmin">{portalRoleDisplayLabel("HighAdmin")}</option>
-                        </select>
-                      </label>
-                    )
+                  {canEditAssignmentColor && mergedId && onStaffAssignmentColorChange ? (
+                    <label
+                      className="flex shrink-0 items-center gap-1 text-[11px] text-zinc-500"
+                      title="Assignment color on tickets, tasks, and boards"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span className="sr-only">Assignment color</span>
+                      <StaffAssignmentColorSelect
+                        disabled={busy}
+                        value={staffAssignmentColorByMergedId[mergedId] ?? ""}
+                        onChange={(next) => void onStaffAssignmentColorChange(mergedId, next)}
+                        selectClassName="h-7 w-24 rounded-md border border-zinc-300 bg-white px-1.5 text-[11px] outline-none focus:border-orange-500/60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                      />
+                    </label>
                   ) : null}
                   {!readOnly ? (
                     <label
@@ -1473,7 +1411,7 @@ export function OrgChartSectionsPanel({
         >
           <span
             {...gripProps}
-            title="Drag to reorder among siblings, or drop onto a different department to nest"
+            title="Drag to reorder among siblings, or drop onto a different team to nest"
             aria-label={`Drag ${section.name}`}
             className={`inline-flex h-8 w-8 shrink-0 touch-none select-none items-center justify-center rounded-lg border border-zinc-300/80 text-zinc-500 hover:border-orange-400 hover:bg-orange-50 hover:text-orange-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-orange-600 dark:hover:bg-orange-950/40 dark:hover:text-orange-200 ${
               busy ? "cursor-default opacity-40" : "cursor-grab active:cursor-grabbing"
@@ -1587,8 +1525,8 @@ export function OrgChartSectionsPanel({
                 <select
                   disabled={busy}
                   defaultValue=""
-                  aria-label={`Nest ${section.name} under another department`}
-                  title="Move this department under another (including other major departments)"
+                  aria-label={`Nest ${section.name} under another team`}
+                  title="Move this team under another (including other major teams)"
                   className="h-8 max-w-[12rem] rounded-lg border border-zinc-300 bg-white px-2 text-xs outline-none focus:border-orange-500/60 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                   onChange={(e) => {
                     const next = e.target.value;
@@ -1679,7 +1617,7 @@ export function OrgChartSectionsPanel({
             ) : null}
             {renderMemberList(
               section,
-              "No members yet — use Add or remove member (with a department), or Add selected from the chart.",
+              "No members yet — use Add or remove member (with a team), or Add selected from the chart.",
             )}
             {subsections.length > 0 ? (
               <div className="space-y-2 pt-1">
@@ -1705,7 +1643,7 @@ export function OrgChartSectionsPanel({
           <div className="flex items-center gap-2">
             <FolderKanban className="h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" />
             <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-              Departments
+              Teams
             </h2>
             <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
               {roots.length} main
@@ -1716,7 +1654,7 @@ export function OrgChartSectionsPanel({
           </div>
           <p className="mt-1 max-w-2xl text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
             {readOnly
-              ? "Browse your department and sub-department members. Portal roles are managed by SuperAdmin."
+              ? "Browse your team and sub-team members. Portal roles are managed in Settings → User Management."
               : (
                 <>
                   Drag the <span className="font-medium">grip</span> to rearrange at the same
@@ -1725,7 +1663,7 @@ export function OrgChartSectionsPanel({
                   <span className="font-medium">Nest under…</span>,{" "}
                   <span className="font-medium">Move up</span>, or{" "}
                   <span className="font-medium">Make main</span> to change nesting. Add people from{" "}
-                  <span className="font-medium">Add or remove member</span> (choose a department), or use{" "}
+                  <span className="font-medium">Add or remove member</span> (choose a team), or use{" "}
                   <span className="font-medium">Add selected</span> for chart members. Pick a head and
                   optional custom roles after members are in place. SuperAdmin can elevate Personnel /
                   Admin / HighAdmin on each member.
@@ -1742,7 +1680,7 @@ export function OrgChartSectionsPanel({
             onClick={startCreateMain}
           >
             <Plus className="mr-1.5 h-4 w-4" />
-            New department
+            New team
           </Button>
         ) : null}
       </div>
@@ -1752,10 +1690,10 @@ export function OrgChartSectionsPanel({
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
               {editId
-                ? "Edit department"
+                ? "Edit team"
                 : isSubsectionForm
-                  ? `New department under “${formParent?.name ?? "department"}”`
-                  : "Create department"}
+                  ? `New team under “${formParent?.name ?? "team"}”`
+                  : "Create team"}
             </p>
             <button
               type="button"
@@ -1783,14 +1721,17 @@ export function OrgChartSectionsPanel({
             </label>
             <label className="block sm:col-span-1">
               <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
-                Company scope (optional)
+                Company
               </span>
               <select
+                required
                 value={companyTeamId}
                 onChange={(e) => setCompanyTeamId(e.target.value)}
                 className="h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-500/60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               >
-                <option value="">— All companies —</option>
+                <option value="" disabled>
+                  Select company…
+                </option>
                 {companyOptions.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -1798,6 +1739,16 @@ export function OrgChartSectionsPanel({
                 ))}
               </select>
             </label>
+            {editId ? (
+              <label className="flex items-center gap-2 text-xs text-zinc-700 sm:col-span-1 dark:text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={teamActive}
+                  onChange={(e) => setTeamActive(e.target.checked)}
+                />
+                Active (unchecked = archived: hidden from team pickers, history kept)
+              </label>
+            ) : null}
             <label className="block sm:col-span-2">
               <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
                 Reports to
@@ -1816,7 +1767,7 @@ export function OrgChartSectionsPanel({
                 className="h-10 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-orange-500/60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               >
                 <option value="">— Top-level (no parent) —</option>
-                <optgroup label="Department">
+                <optgroup label="Team">
                   {sectionsForReportsToPicker.map((s) => (
                     <option key={`dept-${s.id}`} value={`dept:${s.id}`}>
                       {s.name}
@@ -1832,7 +1783,7 @@ export function OrgChartSectionsPanel({
                 </optgroup>
               </select>
               <p className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                Choose another department or an individual. Person and department parents are
+                Choose another team or an individual. Person and team parents are
                 mutually exclusive.
               </p>
             </label>
@@ -1852,7 +1803,7 @@ export function OrgChartSectionsPanel({
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" className="h-9 rounded-xl" disabled={busy} onClick={saveSection}>
-              {editId ? "Save changes" : "Create department"}
+              {editId ? "Save changes" : "Create team"}
             </Button>
             <Button
               type="button"
@@ -1870,7 +1821,7 @@ export function OrgChartSectionsPanel({
       <div className="mt-4 space-y-2">
         {roots.length === 0 && unassigned.length === 0 ? (
           <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
-            No departments yet. Create one to group people on the chart.
+            No teams yet. Create one to group people on the chart.
           </p>
         ) : null}
 
@@ -1987,8 +1938,8 @@ export function OrgChartSectionsPanel({
               </ul>
             ) : (
               <p className="border-t border-zinc-100 px-4 py-3 text-xs text-zinc-500 dark:border-zinc-800">
-                No unassigned chart members. Add people without a department, or unassign them
-                from a department, and they will show up here.
+                No unassigned chart members. Add people without a team, or unassign them
+                from a team, and they will show up here.
               </p>
             )
           ) : null}
@@ -2008,7 +1959,7 @@ export function OrgChartSectionsPanel({
         >
           Drop here to make a <span className="font-semibold">main section</span>
           <span className="mt-0.5 block text-xs opacity-80">
-            Or drop onto another department to nest · use gaps to reorder siblings
+            Or drop onto another team to nest · use gaps to reorder siblings
           </span>
         </div>
 

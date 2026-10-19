@@ -1,12 +1,18 @@
-import { rosterTeamNameFilter } from "@/lib/company-roster";
-import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
+import type { Session } from "next-auth";
 import { loadCompanyNamesBySourceUserId } from "@/lib/merged-duty-status";
+import { isElevatedPlatformRole } from "@/lib/staff-role";
 import { prisma } from "@/modules/platform/db/prisma";
+import { loadCompanyDirectory } from "@/modules/platform/companies/company-directory";
+import { getCompanyAccess } from "@/modules/platform/scope/company-access";
 
 /**
- * Company a staff member works under for task assignment / grouping.
- * `id` is the primary roster Team id when the company matches one, otherwise
- * null (merged-only companies still group by `name`).
+ * A person's company for assignment / grouping: their **default membership**
+ * (`user_companies`, mirrored on `staffDesignatedCompanyId`). Accounts without a
+ * membership fall back to their HRIS company label. `id` is null when the label
+ * matches no company in the directory.
+ *
+ * Viewer-scoped code must use `resolveViewerCompanyId(session)` (switcher context)
+ * instead of resolving the viewer's own email here.
  */
 export type EffectiveAssignmentCompany = { id: string | null; name: string };
 
@@ -16,31 +22,21 @@ type PortalCompanyRow = {
   staffDesignatedCompany: { id: string; name: string } | null;
 };
 
-async function loadRosterTeamsByName(): Promise<Map<string, { id: string; name: string }>> {
-  const teams = await prisma.team.findMany({
-    where: rosterTeamNameFilter(),
-    select: { id: true, name: true },
-  });
-  return new Map(teams.map((t) => [t.name.trim().toLowerCase(), t] as const));
-}
-
 /**
- * Effective assignment company per portal, keyed by lowercased email.
- * The merge DB `company_name` (personnel-tab source of truth) wins and is
- * resolved back to the primary roster Team so id-based company filters keep
- * working; the portal's designated company is only a fallback for legacy rows.
+ * Default company per portal, keyed by lowercased email: default membership
+ * first, HRIS company label (resolved through the directory) as a fallback.
  */
 export async function loadEffectiveCompaniesByPortalEmail(
   portals: ReadonlyArray<PortalCompanyRow>,
 ): Promise<Map<string, EffectiveAssignmentCompany | null>> {
-  const sourceIds = portals
-    .map((p) => p.mergedSourceUserId)
-    .filter((id): id is bigint => id != null);
-  const [mergedNames, teamsByName] = await Promise.all([
-    sourceIds.length > 0
-      ? loadCompanyNamesBySourceUserId(sourceIds)
+  const needsHris = portals
+    .filter((p) => !p.staffDesignatedCompany && p.mergedSourceUserId != null)
+    .map((p) => p.mergedSourceUserId as bigint);
+  const [mergedNames, directory] = await Promise.all([
+    needsHris.length > 0
+      ? loadCompanyNamesBySourceUserId(needsHris)
       : Promise.resolve(new Map<string, string | null>()),
-    loadRosterTeamsByName(),
+    loadCompanyDirectory(),
   ]);
 
   const out = new Map<string, EffectiveAssignmentCompany | null>();
@@ -48,23 +44,20 @@ export async function loadEffectiveCompaniesByPortalEmail(
     const email = portal.email.trim().toLowerCase();
     if (!email || out.has(email)) continue;
 
+    if (portal.staffDesignatedCompany) {
+      out.set(email, { id: portal.staffDesignatedCompany.id, name: portal.staffDesignatedCompany.name });
+      continue;
+    }
     const mergedRaw =
       portal.mergedSourceUserId != null
         ? mergedNames.get(portal.mergedSourceUserId.toString())?.trim()
         : undefined;
     if (mergedRaw) {
-      const canonical = resolveRosterCompanyName(mergedRaw) ?? mergedRaw;
-      const team = teamsByName.get(canonical.toLowerCase());
-      out.set(email, team ? { id: team.id, name: team.name } : { id: null, name: canonical });
+      const company = directory.resolveLabel(mergedRaw);
+      out.set(email, company ? { id: company.id, name: company.name } : { id: null, name: mergedRaw });
       continue;
     }
-
-    out.set(
-      email,
-      portal.staffDesignatedCompany
-        ? { id: portal.staffDesignatedCompany.id, name: portal.staffDesignatedCompany.name }
-        : null,
-    );
+    out.set(email, null);
   }
   return out;
 }
@@ -73,6 +66,7 @@ const PORTAL_COMPANY_SELECT = {
   email: true,
   mergedSourceUserId: true,
   staffDesignatedCompany: { select: { id: true, name: true } },
+  companyMemberships: { select: { companyId: true } },
 } as const;
 
 /**
@@ -82,7 +76,7 @@ const PORTAL_COMPANY_SELECT = {
  */
 async function loadStaffPortalsForCompanyResolution() {
   const portals = await prisma.portalAccount.findMany({
-    where: { role: { in: ["Admin", "Personnel"] } },
+    where: { NOT: { role: "Customer", roleId: null } },
     select: { ...PORTAL_COMPANY_SELECT, name: true, accountStatus: true },
   });
   return portals.sort(
@@ -92,85 +86,78 @@ async function loadStaffPortalsForCompanyResolution() {
   );
 }
 
-type CompanyIdResolution = {
-  byEmail: Map<string, string | null>;
-  byName: Map<string, string | null>;
+type CompanySetResolution = {
+  byEmail: Map<string, ReadonlySet<string>>;
+  byName: Map<string, ReadonlySet<string>>;
 };
 
 /**
- * Company Team id per portal email and per person name. A person's canonical
- * (ACTIVE, merged-linked) portal wins, so legacy emails of the same person
- * count toward the company the personnel tab shows.
+ * Every company a person belongs to, per portal email and per person name. A
+ * person's canonical (ACTIVE) portal wins, so legacy emails of the same person
+ * count toward that person's companies.
  */
-async function buildCompanyIdResolution(
+async function buildCompanySetResolution(
   portals: Awaited<ReturnType<typeof loadStaffPortalsForCompanyResolution>>,
-): Promise<CompanyIdResolution> {
+): Promise<CompanySetResolution> {
   const effective = await loadEffectiveCompaniesByPortalEmail(portals);
+  const companiesFor = (portal: (typeof portals)[number]): Set<string> => {
+    const ids = new Set(portal.companyMemberships.map((m) => m.companyId));
+    const fallback = effective.get(portal.email.trim().toLowerCase())?.id;
+    if (ids.size === 0 && fallback) ids.add(fallback);
+    return ids;
+  };
 
-  const byName = new Map<string, string | null>();
+  const byName = new Map<string, ReadonlySet<string>>();
   for (const portal of portals) {
     const nameKey = portal.name.trim().toLowerCase();
     if (!nameKey || byName.has(nameKey)) continue;
-    const company =
-      effective.get(portal.email.trim().toLowerCase())?.id ??
-      portal.staffDesignatedCompany?.id ??
-      null;
-    byName.set(nameKey, company);
+    byName.set(nameKey, companiesFor(portal));
   }
 
-  const byEmail = new Map<string, string | null>();
+  const byEmail = new Map<string, ReadonlySet<string>>();
   for (const portal of portals) {
     const email = portal.email.trim().toLowerCase();
     if (!email || byEmail.has(email)) continue;
-    const canonicalByName = byName.get(portal.name.trim().toLowerCase()) ?? null;
-    const own =
-      effective.get(email)?.id ?? portal.staffDesignatedCompany?.id ?? null;
-    byEmail.set(email, canonicalByName ?? own);
+    const canonical = byName.get(portal.name.trim().toLowerCase());
+    byEmail.set(email, canonical && canonical.size > 0 ? canonical : companiesFor(portal));
   }
-
   return { byEmail, byName };
 }
 
 /**
- * Primary Agent ids belonging to the company (merged-first, matching the
- * personnel tab), including agent rows reached only via legacy emails or a
- * same-name portal. Use for scoping metrics/boards by company.
+ * Primary Agent ids of everyone who **shares** the company (any membership),
+ * including agent rows reached only via legacy emails or a same-name portal.
+ * Use for assignee pickers and for scoping metrics/boards by company.
  */
 export async function loadAgentIdsForCompanyTeam(companyTeamId: string): Promise<string[]> {
   const [portals, agents] = await Promise.all([
     loadStaffPortalsForCompanyResolution(),
     prisma.agent.findMany({ select: { id: true, email: true, name: true } }),
   ]);
-  const { byEmail, byName } = await buildCompanyIdResolution(portals);
+  const { byEmail, byName } = await buildCompanySetResolution(portals);
 
   const ids: string[] = [];
   for (const agent of agents) {
-    const email = agent.email.trim().toLowerCase();
-    const nameKey = agent.name.trim().toLowerCase();
-    const companyId = byEmail.get(email) ?? byName.get(nameKey) ?? null;
-    if (companyId === companyTeamId) ids.push(agent.id);
+    const companies =
+      byEmail.get(agent.email.trim().toLowerCase()) ?? byName.get(agent.name.trim().toLowerCase());
+    if (companies?.has(companyTeamId)) ids.push(agent.id);
   }
   return ids;
 }
 
-async function effectiveCompanyIdForEmail(email: string): Promise<string | null> {
+async function defaultCompanyIdForEmail(email: string): Promise<string | null> {
   const portals = await prisma.portalAccount.findMany({
     where: { email: { equals: email, mode: "insensitive" } },
     select: PORTAL_COMPANY_SELECT,
   });
   if (portals.length === 0) return null;
   const effective = await loadEffectiveCompaniesByPortalEmail(portals);
-  const company = effective.get(email.trim().toLowerCase());
-  if (company?.id) return company.id;
-  // Merged company with no roster Team (or no company at all): keep id-based
-  // scoping stable via the portal's designated company.
-  return portals.find((p) => p.staffDesignatedCompany)?.staffDesignatedCompany?.id ?? null;
+  return effective.get(email.trim().toLowerCase())?.id ?? null;
 }
 
 /**
- * Company (roster Team id) for an agent, with same-name portal-linked peer
- * fallback. Merged-database company assignment wins over the portal's
- * designated company so task scoping follows the personnel tab.
+ * Default company for an agent, with same-name portal-linked peer fallback,
+ * then the agent roster company.
  */
 export async function resolveAgentDesignatedCompanyId(agentId: string): Promise<string | null> {
   const agent = await prisma.agent.findUnique({
@@ -181,7 +168,7 @@ export async function resolveAgentDesignatedCompanyId(agentId: string): Promise<
 
   const email = agent.email.trim().toLowerCase();
   if (email) {
-    const companyId = await effectiveCompanyIdForEmail(email);
+    const companyId = await defaultCompanyIdForEmail(email);
     if (companyId) return companyId;
   }
 
@@ -198,24 +185,38 @@ export async function resolveAgentDesignatedCompanyId(agentId: string): Promise<
     for (const peer of peers) {
       const peerEmail = peer.email.trim().toLowerCase();
       if (!peerEmail) continue;
-      const companyId = await effectiveCompanyIdForEmail(peerEmail);
+      const companyId = await defaultCompanyIdForEmail(peerEmail);
       if (companyId) return companyId;
     }
   }
 
-  // Last resort: primary agent roster team (same fallback as resolveStaffCompanyTeamId).
   return agent.teamId ?? null;
 }
 
+/** Every company id an agent's person belongs to (memberships; default-company fallback). */
+export async function resolveAgentCompanyIds(agentId: string): Promise<string[]> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentId },
+    select: { email: true },
+  });
+  if (!agent) return [];
+  const rows = await prisma.userCompany.findMany({
+    where: { portalAccount: { email: { equals: agent.email.trim(), mode: "insensitive" } } },
+    select: { companyId: true },
+  });
+  if (rows.length > 0) return [...new Set(rows.map((r) => r.companyId))];
+  const fallback = await resolveAgentDesignatedCompanyId(agentId);
+  return fallback ? [fallback] : [];
+}
+
 /**
- * Company queue (Team id) used to scope Admin assignment / board visibility.
- * Prefers the merged-database company (personnel tab), then the portal's
- * designated company, then the agent roster team.
+ * Default company of a person (by email): default membership, then HRIS company,
+ * then agent roster company. Not the viewer's switcher context.
  */
 export async function resolveStaffCompanyTeamId(email: string | null | undefined): Promise<string | null> {
   const e = (email ?? "").trim().toLowerCase();
   if (!e) return null;
-  const companyId = await effectiveCompanyIdForEmail(e);
+  const companyId = await defaultCompanyIdForEmail(e);
   if (companyId) return companyId;
   const agent = await prisma.agent.findFirst({
     where: { email: { equals: e, mode: "insensitive" } },
@@ -224,24 +225,29 @@ export async function resolveStaffCompanyTeamId(email: string | null | undefined
   return agent?.teamId ?? null;
 }
 
-/**
- * Roster company display name for an Admin's assigned company.
- * Returns null when the user is not company-scoped (e.g. SuperAdmin) or has no assignment.
- * Pass `forceNone: true` to get `"__none__"` when Admin has no company (empty filter match).
- */
-export async function resolveAdminOnDutyCompanyFilter(
-  role: string | null | undefined,
-  email: string | null | undefined,
-  options?: { forceNone?: boolean },
-): Promise<string | null> {
-  if (role !== "Admin") return null;
-  const teamId = await resolveStaffCompanyTeamId(email);
-  if (!teamId) return options?.forceNone === false ? null : "__none__";
-  const team = await prisma.team.findUnique({
-    where: { id: teamId },
-    select: { name: true },
+/** Every company a person (by email) belongs to; default-company fallback for legacy rows. */
+export async function resolveStaffCompanyIds(email: string | null | undefined): Promise<string[]> {
+  const e = (email ?? "").trim().toLowerCase();
+  if (!e) return [];
+  const rows = await prisma.userCompany.findMany({
+    where: { portalAccount: { email: { equals: e, mode: "insensitive" } } },
+    select: { companyId: true },
   });
-  const name = team?.name?.trim();
-  if (name) return name;
-  return options?.forceNone === false ? null : "__none__";
+  if (rows.length > 0) return [...new Set(rows.map((r) => r.companyId))];
+  const fallback = await resolveStaffCompanyTeamId(e);
+  return fallback ? [fallback] : [];
+}
+
+/**
+ * On-duty company filter (company name) for the viewer. Non-global staff are
+ * locked to their current company (`"__none__"` when they have none); global
+ * users get `null` (free filter).
+ */
+export async function resolveViewerOnDutyCompanyFilter(
+  session: Session | null | undefined,
+): Promise<string | null> {
+  if (isElevatedPlatformRole(session?.user?.role)) return null;
+  const access = await getCompanyAccess(session);
+  const current = access.companies.find((c) => c.id === access.currentCompanyId);
+  return current?.name ?? "__none__";
 }

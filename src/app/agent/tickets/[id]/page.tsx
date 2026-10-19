@@ -8,6 +8,7 @@ import { formatTicketStatusLabel } from "@/modules/requests/ticket-status-label"
 import { safeReturnToParam } from "@/lib/safe-return-to";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
 import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { viewerCanAccessCompany } from "@/modules/platform/scope/company-access";
 import { AgentWorkspace } from "./workspace";
 import { AgentTicketModalShell } from "@/components/ticket/AgentTicketModalShell";
 import { TicketRequestMetaDetails } from "@/components/ticket/TicketRequestMetaDetails";
@@ -208,7 +209,7 @@ export default async function AgentTicketPage({
           rfpSectionName = ensured.orgChartSectionName;
           ticketForWorkspace.orgChartSectionId = ensured.orgChartSectionId;
           sendRequestToDisplay = {
-            label: "Send request to (department)",
+            label: "Send request to (team)",
             value: (ensured.orgChartSectionName ?? "").trim() || "Accounting",
           };
         }
@@ -397,13 +398,10 @@ export default async function AgentTicketPage({
   const isAdmin = isElevatedUserRole(session.user.role) || session.user.role === "Admin";
   const isSuperAdmin = isElevatedUserRole(session.user.role);
   const isPersonnel = session.user.role === "Personnel";
-  const adminCompanyTeamId =
-    session.user.role === "Admin" ? await resolveStaffCompanyTeamId(session.user.email) : null;
   const canAssignPaymentAccountingFinance =
     isSuperAdmin ||
     (session.user.role === "Admin" &&
-      Boolean(adminCompanyTeamId) &&
-      adminCompanyTeamId === ticketForWorkspace.teamId);
+      (await viewerCanAccessCompany(session, ticketForWorkspace.teamId)));
   const isAssignedOperator = !!operator && operator.id === ticketForWorkspace.assignedAgentId;
   const canUpdatePriority = isAdmin || companyCoordinator || isAssignedOperator;
   const canRequestTransfer =
@@ -553,7 +551,7 @@ export default async function AgentTicketPage({
             branch={branch ?? "—"}
             sendRequestTo={sendRequestToDisplay.value}
             sendRequestToLabel={sendRequestToDisplay.label}
-            departmentLabel="Requesting department"
+            departmentLabel="Requesting team"
             department={department ?? "—"}
             requestType={requestTypeLabelText}
             proceduralStatus={proceduralStatusLabel}

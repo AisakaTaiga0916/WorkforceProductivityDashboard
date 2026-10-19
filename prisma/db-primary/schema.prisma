@@ -91,9 +91,11 @@ model PortalAccount {
   rbacRole                  Role?                  @relation(fields: [roleId], references: [id], onDelete: SetNull)
   headPrivileges            Boolean                @default(false) @map("head_privileges")
   companyId                 String?                @map("company_id")
-  company                   Team?                  @relation("PortalCustomerCompany", fields: [companyId], references: [id], onDelete: SetNull)
+  company                   Company?               @relation("PortalCustomerCompany", fields: [companyId], references: [id], onDelete: SetNull)
+  /// Default company (mirror of the `user_companies` default row). Write via company-membership helpers.
   staffDesignatedCompanyId  String?                @map("staff_designated_company_id")
-  staffDesignatedCompany    Team?                  @relation("PortalStaffDesignatedCompany", fields: [staffDesignatedCompanyId], references: [id], onDelete: SetNull)
+  staffDesignatedCompany    Company?               @relation("PortalStaffDesignatedCompany", fields: [staffDesignatedCompanyId], references: [id], onDelete: SetNull)
+  companyMemberships        UserCompany[]
   staffAssignmentColor      String?                @map("staff_assignment_color")
   customerOrgRole           String?                @map("customer_org_role")
   accountStatus             String                 @default("ACTIVE") @map("account_status")
@@ -150,9 +152,18 @@ model PortalMergeMapping {
   @@map("portal_merge_mappings")
 }
 
-model Team {
+/// Company directory (access boundary / tenant). Physical table is `teams` for
+/// historical reasons; org-chart *Teams* live in `org_chart_sections`.
+/// Managed in SuperAdmin Settings → Companies. Archive = `isActive: false`.
+model Company {
   id                            String         @id @default(cuid())
   name                          String         @map("name")
+  /// Short unique code (e.g. ACI). `OUTSIDE` is the reserved customer triage queue.
+  code                          String?        @unique @map("code")
+  isActive                      Boolean        @default(true) @map("is_active")
+  sortOrder                     Int            @default(0) @map("sort_order")
+  /// Lowercased alternate labels (HRIS / CSV / legacy names) that resolve to this company.
+  aliases                       String[]       @default([]) @map("aliases")
   description                   String?        @map("description")
   /// Relative HRIS path (e.g. company-logos/….png) synced from merged_companies.
   logoPath                      String?        @map("logo_path")
@@ -168,8 +179,26 @@ model Team {
   departments                 Department[]
   positionAssignments         PositionAssignment[]
   orgChartSections            OrgChartSection[]
+  memberships                 UserCompany[]
 
+  @@index([isActive, sortOrder])
   @@map("teams")
+}
+
+/// Company access membership (IAM). A user may belong to many companies; exactly
+/// one membership is the default. `PortalAccount.staffDesignatedCompanyId` mirrors
+/// the default membership for legacy readers.
+model UserCompany {
+  portalAccountId String        @map("portal_account_id")
+  companyId       String        @map("company_id")
+  isDefault       Boolean       @default(false) @map("is_default")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  portalAccount   PortalAccount @relation(fields: [portalAccountId], references: [id], onDelete: Cascade)
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([portalAccountId, companyId])
+  @@index([companyId])
+  @@map("user_companies")
 }
 
 model Agent {
@@ -177,7 +206,7 @@ model Agent {
   name      String   @map("name")
   email     String   @unique @map("email")
   teamId    String   @map("team_id")
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  team      Company  @relation(fields: [teamId], references: [id], onDelete: Cascade)
   tickets   Ticket[] @relation("AssignedAgent")
   kpis      KpiMaintenance[] @relation("AssignedKpi")
   tasks     TaskItem[]       @relation("AssignedTask")
@@ -271,19 +300,22 @@ model OrgChartEitherOrLink {
   @@map("org_chart_either_or_links")
 }
 
-/// Labeled grouping of org-chart people (e.g. Operations, Finance). Optional company scope.
-/// Top-level departments may contain nested sub-departments at any depth via parentId,
-/// or report to an individual org-chart person via reportsToNodeId.
+/// Org-chart **Team** (UI: "Team"): a group of people inside one company.
+/// Source of truth for teams and team membership (`OrgChartNodeSectionMembership`).
+/// Teams nest via parentId (a parent may belong to another company, so group-wide
+/// reporting lines survive) or report to a person via reportsToNodeId.
 model OrgChartSection {
   id            String           @id @default(cuid())
   name          String           @map("name")
   description   String?          @map("description")
   sortOrder     Int              @default(0) @map("sort_order")
+  isActive      Boolean          @default(true) @map("is_active")
   parentId      String?          @map("parent_id")
   parent        OrgChartSection? @relation("OrgChartSectionTree", fields: [parentId], references: [id], onDelete: Cascade)
   children      OrgChartSection[] @relation("OrgChartSectionTree")
+  /// Owning company. Required for new teams (enforced by the API).
   companyTeamId String?          @map("company_team_id")
-  companyTeam   Team?            @relation(fields: [companyTeamId], references: [id], onDelete: SetNull)
+  companyTeam   Company?         @relation(fields: [companyTeamId], references: [id], onDelete: SetNull)
   /// Optional department head (must be an org-chart member).
   headNodeId    String?          @map("head_node_id")
   headNode      OrgChartNode?    @relation("OrgChartSectionHead", fields: [headNodeId], references: [id], onDelete: SetNull)
@@ -341,13 +373,13 @@ model OrgChartNodeSectionMembership {
   @@map("org_chart_node_section_memberships")
 }
 
-/// Company-scoped department (optional grouping for users and routing).
-/// Logo columns are synced from HRIS: department logo when set, else parent company logo.
+/// Deprecated HRIS department snapshot (logo sync only). Not a product concept:
+/// org groups are Teams (`OrgChartSection`). Nothing in the app reads this table.
 model Department {
   id                  String          @id @default(cuid())
   name                String          @map("name")
   companyTeamId       String          @map("company_team_id")
-  companyTeam         Team            @relation(fields: [companyTeamId], references: [id], onDelete: Cascade)
+  companyTeam         Company         @relation(fields: [companyTeamId], references: [id], onDelete: Cascade)
   isActive            Boolean         @default(true) @map("is_active")
   /// HRIS departments.id when synced from merged/HRIS.
   hrisDepartmentId    BigInt?         @unique @map("hris_department_id")
@@ -395,7 +427,7 @@ model PositionAssignment {
   position           Position  @relation(fields: [positionId], references: [id], onDelete: Cascade)
   mergedSourceUserId String    @map("merged_source_user_id")
   companyTeamId      String?   @map("company_team_id")
-  companyTeam        Team?     @relation(fields: [companyTeamId], references: [id], onDelete: SetNull)
+  companyTeam        Company?  @relation(fields: [companyTeamId], references: [id], onDelete: SetNull)
   effectiveFrom      DateTime? @map("effective_from")
   effectiveTo        DateTime? @map("effective_to")
   isActing           Boolean   @default(false) @map("is_acting")
@@ -427,7 +459,7 @@ model Ticket {
   requestorEmail      String?          @map("requestor_email")
   contactPhone        String?          @map("contact_phone")
   teamId              String?          @map("team_id")
-  team                Team?            @relation(fields: [teamId], references: [id])
+  team                Company?         @relation(fields: [teamId], references: [id])
   /// RFP intake: requestor's org-chart section (Noted By roster scope).
   requestorOrgChartSectionId String?   @map("requestor_org_chart_section_id")
   requestorOrgChartSection   OrgChartSection? @relation("TicketRequestorSection", fields: [requestorOrgChartSectionId], references: [id], onDelete: SetNull)

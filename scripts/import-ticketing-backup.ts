@@ -122,7 +122,7 @@ async function main() {
           'SELECT id, name, description, "createdAt" FROM public."Team"',
         )
       ).rows) {
-        await tx.team.create({ data: row });
+        await tx.company.create({ data: row });
       }
 
       for (const row of (
@@ -408,7 +408,7 @@ async function main() {
     tickets: await prisma.ticket.count(),
     portalAccounts: await prisma.portalAccount.count(),
     agents: await prisma.agent.count(),
-    teams: await prisma.team.count(),
+    teams: await prisma.company.count(),
     ticketActivities: await prisma.ticketActivity.count(),
     helpdeskCsv: await prisma.helpdeskCsvTicket.count(),
     kpiSnapshots: await prisma.kpiMaintenancePeriodSnapshot.count(),

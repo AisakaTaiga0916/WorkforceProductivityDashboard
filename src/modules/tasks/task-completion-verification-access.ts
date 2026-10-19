@@ -2,7 +2,7 @@ import { isElevatedUserRole } from "@/modules/platform/auth";
 import {
   resolveMergedSourceUserIdForAgent,
   resolveMergedSourceUserIdForSessionEmail,
-} from "@/modules/hierarchy/approval-position-resolver";
+} from "@/modules/platform/approvals/approval-position-resolver";
 import {
   resolveDeepestOrgChartSectionIdForMergedUser,
 } from "@/modules/hierarchy/org-chart-section-roster";

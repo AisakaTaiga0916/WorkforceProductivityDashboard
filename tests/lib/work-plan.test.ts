@@ -309,12 +309,12 @@ describe("work plan approval seats", () => {
       requestorRole: "Staff",
       sectionName: "IT Support",
       majorSectionName: "Information Technology",
-      designatedCompanyName: "AGOC",
+      designatedCompanyName: "ACI",
       departmentHeadAgentId: "head-1",
       departmentHeadName: "Alex Head",
     });
     assert.equal(filled.workPlan.requestingParty, "IT Support");
-    assert.equal(filled.workPlan.departmentBusinessUnit, "AGOC");
+    assert.equal(filled.workPlan.departmentBusinessUnit, "ACI");
     assert.equal(filled.workPlan.personInChargeName, "Alex Head");
     assert.equal(filled.workPlan.personInChargeAgentId, "head-1");
     assert.equal(filled.confirmationByAgentId, "head-1");

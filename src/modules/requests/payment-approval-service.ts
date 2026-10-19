@@ -5,9 +5,10 @@ import { isElevatedUserRole } from "@/modules/platform/auth";
 import { permissionDenied } from "@/modules/platform/rbac/permissions";
 import { prisma } from "@/modules/platform/db/prisma";
 import {
-  resolveAgentDesignatedCompanyId,
+  resolveAgentCompanyIds,
   resolveStaffCompanyTeamId,
 } from "@/modules/platform/scope/staff-company-scope";
+import { viewerCanAccessCompany } from "@/modules/platform/scope/company-access";
 import { loadTicketRequestType } from "@/modules/requests/ticket-request-type";
 import { isSessionAssigneeOfTicket } from "@/modules/requests/ticket-staff-access";
 import { logActivity } from "@/modules/requests/ticket-actions";
@@ -174,8 +175,8 @@ export async function handleSetPaymentApprovalAssignees(args: {
         { status: 400 },
       );
     }
-    const agentCompanyId = await resolveAgentDesignatedCompanyId(agentId);
-    if (agentCompanyId !== expectedCompanyId) {
+    const agentCompanyIds = await resolveAgentCompanyIds(agentId);
+    if (!agentCompanyIds.includes(expectedCompanyId)) {
       return NextResponse.json(
         { error: `${roleLabel} must be someone from the correct company roster.` },
         { status: 400 },
@@ -368,11 +369,13 @@ export async function handleRequestPaymentApproval(args: {
       { status: 400 },
     );
   }
-  const requesterCompanyId = await resolveAgentDesignatedCompanyId(companyAnchorId);
-  const approverCompanyId = await resolveAgentDesignatedCompanyId(approverId);
   // APPROVED BY may be chosen from any company on create; keep that path open here too.
   if (step !== "APPROVED_BY") {
-    if (!requesterCompanyId || !approverCompanyId || requesterCompanyId !== approverCompanyId) {
+    const [requesterCompanyIds, approverCompanyIds] = await Promise.all([
+      resolveAgentCompanyIds(companyAnchorId),
+      resolveAgentCompanyIds(approverId),
+    ]);
+    if (!requesterCompanyIds.some((cid) => approverCompanyIds.includes(cid))) {
       return NextResponse.json(
         { error: "You can only request approval from users in the same company as this request." },
         { status: 403 },
@@ -554,16 +557,10 @@ export async function handleUpdatePaymentMode(args: {
       { status: 400 },
     );
   }
-  const adminCompanyTeamId =
-    session.user.role === "Admin"
-      ? await resolveStaffCompanyTeamId(session.user.email)
-      : null;
   const maySetPaymentMode =
     isAssignedOperator ||
     isElevatedUserRole(session.user.role) ||
-    (session.user.role === "Admin" &&
-      Boolean(adminCompanyTeamId) &&
-      adminCompanyTeamId === ticket.teamId);
+    (session.user.role === "Admin" && (await viewerCanAccessCompany(session, ticket.teamId)));
   if (!maySetPaymentMode) {
     return NextResponse.json(
       {

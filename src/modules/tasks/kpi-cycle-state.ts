@@ -135,6 +135,10 @@ export type KpiMaintenanceLike = {
   periodCycleStartAt?: unknown;
   /** Pillar title — overdue → Delayed applies only to IT Project Implementation. */
   title?: string | null;
+  /** Company scope (for callers that resolve a mask instead of passing `workingDays`). */
+  scopedCompanyTeamId?: string | null;
+  /** Resolved ISO working days (1=Mon…7=Sun); omit to use the default (Mon–Sat). */
+  workingDays?: readonly number[] | null;
 };
 
 export function toJsDateMaybe(v: unknown): Date | null {
@@ -154,6 +158,7 @@ export function recurringDeadlineExclusive(record: KpiMaintenanceLike, timeZone:
     record.recurrenceWeekday,
     record.recurrenceMonthDay,
     normalizeTimeZone(timeZone),
+    record.workingDays,
   );
 }
 
@@ -254,9 +259,10 @@ export function nextRolloverEligibleAtUtc(
   timeZone: string,
   /** When set (recurring W/M/Q), completion can roll over immediately. Omit for Daily / one-off archive delay. */
   frequency?: KpiFrequencyCode | null,
+  workingDays?: readonly number[] | null,
 ): Date | null {
   if (!lastFullCompletionAt || !Number.isFinite(lastFullCompletionAt.getTime())) return null;
-  return getRolloverEligibleAfterCompletion(lastFullCompletionAt, timeZone, frequency);
+  return getRolloverEligibleAfterCompletion(lastFullCompletionAt, timeZone, frequency, workingDays);
 }
 
 /**

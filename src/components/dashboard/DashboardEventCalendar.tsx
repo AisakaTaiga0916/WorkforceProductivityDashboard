@@ -15,6 +15,8 @@ type CalendarTask = {
   createdAt?: string | null;
   recurrenceWeekday?: number | null;
   recurrenceMonthDay?: number | null;
+  /** Per-company Task Schedule Config mask (1=Mon…7=Sun) from /api/kpi-maintenance. */
+  workingDays?: readonly number[] | null;
 };
 
 type CalendarTravelOrder = {
@@ -52,6 +54,7 @@ function taskDueDate(task: CalendarTask) {
     task.recurrenceMonthDay ?? null,
     new Date(),
     DEFAULT_TIME_ZONE,
+    task.workingDays,
   );
   periodEnd.setMilliseconds(periodEnd.getMilliseconds() - 1);
   return periodEnd;

@@ -157,8 +157,9 @@ Tabs (role-dependent):
 
 ### Workforce (`/admin/workforce`)
 
-- **ListView** — personnel registry, portal accounts, assignment readiness, account-request review.
 - **Activity** — live personnel cards with On Duty / Offline status from today's HRIS clock-ins (updates every 10 seconds).
+- **Org. Chart** — company-scoped teams and people (create / nest teams, set heads, place or remove members, staff assignment colors). Structure only; roles and company access live in Settings → User Management.
+- Pending account-request review (suspend / delete / password reset) appears at the top of Workforce when requests are waiting.
 
 ### Boards
 
@@ -182,7 +183,8 @@ Transfer requests are reviewed from the ticket workspace by the selected Admin/S
 
 ### Other admin paths
 
-- **`/admin/account-management`** — redirects to **`/admin/workforce`** (ListView) for portal account administration.
+- **`/admin/account-management`** — redirects to **Settings → User Management** for portal account administration.
+- **`/admin/personnel`** — redirects to **`/admin/workforce?view=sections`** (Org. Chart).
 - **`/reports`** — Admin/SuperAdmin executive reporting: transfer pending, priority mix, status mix, top queues, recent closures, and SLA summary.
 - **`POST /api/sla/sweep`** — secured Admin SLA scan/report refresh endpoint.
 

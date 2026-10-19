@@ -31,7 +31,7 @@ import {
 import {
   resolveMergedSourceUserIdForAgent,
   resolveMergedSourceUserIdForSessionEmail,
-} from "@/modules/hierarchy/approval-position-resolver";
+} from "@/modules/platform/approvals/approval-position-resolver";
 import { resolveDeepestOrgChartSectionIdForMergedUser } from "@/modules/hierarchy/org-chart-section-roster";
 
 export type LinkedRfpSummary = {
@@ -162,7 +162,7 @@ export async function createRfpFromSubmittedTravelOrder(
     email: contactEmail,
   });
   const budgetCompany = teamId
-    ? await prisma.team.findUnique({
+    ? await prisma.company.findUnique({
         where: { id: teamId },
         select: { id: true, name: true },
       })
@@ -501,7 +501,7 @@ export async function ensureLinkedRfpAccountingDefaults(opts: {
   let bookkeeperAgentId: string | null = null;
   let bookkeeperAgentName: string | null = null;
   if (companyTeamId) {
-    const company = await prisma.team.findUnique({
+    const company = await prisma.company.findUnique({
       where: { id: companyTeamId },
       select: { id: true, name: true },
     });

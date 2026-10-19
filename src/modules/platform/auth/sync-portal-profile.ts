@@ -8,7 +8,8 @@ import {
   type SyncSource,
 } from "@/modules/platform/auth/canonical-user-profile";
 import { mapHrisToPortalRole } from "@/modules/platform/auth/role-mapping";
-import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
+import { resolveCompanyLabel } from "@/modules/platform/companies/company-directory";
+import { ensureCompanyMembership } from "@/modules/platform/companies/company-membership";
 import { isMergedUserOrgChartSectionHead } from "@/modules/platform/scope/org-chart-section-scope";
 import { prismaPrimary } from "@/modules/platform/db/prisma";
 import { rbacRoleIdForLegacyChange, rbacRoleIdForLegacyRole } from "@/modules/platform/rbac/rbac-role-sync";
@@ -65,13 +66,7 @@ async function resolvePortalRole(profile: CanonicalUserProfile): Promise<{
 }
 
 async function resolvePrimaryTeamId(companyName: string | null | undefined): Promise<string | null> {
-  const rosterName = resolveRosterCompanyName(companyName);
-  if (!rosterName) return null;
-  const team = await prismaPrimary.team.findFirst({
-    where: { name: rosterName },
-    select: { id: true },
-  });
-  return team?.id ?? null;
+  return (await resolveCompanyLabel(companyName))?.id ?? null;
 }
 
 /**
@@ -303,9 +298,10 @@ async function upsertPortalAccount(
           ...(profile.image && !existing.profileImage ? { profileImage: profile.image } : {}),
           ...roleUpdate,
           ...(roleIdUpdate !== undefined ? { roleId: roleIdUpdate } : {}),
-          ...(teamId && isStaff ? { staffDesignatedCompanyId: teamId } : {}),
         },
       });
+      // HRIS company only fills gaps: User Management memberships win.
+      if (teamId && isStaff) await ensureCompanyMembership(existing.id, teamId);
     };
 
     try {
@@ -387,6 +383,9 @@ async function upsertPortalAccount(
       data: createData,
       select: selectCreated,
     });
+    if (created.staffDesignatedCompanyId) {
+      await ensureCompanyMembership(created.id, created.staffDesignatedCompanyId, { makeDefault: "always" });
+    }
     return { portal: created, created: true };
   } catch (e) {
     const code =

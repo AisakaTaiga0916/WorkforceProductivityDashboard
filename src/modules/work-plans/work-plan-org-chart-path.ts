@@ -6,7 +6,7 @@
  */
 
 import { orgChartLayerById, orgChartReportingParentByNodeId } from "@/app/admin/superadmin-settings/org-chart-layers";
-import { resolveMergedSourceUserIdForAgent } from "@/modules/hierarchy/approval-position-resolver";
+import { resolveMergedSourceUserIdForAgent } from "@/modules/platform/approvals/approval-position-resolver";
 import { loadHrisAssignableStaff } from "@/modules/hierarchy/hris-staff-roster";
 import {
   pickDeepestOrgChartSectionId,
@@ -319,7 +319,7 @@ async function resolveWorkPlanRequestorDefaults(
     designatedCompanyTeamId?.trim() ||
     (await resolveAgentDesignatedCompanyId(requestorAgentId));
   if (companyTeamId) {
-    const team = await prisma.team.findUnique({
+    const team = await prisma.company.findUnique({
       where: { id: companyTeamId },
       select: { name: true },
     });

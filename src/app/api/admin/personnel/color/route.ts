@@ -21,6 +21,7 @@ import {
 } from "@/lib/portal-staff-assignment-color-sql";
 import { prismaPrimary } from "@/modules/platform/db/prisma";
 import { isStaffPortalRole } from "@/lib/staff-role";
+import { canAccessCompany, getCompanyAccess } from "@/modules/platform/scope/company-access";
 import { Prisma } from "@prisma/client/primary";
 
 /**
@@ -95,6 +96,7 @@ export async function PATCH(req: Request) {
     name: true,
     role: true,
     staffDesignatedCompanyId: true,
+    companyMemberships: { select: { companyId: true } },
   } as const;
   const emailNeedle = merged.email?.trim().toLowerCase() || null;
   const usernameNeedle = merged.username?.trim().toLowerCase() || null;
@@ -170,6 +172,11 @@ export async function PATCH(req: Request) {
     );
   }
 
+  const access = await getCompanyAccess(session);
+  if (!access.global && !portal.companyMemberships.some((m) => canAccessCompany(access, m.companyId))) {
+    return NextResponse.json({ error: "This person is outside your companies." }, { status: 403 });
+  }
+
   // Ensure mergedSourceUserId link is set (profile sync / email match may lag the HRIS id).
   if (portal) {
     try {
@@ -187,25 +194,6 @@ export async function PATCH(req: Request) {
       console.warn("color route: could not link mergedSourceUserId", e);
     }
   }
-  // If company_name maps to a known team and portal has no designated company, attach it.
-  if (!portal.staffDesignatedCompanyId && merged.company_name?.trim()) {
-    const companyKey = merged.company_name.trim().toLowerCase();
-    const team = await prismaPrimary.team.findFirst({
-      where: { name: { equals: merged.company_name.trim(), mode: "insensitive" } },
-      select: { id: true },
-    });
-    // loose match for HRIS names like MCONPINCO vs MCHISI LPG is left to SuperAdmin company picker
-    if (team || companyKey) {
-      if (team) {
-        await prismaPrimary.portalAccount.update({
-          where: { id: portal.id },
-          data: { staffDesignatedCompanyId: team.id },
-        });
-        portal = { ...portal, staffDesignatedCompanyId: team.id };
-      }
-    }
-  }
-
   try {
     await setPortalStaffAssignmentColor(portal.id, colorNext);
   } catch (e) {

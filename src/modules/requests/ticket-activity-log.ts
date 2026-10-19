@@ -4,8 +4,8 @@ import type { Session } from "next-auth";
 import { prisma } from "@/modules/platform/db/prisma";
 import { findSessionAgentWithTeam } from "@/lib/session-agent";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
-import { rosterTeamNameFilter } from "@/lib/company-roster";
-import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { listActiveCompanies } from "@/modules/platform/companies/company-directory";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 
 export type TicketLogEntry = {
   id: string;
@@ -17,26 +17,16 @@ export type TicketLogEntry = {
   ticketId: string;
 };
 
-async function rosterTeamIds(): Promise<string[]> {
-  const teams = await prisma.team.findMany({
-    where: rosterTeamNameFilter(),
-    select: { id: true },
-  });
-  return teams.map((t) => t.id);
-}
-
 async function ticketScopeWhere(session: Session): Promise<Prisma.TicketWhereInput | null> {
   const role = session.user.role;
   const companyAdminPrivileges = await portalCompanyAdminPrivilegesForEmail(session.user.email);
   const operator = await findSessionAgentWithTeam({ email: session.user.email, name: session.user.name });
-  const staffCompanyId = await resolveStaffCompanyTeamId(session.user.email);
-  const rosterIds = await rosterTeamIds();
+  const staffCompanyId = await resolveViewerCompanyId(session);
+  const rosterIds = (await listActiveCompanies()).map((t) => t.id);
   if (rosterIds.length === 0) return null;
 
-  const rosterTicket: Prisma.TicketWhereInput = { teamId: { in: rosterIds } };
-
   if (isElevatedUserRole(role)) {
-    return rosterTicket;
+    return staffCompanyId ? { teamId: staffCompanyId } : { teamId: { in: rosterIds } };
   }
   if (role === "Admin" || companyAdminPrivileges) {
     if (staffCompanyId && rosterIds.includes(staffCompanyId)) {

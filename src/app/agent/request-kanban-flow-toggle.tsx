@@ -33,7 +33,7 @@ export function RequestKanbanFlowToggle({ className }: { className?: string }) {
     <div
       role="tablist"
       aria-label="Request kanban drag flow"
-      title="Sets how Assign Requests groups people for drag-and-drop (company or department)"
+      title="Sets how Assign Requests groups people for drag-and-drop (company or team)"
       className={cn(
         "inline-flex w-full rounded-lg border border-zinc-300 bg-zinc-100 p-0.5 text-xs font-semibold sm:w-auto dark:border-zinc-600 dark:bg-zinc-900/80",
         className,

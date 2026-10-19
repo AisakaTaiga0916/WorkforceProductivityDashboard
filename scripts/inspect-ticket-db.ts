@@ -3,7 +3,7 @@ import { prismaPrimary } from "../src/modules/platform/db/prisma";
 async function main() {
   const total = await prismaPrimary.ticket.count();
   const counts = await prismaPrimary.ticket.groupBy({ by: ["status"], _count: true });
-  const teams = await prismaPrimary.team.findMany({ select: { id: true, name: true } });
+  const teams = await prismaPrimary.company.findMany({ select: { id: true, name: true } });
   const agents = await prismaPrimary.agent.findMany({
     select: { id: true, name: true, email: true, teamId: true },
     take: 10,

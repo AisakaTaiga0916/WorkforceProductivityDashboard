@@ -5,10 +5,8 @@ import { requireRole } from "@/lib/access";
 import { findSessionAgentId } from "@/lib/session-agent";
 import { isAgentOnDutyFromMergedDb, loadOnDutySnapshot } from "@/lib/load-on-duty-snapshot";
 import { prisma } from "@/modules/platform/db/prisma";
-import {
-  resolveAdminOnDutyCompanyFilter,
-  resolveStaffCompanyTeamId,
-} from "@/modules/platform/scope/staff-company-scope";
+import { resolveViewerOnDutyCompanyFilter } from "@/modules/platform/scope/staff-company-scope";
+import { getCompanyAccess } from "@/modules/platform/scope/company-access";
 import {
   resolveViewerDepartmentScopeLabel,
   roleShowsDesignatedDepartmentLabel,
@@ -18,7 +16,7 @@ import {
   formatDepartmentDesignationWithExecutiveTitle,
   resolveExecutiveTitle,
 } from "@/modules/hierarchy/org-chart-executive-titles";
-import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/hierarchy/approval-position-resolver";
+import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/platform/approvals/approval-position-resolver";
 import { countTaskBoardLanes } from "@/modules/tasks/task-board-lane-counts";
 import { withTtlCache } from "@/lib/ttl-cache";
 import { getWorkforceViewVisibility } from "@/modules/platform/settings/workforce-view-visibility-db";
@@ -49,45 +47,24 @@ type SidebarSummary = {
 async function resolveDesignations(input: {
   role: string;
   email: string | null | undefined;
+  currentCompanyName: string | null;
 }): Promise<{ companyDesignation: string | null; departmentDesignation: string | null }> {
   if (isElevatedUserRole(input.role)) {
     return {
-      companyDesignation: "All companies",
-      departmentDesignation: "All departments",
+      companyDesignation: input.currentCompanyName ?? "All companies",
+      departmentDesignation: "All teams",
     };
   }
 
   const email = (input.email ?? "").trim();
-  const [companyTeamId, departmentScopeLabel, mergedId] = await Promise.all([
-    resolveStaffCompanyTeamId(email),
+  const [departmentScopeLabel, mergedId] = await Promise.all([
     roleShowsDesignatedDepartmentLabel(input.role)
       ? resolveViewerDepartmentScopeLabel(email)
       : Promise.resolve(null),
     resolveMergedSourceUserIdForSessionEmail(email),
   ]);
 
-  let companyDesignation: string | null = null;
-  if (companyTeamId) {
-    const team = await prisma.team.findUnique({
-      where: { id: companyTeamId },
-      select: { name: true },
-    });
-    companyDesignation = team?.name?.trim() || null;
-  }
-  if (!companyDesignation && email) {
-    const portal = await prisma.portalAccount.findFirst({
-      where: { email: { equals: email, mode: "insensitive" } },
-      select: {
-        staffDesignatedCompany: { select: { name: true } },
-        company: { select: { name: true } },
-        name: true,
-      },
-    });
-    companyDesignation =
-      portal?.staffDesignatedCompany?.name?.trim() ||
-      portal?.company?.name?.trim() ||
-      null;
-  }
+  const companyDesignation = input.currentCompanyName;
 
   let personName: string | null = null;
   if (mergedId) {
@@ -122,6 +99,9 @@ async function buildSidebarSummary(input: {
   email: string | null | undefined;
   name: string | null | undefined;
   showActivity: boolean;
+  currentCompanyId: string | null;
+  currentCompanyName: string | null;
+  onDutyCompanyFilter: string | null;
 }): Promise<Omit<SidebarSummary, "showActivity">> {
   const isSuperAdmin = input.role === "SuperAdmin";
   const isPersonnel = input.role === "Personnel";
@@ -134,19 +114,20 @@ async function buildSidebarSummary(input: {
   const designationsPromise = resolveDesignations({
     role: input.role,
     email: input.email,
+    currentCompanyName: input.currentCompanyName,
   });
 
   let ticketScope: Prisma.TicketWhereInput;
   if (isSuperAdmin) {
-    ticketScope = {};
+    ticketScope = input.currentCompanyId ? { teamId: input.currentCompanyId } : {};
   } else if (usesSectionBoardScope) {
     ticketScope = await sectionScopedTicketWhere({
       email: input.email,
       agentId: sessionAgent?.id,
+      companyId: input.currentCompanyId,
     });
   } else {
-    const scopedCompanyTeamId = await resolveStaffCompanyTeamId(input.email);
-    ticketScope = { teamId: scopedCompanyTeamId ?? "__none__" };
+    ticketScope = { teamId: input.currentCompanyId ?? "__none__" };
   }
 
   const countStatus = (status: TicketStatus) =>
@@ -170,6 +151,7 @@ async function buildSidebarSummary(input: {
           role: input.role,
           email: input.email,
           name: input.name,
+          companyTeamId: input.currentCompanyId,
         }),
         designationsPromise,
       ]);
@@ -187,7 +169,7 @@ async function buildSidebarSummary(input: {
     };
   }
 
-  const onDutyCompanyFilter = await resolveAdminOnDutyCompanyFilter(input.role, input.email);
+  const onDutyCompanyFilter = input.onDutyCompanyFilter ?? input.currentCompanyName;
 
   const [open, inProgress, forConfirmation, onDuty, taskLanes, designations] = await Promise.all([
     countStatus("OPEN"),
@@ -208,6 +190,7 @@ async function buildSidebarSummary(input: {
       role: input.role,
       email: input.email,
       name: input.name,
+      companyTeamId: input.currentCompanyId,
     }),
     designationsPromise,
   ]);
@@ -238,7 +221,14 @@ export async function GET() {
   const email = session.user.email ?? "";
   const visibility = await getWorkforceViewVisibility();
   const showActivity = isWorkforceViewVisible(visibility, "activity");
-  const cacheKey = `sidebar-summary:${role}:${email.toLowerCase()}:activity=${showActivity ? "1" : "0"}`;
+  const [access, onDutyCompanyFilter] = await Promise.all([
+    getCompanyAccess(session),
+    resolveViewerOnDutyCompanyFilter(session),
+  ]);
+  const currentCompanyId = access.currentCompanyId;
+  const currentCompanyName =
+    access.companies.find((c) => c.id === currentCompanyId)?.name ?? null;
+  const cacheKey = `sidebar-summary:${role}:${email.toLowerCase()}:company=${currentCompanyId ?? "all"}:activity=${showActivity ? "1" : "0"}`;
 
   const result = await withTtlCache(cacheKey, 30_000, () =>
     buildSidebarSummary({
@@ -246,6 +236,9 @@ export async function GET() {
       email: session.user.email,
       name: session.user.name,
       showActivity,
+      currentCompanyId,
+      currentCompanyName,
+      onDutyCompanyFilter,
     }),
   );
 

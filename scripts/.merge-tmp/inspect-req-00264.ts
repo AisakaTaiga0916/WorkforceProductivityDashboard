@@ -19,7 +19,7 @@ async function main() {
   });
   console.log("ticket", JSON.stringify(t, null, 2));
 
-  const teams = await prisma.team.findMany({
+  const teams = await prisma.company.findMany({
     where: {
       OR: [
         { name: { contains: "MCHISI", mode: "insensitive" } },

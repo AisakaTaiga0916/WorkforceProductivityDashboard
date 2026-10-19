@@ -10,10 +10,7 @@ import {
 } from "@/modules/platform/scope/org-chart-section-scope";
 import { prisma } from "@/modules/platform/db/prisma";
 import { loadStaffAssignmentColorsForAgents } from "@/lib/assignee-assignment-color";
-import { ensureRosterTeamsInDb } from "@/lib/roster-teams";
-import {
-  resolveStaffCompanyTeamId,
-} from "@/modules/platform/scope/staff-company-scope";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 import { ManualAssignmentBoard } from "./ui";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +24,6 @@ export default async function ManualAssignmentPage() {
 
   const companyDeptLock = roleUsesCompanyDepartmentTaskAssignScope(session.user.role);
 
-  await ensureRosterTeamsInDb();
-
   let scopedCompanyFilterTeamId: string | null = null;
   let restrictSectionIds: string[] | null = null;
   let companyRosterSectionIds: string[] | null = null;
@@ -38,17 +33,17 @@ export default async function ManualAssignmentPage() {
 
   if (companyDeptLock) {
     const [companyId, sectionScope] = await Promise.all([
-      resolveStaffCompanyTeamId(session.user.email),
+      resolveViewerCompanyId(session),
       resolveViewerOrgChartSectionScope(session.user.email),
     ]);
     if (!companyId) {
       scopeUnavailable = true;
       scopeNotice =
-        "Your portal account doesn't have a designated company yet. A SuperAdmin can set one in Personnel → Portal Accounts so you can assign requests.";
+        "Your account has no company access yet. A Super Admin can add one in Settings → User Management so you can assign requests.";
     } else if (sectionScope.sectionIds.length === 0) {
       scopeUnavailable = true;
       scopeNotice =
-        "Your account is not placed on the org chart. Ask a SuperAdmin to assign your department before assigning requests.";
+        "Your account is not placed on the org chart. Ask a Super Admin to add you to a team before assigning requests.";
     } else {
       scopedCompanyFilterTeamId = companyId;
       // Department scope follows org-chart membership (do not require section.companyTeamId —

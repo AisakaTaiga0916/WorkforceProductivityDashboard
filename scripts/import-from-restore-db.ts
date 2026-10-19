@@ -60,7 +60,7 @@ async function main() {
       createdAt: Date;
     }>(src, 'SELECT id, name, description, "createdAt" FROM public."Team"');
     for (const row of teams.rows) {
-      await tx.team.create({
+      await tx.company.create({
         data: {
           id: row.id,
           name: row.name,

@@ -957,12 +957,12 @@ function NewTicketPageInner({
 
       if (isStaffRequestorIntake) {
         if (!selectedRequestorOrgChartSectionId.trim()) {
-          setError("Requesting department is required.");
+          setError("Requesting team is required.");
           setLoading(false);
           return;
         }
         if (sendToMode === "department" && !selectedSendToOrgChartSectionId.trim()) {
-          setError("Send request to (department) is required.");
+          setError("Send request to (team) is required.");
           setLoading(false);
           return;
         }
@@ -1473,7 +1473,7 @@ function NewTicketPageInner({
                       htmlFor="intake-requestor-section"
                       className="flex h-5 items-center text-sm font-medium text-zinc-800 dark:text-zinc-200"
                     >
-                      Requesting department
+                      Requesting team
                     </label>
                     <select
                       id="intake-requestor-section"
@@ -1485,7 +1485,7 @@ function NewTicketPageInner({
                       className="box-border h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm leading-none text-zinc-900 outline-none ring-orange-500/40 focus:border-orange-500 focus:ring disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                     >
                       <option value="">
-                        {sectionsLoading ? "Loading departments…" : "Select requesting department"}
+                        {sectionsLoading ? "Loading teams…" : "Select requesting team"}
                       </option>
                       {requestorSectionOptions.map((section) => (
                         <option key={section.id} value={section.id}>
@@ -1603,7 +1603,7 @@ function NewTicketPageInner({
                     </span>
                     <div
                       role="tablist"
-                      aria-label="Send request to company or department"
+                      aria-label="Send request to company or team"
                       className="inline-flex rounded-lg border border-orange-300/80 bg-orange-100 p-0.5 text-xs font-semibold dark:border-orange-500/35 dark:bg-orange-950/40"
                     >
                       <button
@@ -1635,7 +1635,7 @@ function NewTicketPageInner({
                             : "rounded-md px-2.5 py-1 text-orange-950/80 hover:bg-orange-200/60 dark:text-orange-100/90 dark:hover:bg-orange-900/50"
                         }
                       >
-                        Department
+                        Team
                       </button>
                     </div>
                   </div>
@@ -1667,7 +1667,7 @@ function NewTicketPageInner({
                       className="box-border h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm leading-none text-zinc-900 outline-none ring-orange-500/40 focus:border-orange-500 focus:ring disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                     >
                       <option value="">
-                        {sectionsLoading ? "Loading departments…" : "Select a department"}
+                        {sectionsLoading ? "Loading teams…" : "Select a team"}
                       </option>
                       {sendToDepartments.map((section) => (
                         <option key={section.id} value={section.id}>
@@ -1684,7 +1684,7 @@ function NewTicketPageInner({
                       </span>
                       {findOrgChartSectionByName(orgChartSectionOptions, recommendedSendToName)
                         ? null
-                        : " (not found in Manage departments yet)"}
+                        : " (not found in Manage teams yet)"}
                     </p>
                   ) : null}
                   {sendToMode === "department" ? (
@@ -1756,7 +1756,7 @@ function NewTicketPageInner({
                 </div>
                 <p className="text-[11px] leading-snug text-zinc-500 dark:text-zinc-400">
                   Use a roster SBU name when you can (e.g. AGC, ALI). If it does not match, your request still
-                  registers and is triaged under <strong className="font-medium text-zinc-600 dark:text-zinc-300">OUTSIDE COMPANY</strong> on the company board. Your profile company is updated when you submit.
+                  registers and is queued for admin routing. Your profile company is updated when you submit.
                 </p>
                 {googleOAuthCustomer ? (
                   <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">

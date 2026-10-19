@@ -8,7 +8,7 @@ import { normalizePersonName } from "../src/lib/person-name";
 import { prismaPrimary } from "../src/modules/platform/db/prisma";
 
 async function main() {
-  const generalQueue = await prismaPrimary.team.findFirst({
+  const generalQueue = await prismaPrimary.company.findFirst({
     where: { name: "General Queue" },
     select: { id: true },
   });

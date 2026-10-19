@@ -16,34 +16,53 @@ import { requirePermission } from "@/modules/platform/rbac/permissions";
 import { userChangeError } from "@/modules/platform/rbac/rbac-policy";
 import { isCustomerLegacyRole, legacyPortalRoleForRbacRoleKey } from "@/modules/platform/rbac/rbac-seed";
 import { prismaPrimary } from "@/modules/platform/db/prisma";
+import { setUserCompanyMemberships } from "@/modules/platform/companies/company-membership";
+import { normalizeMembershipInput } from "@/modules/platform/scope/company-access-core";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
  * PATCH /api/admin/iam/users/:id
- * Body: { roleId?: string, companyId?: string | null, active?: boolean }
- * - roleId requires `users.assign`; companyId / active require `users.update`.
- * - Non–Super Admins may only edit users in their own company and cannot move them out.
+ * Body: { roleId?: string, companyIds?: string[], defaultCompanyId?: string | null, active?: boolean }
+ * - roleId requires `users.assign`; company access / active require `users.update`.
+ * - `companyIds` replaces the user's memberships; `defaultCompanyId` must be one of them
+ *   (send it alone to only change the default).
+ * - Non–Super Admins may only edit users who share one of their companies and
+ *   cannot change company access.
  * - Lockout guards: last active Super Admin, self-deactivation, Super Admin grants.
  */
 export async function PATCH(req: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   const body = (await req.json().catch(() => ({}))) as {
     roleId?: unknown;
-    companyId?: unknown;
+    companyIds?: unknown;
+    defaultCompanyId?: unknown;
     active?: unknown;
   };
 
   const wantsRole = typeof body.roleId === "string" && body.roleId.length > 0;
-  const wantsCompany = body.companyId === null || typeof body.companyId === "string";
+  const wantsCompanies = body.companyIds !== undefined || body.defaultCompanyId !== undefined;
   const wantsActive = typeof body.active === "boolean";
-  if (!wantsRole && !wantsCompany && !wantsActive) {
+  if (!wantsRole && !wantsCompanies && !wantsActive) {
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
+  }
+  if (
+    body.companyIds !== undefined &&
+    (!Array.isArray(body.companyIds) || body.companyIds.some((c) => typeof c !== "string"))
+  ) {
+    return NextResponse.json({ error: "companyIds must be a list of company ids." }, { status: 400 });
+  }
+  if (
+    body.defaultCompanyId !== undefined &&
+    body.defaultCompanyId !== null &&
+    typeof body.defaultCompanyId !== "string"
+  ) {
+    return NextResponse.json({ error: "Invalid default company." }, { status: 400 });
   }
 
   const needed: string[] = [];
   if (wantsRole) needed.push("users.assign");
-  if (wantsCompany || wantsActive) needed.push("users.update");
+  if (wantsCompanies || wantsActive) needed.push("users.update");
   const { session, role: actorRole, unauthorized } = await requirePermission(
     ...(needed as [string, ...string[]]),
   );
@@ -64,14 +83,14 @@ export async function PATCH(req: Request, ctx: Ctx) {
   }
 
   const scope = await actorCompanyScope(actorId, actorRole?.key ?? null);
-  const nextCompanyId = wantsCompany ? ((body.companyId as string | null) || null) : undefined;
   if (scope !== undefined) {
-    if (!scope || target.staffDesignatedCompanyId !== scope) {
+    const shares = target.companyMemberships.some((m) => scope.includes(m.companyId));
+    if (!shares) {
       return NextResponse.json({ error: "User is outside your company scope." }, { status: 403 });
     }
-    if (nextCompanyId !== undefined && nextCompanyId !== scope) {
+    if (wantsCompanies) {
       return NextResponse.json(
-        { error: "Only a Super Admin can move users between companies." },
+        { error: "Only a Super Admin can change a user's company access." },
         { status: 403 },
       );
     }
@@ -86,12 +105,34 @@ export async function PATCH(req: Request, ctx: Ctx) {
   if (wantsRole && !nextRole) {
     return NextResponse.json({ error: "Role not found." }, { status: 404 });
   }
-  if (nextCompanyId) {
-    const team = await prismaPrimary.team.findUnique({
-      where: { id: nextCompanyId },
-      select: { id: true },
-    });
-    if (!team) return NextResponse.json({ error: "Company not found." }, { status: 404 });
+
+  let membership: { companyIds: string[]; defaultCompanyId: string | null } | null = null;
+  if (wantsCompanies) {
+    const currentIds = target.companyMemberships.map((m) => m.companyId);
+    const requestedIds =
+      body.companyIds !== undefined ? (body.companyIds as string[]) : currentIds;
+    let defaultId =
+      body.defaultCompanyId !== undefined
+        ? (body.defaultCompanyId as string | null)
+        : (target.companyMemberships.find((m) => m.isDefault)?.companyId ?? null);
+    // A kept default that was just deselected falls back to the first selected company.
+    if (body.defaultCompanyId === undefined && defaultId && !requestedIds.includes(defaultId)) {
+      defaultId = null;
+    }
+    const normalized = normalizeMembershipInput(requestedIds, defaultId);
+    if ("error" in normalized) {
+      return NextResponse.json({ error: normalized.error }, { status: 400 });
+    }
+    membership = normalized;
+    const newlyAdded = membership.companyIds.filter((cid) => !currentIds.includes(cid));
+    if (newlyAdded.length > 0) {
+      const active = await prismaPrimary.company.count({
+        where: { id: { in: newlyAdded }, isActive: true },
+      });
+      if (active !== newlyAdded.length) {
+        return NextResponse.json({ error: "Company not found or archived." }, { status: 404 });
+      }
+    }
   }
 
   const policyError = userChangeError({
@@ -107,27 +148,35 @@ export async function PATCH(req: Request, ctx: Ctx) {
   if (policyError) return NextResponse.json({ error: policyError }, { status: 409 });
 
   const wasCustomer = isCustomerLegacyRole(target.role) && target.roleId == null;
-  const updated = await prismaPrimary.portalAccount.update({
+  if (nextRole || wantsActive) {
+    await prismaPrimary.portalAccount.update({
+      where: { id: target.id },
+      data: {
+        ...(nextRole
+          ? {
+              roleId: nextRole.id,
+              role: legacyPortalRoleForRbacRoleKey(nextRole.key, target.role),
+              headPrivileges: false,
+              ...(wasCustomer ? { companyId: null, customerOrgRole: null } : {}),
+            }
+          : {}),
+        ...(wantsActive
+          ? { accountStatus: body.active ? ACCOUNT_STATUS_ACTIVE : ACCOUNT_STATUS_INACTIVE }
+          : {}),
+      },
+    });
+  }
+  if (membership) {
+    await setUserCompanyMemberships(target.id, membership.companyIds, membership.defaultCompanyId);
+  }
+
+  const updated = await prismaPrimary.portalAccount.findUniqueOrThrow({
     where: { id: target.id },
-    data: {
-      ...(nextRole
-        ? {
-            roleId: nextRole.id,
-            role: legacyPortalRoleForRbacRoleKey(nextRole.key, target.role),
-            headPrivileges: false,
-            ...(wasCustomer ? { companyId: null, customerOrgRole: null } : {}),
-          }
-        : {}),
-      ...(nextCompanyId !== undefined ? { staffDesignatedCompanyId: nextCompanyId } : {}),
-      ...(wantsActive
-        ? { accountStatus: body.active ? ACCOUNT_STATUS_ACTIVE : ACCOUNT_STATUS_INACTIVE }
-        : {}),
-    },
-    select: iamUserSelect,
+    select: { ...iamUserSelect, staffDesignatedCompanyId: true },
   });
 
   const companyForAgent = updated.staffDesignatedCompanyId;
-  if (companyForAgent && updated.roleId && (nextCompanyId !== undefined || nextRole)) {
+  if (companyForAgent && updated.roleId && (membership || nextRole)) {
     try {
       await ensureAgentRowForPortalStaff({ email: updated.email, name: updated.name }, companyForAgent);
     } catch (e) {

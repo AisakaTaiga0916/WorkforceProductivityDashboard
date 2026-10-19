@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import { moduleDisabledResponse } from "@/modules/platform/settings/system-modules-db";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import { resolveAgentDesignatedCompanyId } from "@/modules/platform/scope/staff-company-scope";
+import { canAccessCompany, getCompanyAccess } from "@/modules/platform/scope/company-access";
 import { prisma } from "@/modules/platform/db/prisma";
 import {
   agentIdsFromApprovalLevels,
@@ -50,12 +50,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
           isTravelOrderTraveler(operatorId, order),
       ),
   );
-  const companyTeamId = operatorId
-    ? await resolveAgentDesignatedCompanyId(operatorId)
-    : null;
+  const access = operatorId ? await getCompanyAccess(session) : null;
   const sameCompany = Boolean(
-    companyTeamId &&
-      rows.some((order) => order.companyTeamId && order.companyTeamId === companyTeamId),
+    access && rows.some((order) => canAccessCompany(access, order.companyTeamId)),
   );
   const canAccess =
     perms.canAssignWork ||

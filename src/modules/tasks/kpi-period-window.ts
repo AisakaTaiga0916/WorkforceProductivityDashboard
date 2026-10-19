@@ -18,11 +18,12 @@ export function getPeriodStartInclusive(
   recurrenceMonthDay: number | null | undefined,
   now: Date,
   timeZone: string,
+  workingDays?: readonly number[] | null,
 ): Date {
   const zone = normalizeTimeZone(timeZone);
   switch (frequency) {
     case "DAILY":
-      return getDailyPeriodStartDt(now, zone).toJSDate();
+      return getDailyPeriodStartDt(now, zone, workingDays).toJSDate();
     case "WEEKLY": {
       const wd = typeof recurrenceWeekday === "number" ? recurrenceWeekday : 1;
       return getWeeklyPeriodStartDt(now, wd, zone).toJSDate();
@@ -55,8 +56,16 @@ export function getCurrentPeriodBoundaryStart(
   recurrenceMonthDay: number | null | undefined,
   now: Date,
   timeZone: string,
+  workingDays?: readonly number[] | null,
 ): Date {
-  return getPeriodStartInclusive(frequency, recurrenceWeekday, recurrenceMonthDay, now, timeZone);
+  return getPeriodStartInclusive(
+    frequency,
+    recurrenceWeekday,
+    recurrenceMonthDay,
+    now,
+    timeZone,
+    workingDays,
+  );
 }
 
 export function getIncompleteKpiOverdueDelayMs(
@@ -65,6 +74,7 @@ export function getIncompleteKpiOverdueDelayMs(
   recurrenceMonthDay: number | null | undefined,
   nowMs: number,
   timeZone: string,
+  workingDays?: readonly number[] | null,
 ): number {
   const now = new Date(nowMs);
   const endExclusive = getPeriodEndExclusive(
@@ -73,6 +83,7 @@ export function getIncompleteKpiOverdueDelayMs(
     recurrenceMonthDay,
     now,
     timeZone,
+    workingDays,
   ).getTime();
   if (!Number.isFinite(endExclusive)) return 0;
   if (nowMs < endExclusive) return 0;
@@ -86,6 +97,7 @@ export function getRolloverIncompleteDelayMs(
   recurrenceMonthDay: number | null | undefined,
   nowMs: number,
   timeZone: string,
+  workingDays?: readonly number[] | null,
 ): number {
   const now = new Date(nowMs);
   const periodStart = getCurrentPeriodBoundaryStart(
@@ -94,6 +106,7 @@ export function getRolloverIncompleteDelayMs(
     recurrenceMonthDay,
     now,
     timeZone,
+    workingDays,
   ).getTime();
   if (!Number.isFinite(periodStart)) return 0;
   return Math.max(0, nowMs - periodStart);

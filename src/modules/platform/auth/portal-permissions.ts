@@ -10,7 +10,9 @@ export type PortalPermissionContext = {
   portalAccountId: string;
   role: string;
   headPrivileges?: boolean;
-  staffDesignatedCompanyId?: string | null;
+  /** Staff company memberships (`user_companies`). */
+  companyIds?: readonly string[];
+  /** Customer portal company. */
   companyId?: string | null;
 };
 
@@ -31,7 +33,7 @@ export function canCoordinateCompany(
   if (canManageAllCompanies(ctx)) return true;
   const r = role(ctx);
   if (r !== "Admin" && !ctx.headPrivileges) return false;
-  return ctx.staffDesignatedCompanyId === companyTeamId;
+  return (ctx.companyIds ?? []).includes(companyTeamId);
 }
 
 /**
@@ -42,7 +44,7 @@ export function canBeAssignedStaffWork(ctx: PortalPermissionContext): boolean {
   return isStaffPortalRole(ctx.role);
 }
 
-/** Example: create ticket — customers for own company; staff for designated company. */
+/** Example: create ticket — customers for own company; staff for any company they belong to. */
 export function canCreateTicketForCompany(
   ctx: PortalPermissionContext,
   targetCompanyTeamId: string | null,
@@ -51,7 +53,7 @@ export function canCreateTicketForCompany(
   const r = role(ctx);
   if (r === "Customer") return ctx.companyId === targetCompanyTeamId;
   if (isStaffPortalRole(ctx.role)) {
-    return ctx.staffDesignatedCompanyId === targetCompanyTeamId;
+    return targetCompanyTeamId != null && (ctx.companyIds ?? []).includes(targetCompanyTeamId);
   }
   return false;
 }

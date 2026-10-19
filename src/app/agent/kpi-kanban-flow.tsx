@@ -2523,26 +2523,26 @@ export function AgentKpiKanbanFlow({
         list = scopeReady && assignScopeAgents != null ? [...assignScopeAgents] : [];
         const deptLabel = assignRosterScope?.departments.find((d) => d.value === assignPickerDepartmentId)?.label;
         if (scopeReady) {
-          lockNote = `Department: ${deptLabel ?? "selected"} Â· ${list.length} personnel Â· cross-company`;
+          lockNote = `Team: ${deptLabel ?? "selected"} Â· ${list.length} personnel Â· cross-company`;
           if (list.length === 0) {
-            emptyHint = "No personnel in this org-chart department.";
+            emptyHint = "No personnel in this org-chart team.";
           }
         } else {
-          lockNote = "Select an org-chart department to list assignees";
-          emptyHint = "Select a department first.";
+          lockNote = "Select an org-chart team to list assignees";
+          emptyHint = "Select a team first.";
         }
       }
     } else if (assignRosterScope && lockedIds.length > 0) {
       const allowed = new Set(lockedIds);
       list = assigneeCandidates.filter((a) => allowed.has(a.id));
       lockNote = assignRosterScope.lockedCompanyName
-        ? `Locked to ${assignRosterScope.lockedCompanyName} Â· your org-chart department`
-        : "Locked to your company and org-chart department";
+        ? `Locked to ${assignRosterScope.lockedCompanyName} Â· your org-chart team`
+        : "Locked to your company and org-chart team";
     } else if (assignRosterScope && !assignRosterScope.elevated) {
       list = [];
       lockNote = assignRosterScope.lockedCompanyName
-        ? `No assignable personnel in ${assignRosterScope.lockedCompanyName} Â· your org-chart department`
-        : "No assignable personnel in your company / department scope";
+        ? `No assignable personnel in ${assignRosterScope.lockedCompanyName} Â· your org-chart team`
+        : "No assignable personnel in your company / team scope";
       emptyHint = lockNote;
     } else {
       const mainCompany = main ? assignmentCompanyKey(main) : null;
@@ -2626,7 +2626,7 @@ export function AgentKpiKanbanFlow({
                 : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700",
             )}
           >
-            Department
+            Team
           </button>
         </div>
         {assignPickerMode === "company" ? (
@@ -2648,9 +2648,9 @@ export function AgentKpiKanbanFlow({
             value={assignPickerDepartmentId}
             onChange={(e) => setAssignPickerDepartmentId(e.target.value)}
             className="h-7 w-full rounded-md border border-zinc-300 bg-white px-1.5 text-[11px] text-zinc-800 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
-            aria-label="Assign by department"
+            aria-label="Assign by team"
           >
-            <option value="">Select department…</option>
+            <option value="">Select team…</option>
             {assignRosterScope.departments.map((d) => (
               <option key={d.value} value={d.value}>
                 {d.label}
@@ -5014,7 +5014,7 @@ export function AgentKpiKanbanFlow({
                     Completion verification
                   </p>
                   <p className="text-xs text-zinc-700 dark:text-zinc-300">
-                    Checklist is complete. As the department head, verify to mark Done, or reject with a comment to return the task to Current.
+                    Checklist is complete. As the team head, verify to mark Done, or reject with a comment to return the task to Current.
                   </p>
                   <ApprovalStepper
                     steps={taskCompletionVerificationUiSteps({
@@ -5903,7 +5903,7 @@ export function AgentKpiKanbanFlow({
       <TaskBoardPopup
         open={forMyApprovalOpen}
         title="For My Approval"
-        description="Sub-tasks awaiting verification by the org-chart head of each assignee's department."
+        description="Sub-tasks awaiting verification by the org-chart head of each assignee's team."
         onClose={() => {
           setForMyApprovalOpen(false);
         }}

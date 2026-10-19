@@ -285,7 +285,7 @@ async function main() {
       })
     : null;
   const company = source.company_team_id
-    ? await prismaPrimary.team.findUnique({
+    ? await prismaPrimary.company.findUnique({
         where: { id: source.company_team_id },
         select: { id: true, name: true },
       })

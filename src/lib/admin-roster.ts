@@ -1,4 +1,4 @@
-import type { Agent, Team } from "@prisma/client/primary";
+import type { Agent, Company } from "@prisma/client/primary";
 import { prisma } from "@/modules/platform/db/prisma";
 import { normalizePersonName } from "@/lib/person-name";
 
@@ -15,7 +15,7 @@ export function agentMatchesPortalStaff<
   );
 }
 
-export type AgentWithTeam = Agent & { team: Team };
+export type AgentWithTeam = Agent & { team: Company };
 
 /**
  * When portal email was updated or a second Agent row was created by name match only,

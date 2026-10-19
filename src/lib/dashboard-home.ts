@@ -10,7 +10,7 @@ import {
   loadTicketForConfirmationEnteredAtMap,
   loadTicketLastActivityAtMap,
 } from "@/modules/requests/request-board-columns";
-import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 import {
   resolveViewerDepartmentScopeLabel,
   sectionScopedTicketWhere,
@@ -120,21 +120,22 @@ async function resolveTicketScope(session: Session): Promise<{
   if (user.role === "SuperAdmin") {
     ticketScope = {};
   } else if (usesSectionBoardScope) {
+    scopedCompanyTeamId = await resolveViewerCompanyId(session);
     ticketScope = await sectionScopedTicketWhere({
       email: user.email,
       agentId: personnelAgent?.id,
+      companyId: scopedCompanyTeamId,
     });
     departmentScopeLabel = await resolveViewerDepartmentScopeLabel(user.email);
-    scopedCompanyTeamId = await resolveStaffCompanyTeamId(user.email);
   } else {
-    scopedCompanyTeamId = await resolveStaffCompanyTeamId(user.email);
+    scopedCompanyTeamId = await resolveViewerCompanyId(session);
     ticketScope = { teamId: scopedCompanyTeamId ?? "__none__" };
   }
 
   const scopedCompanyName =
     user.role !== "SuperAdmin" && scopedCompanyTeamId
       ? (
-          await prisma.team.findUnique({
+          await prisma.company.findUnique({
             where: { id: scopedCompanyTeamId },
             select: { name: true },
           })
@@ -387,6 +388,7 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
       role: user.role ?? "Personnel",
       email: user.email,
       name: user.name,
+      companyTeamId: ctx.scopedCompanyTeamId,
     }),
     prisma.ticket.findMany({
       where: pipelineWhere,

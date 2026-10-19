@@ -113,7 +113,7 @@ export function OrgChartWorkspace({
   onError,
   onChartSelectionChange,
   readOnly = false,
-  canSetPortalRoles = false,
+  canEditAssignmentColor = false,
   initialPortalRoleByMergedId = {},
 }: {
   initialNodes: OrgChartNodeRow[];
@@ -134,9 +134,11 @@ export function OrgChartWorkspace({
   onError?: (msg: string | null) => void;
   /** Optional: mirror the diagram's multi-select for the host's bulk actions. */
   onChartSelectionChange?: (ids: string[]) => void;
-  /** Browse-only (no drag/edit). SuperAdmin elevate still allowed when canSetPortalRoles. */
+  /** Browse-only (no drag/edit). */
   readOnly?: boolean;
-  canSetPortalRoles?: boolean;
+  /** Admin / Super Admin: edit staff assignment colors from the team member lists. */
+  canEditAssignmentColor?: boolean;
+  /** Display-only portal roles; roles are managed in Settings → User Management. */
   initialPortalRoleByMergedId?: Record<string, string>;
 }) {
   const [internalNodes, setInternalNodes] = useState<OrgChartNodeRow[]>(initialNodes);
@@ -148,17 +150,27 @@ export function OrgChartWorkspace({
   const [internalError, setInternalError] = useState<string | null>(null);
   const [internalBusy, setInternalBusy] = useState(false);
   const [sectionsPanelOpen, setSectionsPanelOpen] = useState(false);
-  const [portalRoleByMergedId, setPortalRoleByMergedId] = useState<Record<string, string>>(
-    () => {
-      const fromRoster: Record<string, string> = {};
-      for (const r of roster) {
-        const id = r.mergedSourceUserId?.trim();
-        const role = r.staffRole?.trim();
-        if (id && role) fromRoster[id] = role;
-      }
-      return { ...fromRoster, ...initialPortalRoleByMergedId };
-    },
-  );
+  const [portalRoleByMergedId] = useState<Record<string, string>>(() => {
+    const fromRoster: Record<string, string> = {};
+    for (const r of roster) {
+      const id = r.mergedSourceUserId?.trim();
+      const role = r.staffRole?.trim();
+      if (id && role) fromRoster[id] = role;
+    }
+    return { ...fromRoster, ...initialPortalRoleByMergedId };
+  });
+  /** Stored assignment colors keyed by merged user id (roster is the source). */
+  const [staffAssignmentColorByMergedId, setStaffAssignmentColorByMergedId] = useState<
+    Record<string, string>
+  >(() => {
+    const fromRoster: Record<string, string> = {};
+    for (const r of roster) {
+      const id = r.mergedSourceUserId?.trim();
+      const color = r.staffAssignmentColor?.trim();
+      if (id && color) fromRoster[id] = color;
+    }
+    return fromRoster;
+  });
 
   const nodes = controlledNodes ?? internalNodes;
   const sections = controlledSections ?? internalSections;
@@ -205,6 +217,36 @@ export function OrgChartWorkspace({
     },
     [onBusyChange],
   );
+
+  /** Persist an assignment color for a merged HRIS user (tickets/tasks/boards). */
+  async function updateStaffAssignmentColor(mergedSourceUserId: string, nextColor: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/personnel/color", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mergedSourceUserId,
+          staffAssignmentColor: nextColor.trim() || null,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(data.error ?? "Could not update assignment color.");
+        return;
+      }
+      setStaffAssignmentColorByMergedId((prev) => {
+        const next = { ...prev };
+        if (nextColor.trim()) next[mergedSourceUserId] = nextColor.trim();
+        else delete next[mergedSourceUserId];
+        return next;
+      });
+      setMessage("Assignment color updated.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const sectionNameById = useMemo(() => {
     const byId = new Map(sections.map((s) => [s.id, s]));
@@ -592,7 +634,7 @@ export function OrgChartWorkspace({
       return;
     }
     if (addSectionId && memberRosterIdsInAddSection.has(person.mergedSourceUserId)) {
-      setError("That person is already in the selected department.");
+      setError("That person is already in the selected team.");
       return;
     }
     setPendingAdds((prev) => {
@@ -618,7 +660,7 @@ export function OrgChartWorkspace({
     const deptNote = addSectionLabel
       ? ` in “${addSectionLabel}”`
       : sections.length > 0
-        ? " as an individual (no department)"
+        ? " as an individual (no team)"
         : "";
     const targetSectionId = addSectionId;
     const reloadSectionCounts = Boolean(addSectionId);
@@ -713,7 +755,7 @@ export function OrgChartWorkspace({
 
   const reloadSections = useCallback(async () => {
     const res = await fetch("/api/admin/org-chart-sections", { cache: "no-store" });
-    if (!res.ok) throw new Error("Could not reload departments.");
+    if (!res.ok) throw new Error("Could not reload teams.");
     const body = (await res.json()) as OrgChartSectionRow[];
     setSections(body);
   }, [setSections]);
@@ -724,7 +766,7 @@ export function OrgChartWorkspace({
       if (!section) return;
       if (section.parentId === newParentId && !section.reportsToNodeId) return;
       if (newParentId === sectionId) {
-        setError("A department cannot be nested under itself.");
+        setError("A team cannot be nested under itself.");
         return;
       }
       void (async () => {
@@ -740,18 +782,18 @@ export function OrgChartWorkspace({
           const body = (await res.json().catch(() => ({}))) as OrgChartSectionRow & {
             error?: string;
           };
-          if (!res.ok) throw new Error(body.error ?? "Could not move department.");
+          if (!res.ok) throw new Error(body.error ?? "Could not move team.");
           await reloadSections();
           if (newParentId) {
             const parent = sections.find((s) => s.id === newParentId);
             setMessage(
-              `Moved “${section.name}” under “${parent?.name ?? body.name ?? "department"}”.`,
+              `Moved “${section.name}” under “${parent?.name ?? body.name ?? "team"}”.`,
             );
           } else {
-            setMessage(`Made “${section.name}” a top-level department.`);
+            setMessage(`Made “${section.name}” a top-level team.`);
           }
         } catch (e) {
-          setError(e instanceof Error ? e.message : "Could not move department.");
+          setError(e instanceof Error ? e.message : "Could not move team.");
         } finally {
           setBusy(false);
         }
@@ -1023,6 +1065,8 @@ export function OrgChartWorkspace({
           username: null,
           teamId: "",
           teamName: node.companyName ?? "",
+          companyIds: [],
+          companyNames: node.companyName ? [node.companyName] : [],
           portalAccountId: null,
           staffRole: node.personRole ?? "",
           accountStatus: "ACTIVE",
@@ -1121,7 +1165,7 @@ export function OrgChartWorkspace({
                   onFocus={() => setPickerOpen(true)}
                   placeholder={
                     addSectionId
-                      ? "Search roster — queue people for this department…"
+                      ? "Search roster — queue people for this team…"
                       : "Search and click several people…"
                   }
                   className="h-full w-full min-w-0 bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-500 dark:text-zinc-100"
@@ -1149,7 +1193,7 @@ export function OrgChartWorkspace({
                     {pendingAdds.length > 0
                       ? ` · ${pendingAdds.length} queued to add`
                       : addSectionId
-                        ? " · click to queue into the department"
+                        ? " · click to queue into the team"
                         : " · click to queue several under one manager"}
                   </p>
                   {pickerPeople.length === 0 ? (
@@ -1212,7 +1256,7 @@ export function OrgChartWorkspace({
 
             <label className="min-w-0">
               <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
-                Department
+                Team
               </span>
               <select
                 value={addSectionId}
@@ -1234,7 +1278,7 @@ export function OrgChartWorkspace({
               ) : null}
               {addSectionId && !addParentId ? (
                 <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
-                  No head or reports-to on this department — Reports to stays top level until you
+                  No head or reports-to on this team — Reports to stays top level until you
                   pick someone.
                 </p>
               ) : null}
@@ -1586,16 +1630,16 @@ export function OrgChartWorkspace({
               <FolderKanban className="mr-1.5 h-4 w-4" />
               {sectionsPanelOpen
                 ? readOnly
-                  ? "Hide departments"
-                  : "Hide departments"
+                  ? "Hide teams"
+                  : "Hide teams"
                 : readOnly
-                  ? "View departments"
-                  : "Manage departments"}
+                  ? "View teams"
+                  : "Manage teams"}
             </Button>
             <p className="max-w-xl text-xs leading-relaxed text-zinc-500 sm:text-right">
               {readOnly
-                ? "Read-only view of your department tree. SuperAdmin elevates Personnel, Admin, and HighAdmin from member rows."
-                : "The org chart shows departments and heads with hierarchy lines. Click a department to open its members. Use Manage departments to create groups, nest them, set heads, or elevate portal roles."}
+                ? "Read-only view of your team tree."
+                : "The org chart shows teams and heads with hierarchy lines. Click a team to open its members. Use Manage teams to create groups, nest them, and set heads. Portal roles are set in Settings → User Management."}
             </p>
           </div>
         </div>
@@ -1603,7 +1647,7 @@ export function OrgChartWorkspace({
         {chartSelectedIds.length < 2 && !readOnly ? (
           <p className="mt-3 text-[11px] text-zinc-500">
             Tip: drag a department onto another (including another major department) to nest it.
-            Reorder siblings with the gaps above/below. Open a department, then Shift-click
+            Reorder siblings with the gaps above/below. Open a team, then Shift-click
             members. Use Add / Remove for membership. Link either / or opens a Person A / Person B
             picker.
           </p>
@@ -1637,19 +1681,18 @@ export function OrgChartWorkspace({
                 onError={setError}
                 setBusy={setBusy}
                 readOnly={readOnly}
-                canSetPortalRoles={canSetPortalRoles}
+                canEditAssignmentColor={canEditAssignmentColor}
+                staffAssignmentColorByMergedId={staffAssignmentColorByMergedId}
+                onStaffAssignmentColorChange={updateStaffAssignmentColor}
                 portalRoleByMergedId={portalRoleByMergedId}
-                onPortalRoleChange={(mergedId, role) => {
-                  setPortalRoleByMergedId((prev) => ({ ...prev, [mergedId]: role }));
-                }}
               />
             </div>
           ) : null}
           {nodes.length === 0 && sections.length === 0 ? (
             <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-10 text-center text-sm text-zinc-500 dark:border-zinc-700">
               {readOnly
-                ? "No departments in your org-chart scope."
-                : "The chart is empty. Use Manage departments to create groups, then add people with Add or remove member (choose a department)."}
+                ? "No teams in your org-chart scope."
+                : "The chart is empty. Use Manage teams to create groups, then add people with Add or remove member (choose a team)."}
             </p>
           ) : (
             <OrgChartDiagram

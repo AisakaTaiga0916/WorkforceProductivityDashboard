@@ -3,7 +3,7 @@ import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-alias
 import { Prisma } from "@prisma/client/secondary";
 
 async function main() {
-  const teams = await prisma.team.findMany({
+  const teams = await prisma.company.findMany({
     where: {
       OR: [
         { name: { contains: "MCHISI", mode: "insensitive" } },

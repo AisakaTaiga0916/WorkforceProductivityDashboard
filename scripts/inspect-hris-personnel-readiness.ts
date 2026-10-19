@@ -52,7 +52,7 @@ async function main() {
     GROUP BY company_name ORDER BY c DESC
   `;
 
-  const teams = await prismaPrimary.team.findMany({ select: { id: true, name: true } });
+  const teams = await prismaPrimary.company.findMany({ select: { id: true, name: true } });
 
   console.log(
     JSON.stringify(

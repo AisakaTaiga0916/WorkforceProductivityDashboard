@@ -11,7 +11,7 @@ const CATEGORY_TEAM_HINT: Record<TicketCategory, string> = {
 
 export async function resolveTeamForCategory(category: TicketCategory) {
   const hint = CATEGORY_TEAM_HINT[category];
-  const team = await prisma.team.findFirst({
+  const team = await prisma.company.findFirst({
     where: { name: hint },
     include: { agents: true },
   });

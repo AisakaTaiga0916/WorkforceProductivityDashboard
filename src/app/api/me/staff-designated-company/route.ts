@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
-import { prisma } from "@/modules/platform/db/prisma";
+import { getCompanyAccess } from "@/modules/platform/scope/company-access";
 
+/**
+ * The staff user's current company (switcher context), used as the default
+ * requesting company on intake forms. Field names are kept for existing clients.
+ */
 export async function GET() {
   const session = await requireSession();
   if (!session?.user) {
@@ -13,25 +17,10 @@ export async function GET() {
     return NextResponse.json({ designatedCompanyTeamId: null, designatedCompanyName: null }, { status: 200 });
   }
 
-  const email = (session.user.email ?? "").trim().toLowerCase();
-  if (!email) {
-    return NextResponse.json({ designatedCompanyTeamId: null, designatedCompanyName: null }, { status: 200 });
-  }
-
-  const portal = await prisma.portalAccount.findFirst({
-    where: { email: { equals: email, mode: "insensitive" } },
-    select: {
-      staffDesignatedCompanyId: true,
-      staffDesignatedCompany: { select: { name: true } },
-      companyId: true,
-      company: { select: { name: true } },
-    },
-  });
-
-  const designatedCompanyTeamId = portal?.staffDesignatedCompanyId ?? portal?.companyId ?? null;
-  const designatedCompanyName =
-    portal?.staffDesignatedCompany?.name?.trim() ?? portal?.company?.name?.trim() ?? null;
-
-  return NextResponse.json({ designatedCompanyTeamId, designatedCompanyName }, { status: 200 });
+  const access = await getCompanyAccess(session);
+  const current = access.companies.find((c) => c.id === access.currentCompanyId) ?? null;
+  return NextResponse.json(
+    { designatedCompanyTeamId: current?.id ?? null, designatedCompanyName: current?.name ?? null },
+    { status: 200 },
+  );
 }
-

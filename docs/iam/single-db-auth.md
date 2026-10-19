@@ -14,7 +14,7 @@ Merged / HRIS dump (MySQL)
 
 | Database | Runtime role |
 |---|---|
-| Main (`DATABASE_URL_PRIMARY`) | **Required.** Identity, RBAC, settings, all app data. |
+| Main (`DATABASE_URL_PRIMARY`) | **Required.** Identity, RBAC, company access, settings, all app data. |
 | Merged (`DATABASE_URL_SECONDARY`) | Optional at runtime: attendance (Activity / On Duty), task activities, efficiency. Read in batch by the import. Never used for identity. |
 | Auth (`DATABASE_URL_AUTH`) | **Not used by the app.** Only legacy migration scripts touch it. |
 
@@ -27,12 +27,13 @@ Workforce, and role changes all work; Activity shows no on-duty data.
 
 | Table | Purpose |
 |---|---|
-| `portal_accounts` | **The users table.** `email`, `username`, `password_hash`, `name`, `role_id` (one primary role), `staff_designated_company_id` (company), `account_status` (`ACTIVE` / `INACTIVE` / `LEGACY_CONFLICT`). |
+| `portal_accounts` | **The users table.** `email`, `username`, `password_hash`, `name`, `role_id` (one primary role), `staff_designated_company_id` (mirror of the default `user_companies` row), `account_status` (`ACTIVE` / `INACTIVE` / `LEGACY_CONFLICT`). |
+| `user_companies` | Company access: many per user, one default. |
 | `roles` | `key`, `name`, `description`, `is_system`, `archived_at`. System roles: `super_admin`, `admin`, `employee`. Custom roles use `custom_*` keys. |
 | `permissions` | Catalog seeded from `src/modules/platform/rbac/permission-catalog.ts` (`<resource>.<action>`). |
 | `role_permissions` | Grant rows. **Presence = allow, absence = deny.** |
 | `platform_settings` | Key/value system settings (module visibility key `system_module_visibility`, task verification, Workforce toggles). |
-| `teams` | Companies. |
+| `teams` | Companies (Prisma `Company`): code, active, order, HRIS aliases. Org-chart teams are `org_chart_sections`. |
 | `hris_users` | Snapshot of every merged-dump row (name, email, username, HRIS role, company, department, position, active). Replaced on each import; read by the roster, Workforce, and org chart. |
 
 `portal_accounts.role` (legacy label `SuperAdmin` / `Admin` / `Personnel` / …) is
@@ -119,7 +120,8 @@ Never run against production without a separate manual runbook.
 | Tab | API | Permissions |
 |---|---|---|
 | Roles | `GET/POST /api/admin/iam/roles`, `PATCH/DELETE /api/admin/iam/roles/:id`, `PUT /api/admin/iam/roles/:id/permissions` | `rbac.read`, `rbac.create`, `rbac.update`, `rbac.archive`, `rbac.manage_permissions` |
-| User Management | `GET /api/admin/iam/users`, `PATCH /api/admin/iam/users/:id`, `POST /api/admin/iam/import` | `users.read`; role → `users.assign`; company / active → `users.update`; import → `users.create`. Non–Super Admins are limited to their own company. |
+| User Management | `GET /api/admin/iam/users`, `PATCH /api/admin/iam/users/:id`, `POST /api/admin/iam/import` | `users.read`; role → `users.assign`; company access (many + default; Super Admin only) / active → `users.update`; import → `users.create`. Non–Super Admins only see users who share one of their companies. |
+| Companies | `GET/POST /api/admin/iam/companies`, `PATCH /api/admin/iam/companies/:id`, `PUT /api/admin/iam/companies/order` | `companies.read` / `create` / `update` / `archive`. See `companies-teams.md`. |
 | System Settings | `GET/PUT /api/system-settings/modules` | GET: any session; PUT: `settings.update` |
 
 System Settings also hosts Priority alerts (escalation triggers) and the task-verification
@@ -143,9 +145,10 @@ hold a session use `permissionDenied(session, ...keys)`.
 | `tasks.verify` | `PATCH /api/task-management` (`lifecycle: verify/reject`), `PATCH /api/kpi-maintenance` (`completionVerification` approve/reject) | Checked before `canVerifyTaskCompletion` (verifier / org-chart head). Re-submit is not gated. |
 | `requests.approve` | `PATCH /api/tickets/:id` — every procedural step completion: `approve_payment_step`, `complete_payment_approval_step`, `complete_item_requisition_approval_step` (+ canvass via pricing), `complete_fund_transfer_approval_step`, `complete_job_order_approval_step`, and IRS/FTR/JO steps completed by a For Confirmation move | Checked right before each seat gate (`canComplete…ApprovalStep`). Customers never reach these branches. |
 | `work_plans.approve` | `PATCH /api/kpi-maintenance/:id/travel-orders/:toId` — `approve-level` / `APPROVED`, and `reject` when declining as an approver | Declining as the confirmer is a confirmation seat (not modeled) and is not gated. Seat check stays in `approveTravelOrderSequential`. |
-| `users.assign` | `PATCH /api/admin/personnel/role`, `PATCH /api/admin/org-chart/portal-role`, `PATCH /api/admin/roles` with `role` | These also set `role_id`. |
-| `users.update` | `PATCH /api/admin/roles` (other fields / Admin color), `PATCH /api/admin/personnel/company`, `PATCH /api/admin/personnel/color`, `PATCH/DELETE /api/admin/accounts/:id`, `PATCH /api/admin/account-requests`, `POST /api/admin/accounts/reconcile` | |
-| `users.create` / `users.delete` | `POST /api/admin/roles`, `DELETE /api/admin/portal-accounts/:id` | |
+| `users.assign` | `PATCH /api/admin/iam/users/:id` with `roleId` | The only role-assignment path (Workforce routes were removed; see `companies-teams.md`). |
+| `users.update` | `PATCH /api/admin/iam/users/:id` (company access — Super Admin only — and active), `PATCH /api/admin/personnel/color`, `PATCH /api/admin/account-requests` | |
+| `users.create` / `users.delete` | `POST /api/admin/iam/import`, `DELETE /api/admin/portal-accounts/:id` | |
+| `companies.*` | `GET/POST /api/admin/iam/companies`, `PATCH /api/admin/iam/companies/:id`, `PUT /api/admin/iam/companies/order` | Super Admin by default. |
 | `requests.assign` | `POST /api/admin/manual-assignment` | After the elevated-role gate. |
 | `tasks.create` | `POST /api/kpis/department-task-csv/import` | After the role + `canAssignWork` gates. |
 | `hierarchy.update` | `POST/PATCH/DELETE /api/admin/org-chart`, `POST/PATCH/DELETE /api/admin/org-chart-sections`, `POST/DELETE /api/admin/org-chart-either-or` | Writes only; GETs keep the legacy SuperAdmin-only gate. Checked via `guardSuperAdmin("hierarchy.update")`. |

@@ -3,7 +3,7 @@ import { computeTaskMetrics, parseKpiRangeFromQuery } from "../../src/modules/ta
 import { loadAgentIdsForCompanyTeam } from "../../src/modules/platform/scope/staff-company-scope.ts";
 
 void (async () => {
-  const teams = await prisma.team.findMany({ select: { id: true, name: true }, take: 5 });
+  const teams = await prisma.company.findMany({ select: { id: true, name: true }, take: 5 });
   console.log("teams", teams.map((t) => t.name));
   for (const t of teams.slice(0, 2)) {
     const ids = await loadAgentIdsForCompanyTeam(t.id);

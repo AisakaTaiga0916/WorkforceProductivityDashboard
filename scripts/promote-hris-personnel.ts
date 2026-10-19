@@ -17,8 +17,8 @@ import {
   canonicalProfileFromMerged,
   syncPortalProfile,
 } from "../src/modules/platform/auth/sync-portal-profile";
-import { resolveRosterCompanyName } from "../src/modules/hierarchy/hris-company-aliases";
-import { ensureRosterTeamsInDb } from "../src/lib/roster-teams";
+import { loadCompanyDirectory } from "../src/modules/platform/companies/company-directory";
+import { ensureCompanyMembership } from "../src/modules/platform/companies/company-membership";
 import { prismaPrimary, prismaSecondary } from "../src/modules/platform/db/prisma";
 import { isStaffPortalRole } from "../src/lib/staff-role";
 
@@ -117,7 +117,7 @@ async function main() {
   const apply = process.argv.includes("--apply");
   console.log(apply ? "[promote-hris-personnel] APPLY" : "[promote-hris-personnel] DRY RUN");
 
-  await ensureRosterTeamsInDb();
+  const directory = await loadCompanyDirectory();
 
   const merged = await prismaSecondary.$queryRaw<MergedRow[]>`
     SELECT source_user_id, username, name, email, role, company_name
@@ -130,7 +130,7 @@ async function main() {
   let companyUnresolved = 0;
 
   for (const row of merged) {
-    const roster = resolveRosterCompanyName(row.company_name);
+    const roster = directory.resolveLabel(row.company_name);
     if (!roster && row.company_name) companyUnresolved++;
 
     if (apply) {
@@ -163,21 +163,11 @@ async function main() {
     if (!isStaffPortalRole(portal.role)) continue;
 
     let teamId = portal.staffDesignatedCompanyId;
-    if (roster) {
-      const team = await prismaPrimary.team.findFirst({
-        where: { name: roster },
-        select: { id: true },
-      });
-      if (team) {
-        if (portal.staffDesignatedCompanyId !== team.id) companiesAssigned++;
-        teamId = team.id;
-        if (apply) {
-          await prismaPrimary.portalAccount.update({
-            where: { id: portal.id },
-            data: { staffDesignatedCompanyId: team.id },
-          });
-        }
-      }
+    if (roster && !teamId) {
+      // HRIS company only fills gaps; User Management memberships win.
+      companiesAssigned++;
+      teamId = roster.id;
+      if (apply) await ensureCompanyMembership(portal.id, roster.id);
     }
 
     if (teamId) {

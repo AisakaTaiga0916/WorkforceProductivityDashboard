@@ -3,6 +3,7 @@
 export const SUPERADMIN_SETTINGS_TABS = [
   { id: "roles", label: "Roles" },
   { id: "users", label: "User Management" },
+  { id: "companies", label: "Companies" },
   { id: "system", label: "System Settings" },
 ] as const;
 

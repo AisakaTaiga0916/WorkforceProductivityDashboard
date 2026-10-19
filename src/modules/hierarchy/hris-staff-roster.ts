@@ -1,7 +1,7 @@
 /**
  * HRIS-first staff roster for Assignment board, Task board assignees, and Activities.
- * Source of truth: the main-DB `hris_users` snapshot (filled by the merged-dump import) —
- * company membership matches the Personnel tab.
+ * People come from the main-DB `hris_users` snapshot (filled by the merged-dump import);
+ * company = default membership (User Management), else the HRIS company.
  * Portal/Agent rows are attached when present; Agent rows are created on demand so boards
  * can assign work.
  */
@@ -10,7 +10,10 @@ import { resolveHrisSourceTags } from "@/lib/merged-database-sources";
 import { matchPersonnelCompanyTeam } from "@/lib/personnel-accounts-data";
 import { prisma } from "@/modules/platform/db/prisma";
 import { withTtlCache } from "@/lib/ttl-cache";
-import { ensureRosterTeamsInDb } from "@/lib/roster-teams";
+import {
+  ACTIVE_COMPANY_WHERE,
+  COMPANY_ORDER_BY,
+} from "@/modules/platform/companies/company-directory";
 import { isStaffPortalRole, normalizePortalRole } from "@/lib/staff-role";
 import type { EffectiveAssignmentCompany } from "@/modules/platform/scope/staff-company-scope";
 import {
@@ -58,7 +61,7 @@ export async function loadHrisAssignableStaff(options?: {
   const excludeSuper = options?.excludeHrisSuperAdmin !== false;
   const companyTeamId = options?.companyTeamId?.trim() || null;
   return withTtlCache(
-    `hris-assignable-staff:v2:${companyTeamId ?? "all"}:${excludeSuper ? "1" : "0"}`,
+    `hris-assignable-staff:v3:${companyTeamId ?? "all"}:${excludeSuper ? "1" : "0"}`,
     60_000,
     () => loadHrisAssignableStaffUncached({ companyTeamId, excludeSuper }),
   );
@@ -72,8 +75,6 @@ async function loadHrisAssignableStaffUncached(options: {
   const companyTeamId = options.companyTeamId;
   const sourceTags = resolveHrisSourceTags();
 
-  await ensureRosterTeamsInDb();
-
   const [mergedRows, teams, portals, agents] = await Promise.all([
     prisma.$queryRaw<MergedRosterRow[]>`
       SELECT source_user_id, name, email, username, role, company_name, source_database
@@ -82,10 +83,10 @@ async function loadHrisAssignableStaffUncached(options: {
         AND source_database IN (${Prisma.join(sourceTags)})
       ORDER BY name ASC
     `,
-    // Same team set as Personnel tab (not roster-filter-only) so company matching matches.
-    prisma.team.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
+    prisma.company.findMany({
+      where: ACTIVE_COMPANY_WHERE,
+      orderBy: COMPANY_ORDER_BY,
+      select: { id: true, name: true, code: true, aliases: true },
     }),
     prisma.portalAccount.findMany({
       where: { mergedSourceUserId: { not: null } },
@@ -97,6 +98,7 @@ async function loadHrisAssignableStaffUncached(options: {
         mergedSourceUserId: true,
         accountStatus: true,
         staffDesignatedCompanyId: true,
+        companyMemberships: { select: { companyId: true } },
       },
     }),
     prisma.agent.findMany({
@@ -104,13 +106,6 @@ async function loadHrisAssignableStaffUncached(options: {
       select: { id: true, email: true, name: true, createdAt: true, teamId: true },
     }),
   ]);
-
-  /** Only used when creating Agent rows that have no resolvable Personnel company Team. */
-  const fallbackTeam =
-    teams.find((t) => t.name === "OUTSIDE COMPANY") ??
-    teams.find((t) => t.name.toLowerCase().includes("general")) ??
-    teams[0] ??
-    null;
 
   const canonicalMap = buildCanonicalMergedIdMap(
     mergedRows.map((r) => ({
@@ -158,10 +153,12 @@ async function loadHrisAssignableStaffUncached(options: {
         : teams.find((t) => t.id === matched.teamId) ?? null);
 
     if (companyTeamId) {
-      if (!assignmentTeam || assignmentTeam.id !== companyTeamId) continue;
+      // Shares the company: any membership, else the resolved default company.
+      const memberOf = portal?.companyMemberships.some((m) => m.companyId === companyTeamId) ?? false;
+      if (!memberOf && assignmentTeam?.id !== companyTeamId) continue;
     }
 
-    const teamForAgentRow = assignmentTeam ?? fallbackTeam;
+    const teamForAgentRow = assignmentTeam;
 
     const email =
       (row.email ?? "").trim().toLowerCase() ||

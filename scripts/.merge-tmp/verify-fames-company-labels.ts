@@ -28,7 +28,7 @@ async function main() {
     orderBy: { personName: "asc" },
   });
 
-  const famesTeam = await prisma.team.findFirst({
+  const famesTeam = await prisma.company.findFirst({
     where: { name: "MCHISI FAMES" },
     select: { id: true },
   });

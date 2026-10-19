@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { DateTime } from "luxon";
 import { requireRole } from "@/lib/access";
-import { sortByRosterOrder } from "@/lib/company-roster";
+import { sortByCompanyOrder } from "@/modules/platform/companies/company-directory";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 import {
   itProjectStatusProgress,
   normalizeItProjectPriority,
@@ -13,11 +14,14 @@ import { getPeriodStartInclusive } from "@/modules/tasks/kpi-period-window";
 import {
   DEFAULT_TIME_ZONE,
   getPeriodEndExclusiveFromCycleStart,
+  isKpiMetricsWorkingDay,
   type KpiFrequencyCode,
 } from "@/modules/tasks/kpi-recurrence";
+import { getTaskScheduleSettings } from "@/modules/platform/settings/task-schedule-settings-db";
+import { workingDaysForCompany } from "@/modules/platform/settings/task-schedule-settings";
 import { IT_PROJECT_IMPLEMENTATION_TITLE } from "@/modules/tasks/it-task-pillar-titles";
 import { prisma } from "@/modules/platform/db/prisma";
-import { loadEffectiveCompaniesByPortalEmail, resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { loadEffectiveCompaniesByPortalEmail } from "@/modules/platform/scope/staff-company-scope";
 import { isStaffPortalRole } from "@/lib/staff-role";
 import { TaskStatus } from "@prisma/client/primary";
 
@@ -98,6 +102,8 @@ type TrackerTaskRow = {
   recurrenceWeekday: number | null;
   recurrenceMonthDay: number | null;
   periodCycleStartAt: Date | null;
+  /** Resolved per-company working days (1=Mon…7=Sun). */
+  workingDays?: readonly number[] | null;
 };
 
 function ymdInZone(date: Date | null | undefined, timeZone = DEFAULT_TIME_ZONE) {
@@ -106,9 +112,13 @@ function ymdInZone(date: Date | null | undefined, timeZone = DEFAULT_TIME_ZONE) 
   return dt.isValid ? dt.toISODate() : null;
 }
 
-function lastWorkingDayOfMonth(date: Date, timeZone = DEFAULT_TIME_ZONE) {
+function lastWorkingDayOfMonth(
+  date: Date,
+  timeZone = DEFAULT_TIME_ZONE,
+  workingDays?: readonly number[] | null,
+) {
   let day = DateTime.fromJSDate(date, { zone: timeZone }).endOf("month").startOf("day");
-  while (day.weekday === 7) {
+  for (let i = 0; i < 7 && !isKpiMetricsWorkingDay(day, workingDays); i += 1) {
     day = day.minus({ days: 1 });
   }
   return day.isValid ? day.toISODate() : null;
@@ -124,18 +134,26 @@ function cadenceWindow(row: TrackerTaskRow, now: Date, timeZone = DEFAULT_TIME_Z
 
   const start =
     row.periodCycleStartAt ??
-    getPeriodStartInclusive(row.frequency, row.recurrenceWeekday, row.recurrenceMonthDay, now, timeZone);
+    getPeriodStartInclusive(
+      row.frequency,
+      row.recurrenceWeekday,
+      row.recurrenceMonthDay,
+      now,
+      timeZone,
+      row.workingDays,
+    );
   const endExclusive = getPeriodEndExclusiveFromCycleStart(
     start,
     row.frequency,
     row.recurrenceWeekday,
     row.recurrenceMonthDay,
     timeZone,
+    row.workingDays,
   );
   const due = DateTime.fromJSDate(endExclusive, { zone: timeZone }).minus({ days: 1 });
 
   if (row.frequency === "MONTHLY") {
-    const lastWorkingDay = lastWorkingDayOfMonth(start, timeZone);
+    const lastWorkingDay = lastWorkingDayOfMonth(start, timeZone, row.workingDays);
     return {
       startDate: lastWorkingDay,
       dueDate: lastWorkingDay,
@@ -176,9 +194,7 @@ export async function GET() {
   if (unauthorized) return unauthorized;
   const restrictToAssignedCompany =
     session.user.role === "Admin" || session.user.role === "Personnel";
-  const scopedCompanyId = restrictToAssignedCompany
-    ? await resolveStaffCompanyTeamId(session.user.email)
-    : null;
+  const scopedCompanyId = restrictToAssignedCompany ? await resolveViewerCompanyId(session) : null;
 
   const [taskRows, taskItemRows, staffCompanyRows, agents] = await Promise.all([
     prisma.kpiMaintenance.findMany({
@@ -196,6 +212,7 @@ export async function GET() {
         updatedAt: true,
         itProjectName: true,
         subKpis: true,
+        scopedCompanyTeamId: true,
         assignedAgent: { select: { id: true, name: true, email: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -227,7 +244,15 @@ export async function GET() {
     }),
   ]);
   const agentById = new Map(agents.map((agent) => [agent.id, agent]));
-  // Merged-first companies so tracker grouping matches the personnel tab.
+  // Per-company Task Schedule Config masks for tracker cadence windows.
+  const scheduleSettings = await getTaskScheduleSettings().catch(() => null);
+  const taskRowsWithSchedule = taskRows.map((row) => ({
+    ...row,
+    workingDays: scheduleSettings
+      ? workingDaysForCompany(scheduleSettings, row.scopedCompanyTeamId)
+      : null,
+  }));
+  // Default-company grouping (memberships, HRIS fallback).
   const staffPortalRows = staffCompanyRows.filter((row) => isStaffPortalRole(row.role));
   const effectiveCompanyByEmail = await loadEffectiveCompaniesByPortalEmail(staffPortalRows);
   const companiesById = new Map<string, { id: string; name: string }>();
@@ -235,7 +260,7 @@ export async function GET() {
     if (!company?.id) continue;
     companiesById.set(company.id, { id: company.id, name: company.name });
   }
-  const companies = sortByRosterOrder(Array.from(companiesById.values())).filter((company) =>
+  const companies = (await sortByCompanyOrder(Array.from(companiesById.values()))).filter((company) =>
     restrictToAssignedCompany ? company.id === scopedCompanyId : true,
   );
 
@@ -315,7 +340,7 @@ export async function GET() {
 
   const tasks = [
     ...taskItemRowsMapped,
-    ...taskRows.flatMap<TaskProjectTrackerRow>((row) => {
+    ...taskRowsWithSchedule.flatMap<TaskProjectTrackerRow>((row) => {
     const isItProject = row.title === IT_PROJECT_IMPLEMENTATION_TITLE;
     const projectName = isItProject ? row.itProjectName?.trim() || "IT Project Implementation" : row.title.trim();
     const prefix = taskPrefixForTitle(row.title);

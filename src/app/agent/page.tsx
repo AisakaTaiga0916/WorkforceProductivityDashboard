@@ -6,7 +6,8 @@ import { Prisma } from "@prisma/client/primary";
 import { requireSession } from "@/lib/access";
 import { isSystemModuleEnabled } from "@/modules/platform/settings/system-modules-db";
 import { ModuleDisabledNotice } from "@/components/ModuleDisabledNotice";
-import { rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
+import { listActiveCompanies } from "@/modules/platform/companies/company-directory";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 import { getCompanyBoardAggregates, loadCompanyBoard, loadDepartmentBoard } from "@/modules/requests/company-board";
 import { ACTIVE_REQUEST_STATUSES, OPEN_PIPELINE_STATUSES } from "@/modules/requests/active-request-statuses";
 import { loadTicketActivityLogForSession } from "@/modules/requests/ticket-activity-log";
@@ -14,7 +15,6 @@ import { prisma } from "@/modules/platform/db/prisma";
 import { loadStaffAssignmentColorsForAgents } from "@/lib/assignee-assignment-color";
 import { personnelAssigneeHighlightStyleFromKey } from "@/lib/personnel-assignment-colors";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
-import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
 import { findSessionAgentWithTeam } from "@/lib/session-agent";
 import {
   getOperatorActionableApprovalLevel,
@@ -47,7 +47,7 @@ import {
   encodeGroupBoardDirectionFilter,
   parseGroupBoardDirectionFilter,
 } from "@/modules/requests/group-board-direction-filters";
-import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/hierarchy/approval-position-resolver";
+import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/platform/approvals/approval-position-resolver";
 import { MyRequestsBoard } from "@/components/my-requests/MyRequestsBoard";
 import { AgentKanban, type KanbanTicket } from "./agent-kanban";
 import {
@@ -193,7 +193,7 @@ export default async function AgentHome({
   const isCompanyBoard = boardTab === "company";
   const companyBoardLayer =
     isCompanyBoard && firstQuery(params.layer) === "department" ? "department" : "company";
-  const selectedCompany = firstQuery(params.company) ?? "ALL";
+  const companyParam = firstQuery(params.company);
   const sectionParam = firstQuery(params.section)?.trim() ?? "ALL";
   const selectedSection = sectionParam || "ALL";
   const departmentParentSectionId =
@@ -254,28 +254,34 @@ export default async function AgentHome({
 
   const showTopTicketFilters = boardTab !== "kpi";
 
+  const viewerCompanyId = await resolveViewerCompanyId(session);
+
   const adminScopedCompanyId =
     isCompanyBoard &&
     !isElevatedUserRole(session.user.role) &&
     (session.user.role === "Admin" || companyCoordinator)
-      ? await resolveStaffCompanyTeamId(session.user.email)
+      ? viewerCompanyId
       : null;
 
   /** Admin/coordinator own queue — used on Company Board only. */
   const adminTicketQueueCompanyId =
     !isElevatedUserRole(session.user.role) &&
     (session.user.role === "Admin" || companyCoordinator)
-      ? await resolveStaffCompanyTeamId(session.user.email)
+      ? viewerCompanyId
       : null;
 
   const rosterTeamsForFilter = isCompanyBoard
-    ? sortByRosterOrder(
-        await prisma.team.findMany({
-          where: rosterTeamNameFilter(),
-          select: { id: true, name: true },
-        }),
-      ).filter((t) => (adminScopedCompanyId ? t.id === adminScopedCompanyId : true))
+    ? (await listActiveCompanies()).filter((t) =>
+        adminScopedCompanyId ? t.id === adminScopedCompanyId : true,
+      )
     : [];
+  /** Group Board company: URL filter, else the switcher's current company (global users only). */
+  const selectedCompany =
+    companyParam && (companyParam === "ALL" || rosterTeamsForFilter.some((t) => t.id === companyParam))
+      ? companyParam
+      : isElevatedUserRole(session.user.role) && viewerCompanyId
+        ? viewerCompanyId
+        : "ALL";
 
   const viewerSectionScopeForFilter =
     session.user.role === "Personnel" ||
@@ -421,6 +427,7 @@ export default async function AgentHome({
       await sectionScopedTicketWhere({
         email: session.user.email,
         agentId: operator?.id,
+        companyId: viewerCompanyId,
       }),
     );
   } else if (isElevatedUserRole(session.user.role)) {
@@ -1089,7 +1096,7 @@ export default async function AgentHome({
                     <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
                       {isCompanyBoard
                         ? companyBoardLayer === "department"
-                          ? "Department overview"
+                          ? "Team overview"
                           : "Group overview"
                         : boardTab === "kpi"
                           ? "Task Board"
@@ -1239,7 +1246,7 @@ export default async function AgentHome({
                               : "flex-1 rounded-md px-3 py-1.5 text-center text-orange-950/80 hover:bg-orange-200/60 sm:flex-none dark:text-orange-100/90 dark:hover:bg-orange-900/50"
                           }
                         >
-                          Department view
+                          Team view
                         </Link>
                       </div>
                       <RequestKanbanFlowToggle />
@@ -1252,19 +1259,19 @@ export default async function AgentHome({
                     Board view uses lanes (Open, In progress, Feedback) for active pipeline work. Use Table for resolved
                     items and full filters.
                     {session.user.role !== "Personnel" && !ticketSectionSelected
-                      ? " Select a department to filter by assignee."
+                      ? " Select a team to filter by assignee."
                       : null}
                   </p>
                 ) : isCompanyBoard ? (
                   <p className="text-[11px] text-zinc-600 dark:text-zinc-500">
                     {companyBoardLayer === "department"
-                      ? "Department cards roll up major + sub-department requests. Double-click a major for sub-departments. "
+                      ? "Team cards roll up major + sub-team requests. Double-click a major for sub-teams. "
                       : "Company cards with priority breakdowns. Double-click a company for a status kanban. "}
                     Filter by <span className="font-medium text-zinc-700 dark:text-zinc-300">Sent by</span> or{" "}
                     <span className="font-medium text-zinc-700 dark:text-zinc-300">Received</span>{" "}
                     (company or department). Use{" "}
                     <span className="font-medium text-zinc-700 dark:text-zinc-300">Kanban flow</span> to choose
-                    company or department grouping on Assign Requests drag-and-drop.
+                    company or team grouping on Assign Requests drag-and-drop.
                   </p>
                 ) : null}
               </div>

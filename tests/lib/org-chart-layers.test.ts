@@ -235,10 +235,10 @@ describe("org chart outline consistency", () => {
 
   it("orders cross-department peers by top-level department chart arrangement", () => {
     const sections: TestSection[] = [
-      { id: "agoc", parentId: null, sortOrder: 0, name: "AGOC", headNodeId: "ceo" },
+      { id: "acme", parentId: null, sortOrder: 0, name: "ACME", headNodeId: "ceo" },
       {
         id: "corp",
-        parentId: "agoc",
+        parentId: "acme",
         sortOrder: 0,
         name: "CORPORATE SERVICES",
         headNodeId: "corp-head",
@@ -248,7 +248,7 @@ describe("org chart outline consistency", () => {
       { id: "gs", parentId: "corp", sortOrder: 1, name: "GENERAL SERVICES", headNodeId: "gs-head" },
       {
         id: "fin",
-        parentId: "agoc",
+        parentId: "acme",
         sortOrder: 1,
         name: "FINANCE",
         headNodeId: "fin-head",
@@ -256,7 +256,7 @@ describe("org chart outline consistency", () => {
       },
       {
         id: "fp",
-        parentId: "agoc",
+        parentId: "acme",
         sortOrder: 2,
         name: "FINANCIAL PLANNING",
         headNodeId: "fp-head",
@@ -264,22 +264,22 @@ describe("org chart outline consistency", () => {
       },
     ];
     const nodes: TestNode[] = [
-      { id: "ceo", parentId: null, sortOrder: 0, personName: "CEO", sectionMemberships: [{ sectionId: "agoc" }] },
+      { id: "ceo", parentId: null, sortOrder: 0, personName: "CEO", sectionMemberships: [{ sectionId: "acme" }] },
       { id: "corp-head", parentId: "ceo", sortOrder: 0, personName: "Corp Head", sectionMemberships: [{ sectionId: "corp" }] },
       { id: "hr-head", parentId: "corp-head", sortOrder: 0, personName: "HR Head", sectionMemberships: [{ sectionId: "corp" }] },
       { id: "gs-head", parentId: "corp-head", sortOrder: 0, personName: "GS Head", sectionMemberships: [{ sectionId: "corp" }] },
       { id: "fin-head", parentId: "ceo", sortOrder: 0, personName: "Finance Head", sectionMemberships: [{ sectionId: "fin" }] },
       { id: "fp-head", parentId: "ceo", sortOrder: 0, personName: "FP Head", sectionMemberships: [{ sectionId: "fp" }] },
     ];
-    const scope = new Set(["agoc", "corp", "hr", "gs", "fin", "fp"]);
+    const scope = new Set(["acme", "corp", "hr", "gs", "fin", "fp"]);
     const childrenOf = buildOrgChartChildrenOf(asOutlineNodes(nodes), sections, {
       sectionIdsInScope: scope,
-      scopeRootSectionId: "agoc",
+      scopeRootSectionId: "acme",
     });
     const peers = (childrenOf.get("ceo") ?? []).map((n) => n.id);
     const outlineById = layoutOutline(nodes, sections, {
       sectionIdsInScope: scope,
-      scopeRootSectionId: "agoc",
+      scopeRootSectionId: "acme",
     });
 
     expect(peers).toEqual(["corp-head", "fin-head", "fp-head"]);
@@ -397,15 +397,15 @@ describe("org chart outline consistency", () => {
   it("numbers major heads under a single umbrella department on the dept chart", () => {
     const sections: TestSection[] = [
       {
-        id: "agoc",
+        id: "acme",
         parentId: null,
         sortOrder: 0,
-        name: "AGOC",
-        headNodeId: "agoc-head",
+        name: "ACME",
+        headNodeId: "acme-head",
         reportsToNodeId: "manuel",
       },
-      { id: "corp", parentId: "agoc", sortOrder: 0, name: "CORPORATE SERVICES", headNodeId: "corp-head" },
-      { id: "fin", parentId: "agoc", sortOrder: 1, name: "FINANCE", headNodeId: "fin-head" },
+      { id: "corp", parentId: "acme", sortOrder: 0, name: "CORPORATE SERVICES", headNodeId: "corp-head" },
+      { id: "fin", parentId: "acme", sortOrder: 1, name: "FINANCE", headNodeId: "fin-head" },
     ];
     const nodes: TestNode[] = [
       { id: "manuel", parentId: null, sortOrder: 0, personName: "Manuel" },

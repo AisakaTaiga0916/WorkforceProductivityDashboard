@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import {
   resolveMergedSourceUserIdForSessionEmail,
-} from "@/modules/hierarchy/approval-position-resolver";
+} from "@/modules/platform/approvals/approval-position-resolver";
 import { resolveIntakeApprovalRecommendations } from "@/modules/requests/intake-approval-recommendations";
 import { resolveDeepestOrgChartSectionIdForMergedUser } from "@/modules/hierarchy/org-chart-section-roster";
 import { parseRequestTypeId, type RequestTypeId } from "@/modules/requests/request-types";

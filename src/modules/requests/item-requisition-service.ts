@@ -5,13 +5,13 @@ import { isElevatedUserRole } from "@/modules/platform/auth";
 import { permissionDenied } from "@/modules/platform/rbac/permissions";
 import { prisma } from "@/modules/platform/db/prisma";
 import {
-  resolveAgentDesignatedCompanyId,
+  resolveAgentCompanyIds,
   resolveStaffCompanyTeamId,
 } from "@/modules/platform/scope/staff-company-scope";
 import {
   resolveAgentIdForPositionCode,
   resolveMergedSourceUserIdForSessionEmail,
-} from "@/modules/hierarchy/approval-position-resolver";
+} from "@/modules/platform/approvals/approval-position-resolver";
 import { loadTicketRequestType } from "@/modules/requests/ticket-request-type";
 import { logActivity } from "@/modules/requests/ticket-actions";
 import { sendResolutionEmail } from "@/lib/email";
@@ -240,9 +240,11 @@ export async function handleRequestItemRequisitionApproval(args: {
     );
   }
   const companyAnchorId = ticket.assignedAgentId ?? operatorAgentId;
-  const requesterCompanyId = await resolveAgentDesignatedCompanyId(companyAnchorId);
-  const approverCompanyId = await resolveAgentDesignatedCompanyId(approverId);
-  if (!requesterCompanyId || !approverCompanyId || requesterCompanyId !== approverCompanyId) {
+  const [requesterCompanyIds, approverCompanyIds] = await Promise.all([
+    resolveAgentCompanyIds(companyAnchorId),
+    resolveAgentCompanyIds(approverId),
+  ]);
+  if (!requesterCompanyIds.some((cid) => approverCompanyIds.includes(cid))) {
     return NextResponse.json(
       { error: "You can only request approval from users in the same company as this request." },
       { status: 403 },

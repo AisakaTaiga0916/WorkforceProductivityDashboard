@@ -1,13 +1,12 @@
-import { prisma } from "@/modules/platform/db/prisma";
-import { COMPANY_ROSTER, rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
+import { loadCompanyDirectory } from "@/modules/platform/companies/company-directory";
 
 /**
- * Maps free-text "Send request to" / Company/SBU to a roster Team row.
+ * Maps free-text "Send request to" / Company/SBU to an active company.
  *
- * Matching order: exact name → longest substring containment (avoids short
- * codes like "AGC" winning over "AGC Holdings"). Optional fallback is only for
- * legacy callers; intake should prefer `fallbackTeamId: null` so unmatched
- * text routes to OUTSIDE COMPANY instead of the creator's company.
+ * Matching order: directory name / code / alias → longest substring containment
+ * (avoids short codes like "AGC" winning over "AGC Holdings"). Optional fallback
+ * is only for legacy callers; intake should prefer `fallbackTeamId: null` so
+ * unmatched text resolves to null (unassigned) instead of the creator's company.
  */
 export async function resolveCustomerRequestTeam(params: {
   requestText: string;
@@ -16,19 +15,14 @@ export async function resolveCustomerRequestTeam(params: {
   const raw = params.requestText.trim();
   if (!raw) return null;
 
-  const teams = sortByRosterOrder(
-    await prisma.team.findMany({
-      where: rosterTeamNameFilter(),
-      select: { id: true, name: true },
-    }),
-  );
+  const directory = await loadCompanyDirectory();
+  const teams = directory.active.map((c) => ({ id: c.id, name: c.name }));
+
+  const labelHit = directory.resolveLabel(raw);
+  if (labelHit) return { team: { id: labelHit.id, name: labelHit.name }, matched: true };
 
   const lower = raw.toLowerCase();
-
-  const exact = teams.find((t) => t.name.toLowerCase() === lower);
-  if (exact) return { team: exact, matched: true };
-
-  // Prefer longer roster names so "AGC Holdings" beats "AGC".
+  // Prefer longer company names so "AGC Holdings" beats "AGC".
   const byLengthDesc = [...teams].sort((a, b) => b.name.length - a.name.length);
 
   for (const t of byLengthDesc) {
@@ -49,32 +43,22 @@ export async function resolveCustomerRequestTeam(params: {
   return null;
 }
 
-/** Resolve a roster team by id (Send Request To dropdown). */
+/** Resolve an active company by id (Send Request To dropdown). */
 export async function resolveRosterTeamById(
   teamId: string,
 ): Promise<{ id: string; name: string } | null> {
   const id = teamId.trim();
   if (!id) return null;
-  const team = await prisma.team.findUnique({
-    where: { id },
-    select: { id: true, name: true },
-  });
-  if (!team || !(COMPANY_ROSTER as readonly string[]).includes(team.name)) {
-    return null;
-  }
-  return team;
+  const company = (await loadCompanyDirectory()).byId(id);
+  return company?.isActive ? { id: company.id, name: company.name } : null;
 }
 
-/** Exact roster name match (case-insensitive). No fuzzy / fallback. */
+/** Exact active company name match (case-insensitive). No fuzzy / fallback. */
 export async function resolveRosterTeamByExactName(
   name: string,
 ): Promise<{ id: string; name: string } | null> {
-  const raw = name.trim();
-  if (!raw) return null;
-  const teams = await prisma.team.findMany({
-    where: rosterTeamNameFilter(),
-    select: { id: true, name: true },
-  });
-  const lower = raw.toLowerCase();
-  return teams.find((t) => t.name.toLowerCase() === lower) ?? null;
+  const lower = name.trim().toLowerCase();
+  if (!lower) return null;
+  const hit = (await loadCompanyDirectory()).active.find((c) => c.name.toLowerCase() === lower);
+  return hit ? { id: hit.id, name: hit.name } : null;
 }

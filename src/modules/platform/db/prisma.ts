@@ -10,7 +10,7 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 /** Bump when primary schema adds models/fields that existing HMR clients would miss. */
-const PRIMARY_CLIENT_SCHEMA_REV = 7;
+const PRIMARY_CLIENT_SCHEMA_REV = 8;
 
 const logLevels: ("error" | "warn")[] =
   process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"];

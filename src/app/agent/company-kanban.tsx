@@ -416,7 +416,7 @@ export function CompanyKanban({
     <div className="flex min-h-0 w-full flex-col gap-3">
         {boardLayer === "department" && (breadcrumb.length > 0 || overviewHref) ? (
           <nav
-            aria-label="Department breadcrumb"
+            aria-label="Team breadcrumb"
             className="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-400"
           >
             {overviewHref ? (
@@ -424,10 +424,10 @@ export function CompanyKanban({
                 href={overviewHref}
                 className="font-medium text-orange-700 hover:underline dark:text-orange-400"
               >
-                Major departments
+                Major teams
               </Link>
             ) : (
-              <span className="font-medium">Major departments</span>
+              <span className="font-medium">Major teams</span>
             )}
             {breadcrumb.map((crumb, index) => {
               const isLast = index === breadcrumb.length - 1;
@@ -455,7 +455,7 @@ export function CompanyKanban({
             {editing
               ? "Editing layout — drag cards by the grip, then Save to lock. Reset restores the last saved order."
               : boardLayer === "department"
-                ? "Double-click a major department to open its sub-departments. Click a priority row for the request list."
+                ? "Double-click a major team to open its sub-teams. Click a priority row for the request list."
                 : "Double-click a company card for a kanban view. Click a priority row for the request list."}{" "}
             Refreshes about every {refreshSeconds}s.
           </p>
@@ -917,7 +917,7 @@ function CompanyCard({
         reorderEnabled
           ? undefined
           : col.canDrillDown
-            ? `Double-click to open sub-departments of ${col.companyName}`
+            ? `Double-click to open sub-teams of ${col.companyName}`
             : `Double-click to view requests sent to ${col.companyName}`
       }
       className={cn(
@@ -970,7 +970,7 @@ function CompanyCard({
         </p>
           <p className="mt-0.5 text-xs text-zinc-600 dark:text-zinc-500">
           {tickets.length} request{tickets.length === 1 ? "" : "s"}
-            {col.canDrillDown ? " · has sub-departments" : ""}
+            {col.canDrillDown ? " · has sub-teams" : ""}
         </p>
         </div>
         {onDrillDown && !reorderEnabled ? (
@@ -981,7 +981,7 @@ function CompanyCard({
               onDrillDown();
             }}
             className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-sky-800 hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-200 dark:hover:bg-sky-900/60"
-            title={`Open sub-departments of ${col.companyName}`}
+            title={`Open sub-teams of ${col.companyName}`}
           >
             Subs
             <ChevronRight className="h-3.5 w-3.5" aria-hidden />

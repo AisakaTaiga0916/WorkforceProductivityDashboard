@@ -1,7 +1,8 @@
 import type { Prisma } from "@prisma/client/primary";
 import type { Session } from "next-auth";
 import { isElevatedUserRole } from "@/modules/platform/auth";
-import { rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
+import { listActiveCompanies } from "@/modules/platform/companies/company-directory";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 import type { GlobalSearchResult } from "@/lib/global-search";
 import { isItProjectEnvelope } from "@/modules/tasks/it-project-subkpis";
 import { kpiMainTaskLabel } from "@/modules/tasks/kpi-main-task";
@@ -11,11 +12,7 @@ import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
 import { requestTypeAcronym } from "@/modules/requests/request-types";
 import { personnelRequestBoardWhere } from "@/modules/requests/rfp-request-board";
 import { findSessionAgentWithTeam } from "@/lib/session-agent";
-import {
-  loadAgentIdsForCompanyTeam,
-  resolveAgentDesignatedCompanyId,
-  resolveStaffCompanyTeamId,
-} from "@/modules/platform/scope/staff-company-scope";
+import { loadAgentIdsForCompanyTeam } from "@/modules/platform/scope/staff-company-scope";
 import {
   kpiRowInSectionAgentScope,
   resolveViewerOrgChartSectionScope,
@@ -39,12 +36,13 @@ function matchesQuery(haystack: string, query: string): boolean {
   return haystack.toLowerCase().includes(query.trim().toLowerCase());
 }
 
-/** Admin Group Board–aligned ticket scope: designated company ∩ org-chart departments + personal. */
+/** Admin Group Board–aligned ticket scope: current company ∩ org-chart teams + personal. */
 async function adminGroupBoardTicketWhere(input: {
   email: string | null | undefined;
   agentId: string | null | undefined;
+  staffCompanyId: string | null;
 }): Promise<Prisma.TicketWhereInput> {
-  const staffCompanyId = await resolveStaffCompanyTeamId(input.email);
+  const { staffCompanyId } = input;
   const personal =
     input.agentId != null ? await personnelRequestBoardWhere(input.agentId) : null;
   if (!staffCompanyId) {
@@ -69,7 +67,7 @@ async function adminGroupBoardTicketWhere(input: {
   if (sendToSectionIds.length > 0) {
     clauses.push({ orgChartSectionId: { in: sendToSectionIds } });
   }
-  // Company-only send-to (no department) for the Admin's designated company.
+  // Company-only send-to (no team) for the Admin's current company.
   clauses.push({ teamId: staffCompanyId, orgChartSectionId: null });
   if (personal) clauses.push(personal);
   if (clauses.length === 0) return { id: "__none__" };
@@ -82,7 +80,7 @@ async function buildTicketWhere(session: Session, query: string): Promise<Prisma
 
   const role = session.user.role;
   const operator = await findSessionAgentWithTeam({ email: session.user.email, name: session.user.name });
-  const staffCompanyId = await resolveStaffCompanyTeamId(session.user.email);
+  const staffCompanyId = await resolveViewerCompanyId(session);
   const companyAdminPrivileges = await portalCompanyAdminPrivilegesForEmail(session.user.email);
 
   const searchOr: Prisma.TicketWhereInput[] = [
@@ -98,6 +96,7 @@ async function buildTicketWhere(session: Session, query: string): Promise<Prisma
     const sectionScope = await sectionScopedTicketWhere({
       email: session.user.email,
       agentId: operator?.id,
+      companyId: staffCompanyId,
     });
     whereBase.AND = [sectionScope, { OR: searchOr }];
     return whereBase;
@@ -107,19 +106,14 @@ async function buildTicketWhere(session: Session, query: string): Promise<Prisma
     const sectionScope = await sectionScopedTicketWhere({
       email: session.user.email,
       agentId: operator?.id,
+      companyId: staffCompanyId,
     });
     whereBase.AND = [sectionScope, { OR: searchOr }];
     return whereBase;
   }
 
   if (role === "SuperAdmin") {
-    const rosterTeams = sortByRosterOrder(
-      await prisma.team.findMany({
-        where: rosterTeamNameFilter(),
-        select: { id: true, name: true },
-      }),
-    );
-    const teamIds = rosterTeams.map((t) => t.id);
+    const teamIds = (await listActiveCompanies()).map((t) => t.id);
     whereBase.teamId = teamIds.length > 0 ? { in: teamIds } : { in: ["__none__"] };
   } else if (companyAdminPrivileges) {
     if (!staffCompanyId) return null;
@@ -128,6 +122,7 @@ async function buildTicketWhere(session: Session, query: string): Promise<Prisma
       await adminGroupBoardTicketWhere({
         email: session.user.email,
         agentId: operator?.id,
+        staffCompanyId,
       }),
     );
   } else {
@@ -181,7 +176,7 @@ async function searchTasks(
   let sectionAgentIds: Set<string> | null = null;
 
   if (canAssignWork && roleUsesCompanyDepartmentTaskAssignScope(session.user.role)) {
-    const companyId = companyTeamId ?? (await resolveStaffCompanyTeamId(session.user.email));
+    const companyId = companyTeamId;
     const sectionScope = await resolveViewerOrgChartSectionScope(session.user.email);
     if (sectionScope.agentIds.length === 0 && !companyId) return [];
     sectionAgentIds = new Set(sectionScope.agentIds);
@@ -366,11 +361,7 @@ export async function runGlobalSearch(
   const operatorId = perms.operator?.id ?? null;
   const gatePassOnly = isPersonnelGuardPortalRole(session.user.role);
   const allVisible = !operatorId && isElevatedUserRole(session.user.role);
-  const companyTeamId = gatePassOnly
-    ? null
-    : operatorId
-      ? await resolveAgentDesignatedCompanyId(operatorId)
-      : null;
+  const companyTeamId = gatePassOnly || !operatorId ? null : await resolveViewerCompanyId(session);
 
   const companyAdminPrivileges = await portalCompanyAdminPrivilegesForEmail(session.user.email);
   const canSearchTickets =

@@ -3,7 +3,7 @@
  * Usage: npx tsx scripts/.merge-tmp/diag-org-chart-departments.ts
  */
 import { prismaPrimary } from "../../src/modules/platform/db/prisma";
-import { resolveMergedSourceUserIdForSessionEmail } from "../../src/modules/hierarchy/approval-position-resolver";
+import { resolveMergedSourceUserIdForSessionEmail } from "../../src/modules/platform/approvals/approval-position-resolver";
 import { resolveOrgChartSectionIdsForMergedUser } from "../../src/modules/hierarchy/org-chart-section-roster";
 import { resolveViewerDepartmentScopeLabel } from "../../src/modules/platform/scope/org-chart-section-scope";
 import { resolveStaffCompanyTeamId } from "../../src/modules/platform/scope/staff-company-scope";

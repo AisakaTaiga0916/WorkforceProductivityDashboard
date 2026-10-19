@@ -48,6 +48,24 @@ describe("system role definitions", () => {
     }
   });
 
+  it("only Super Admin manages the Companies directory", () => {
+    const companyKeys = ALL_PERMISSION_KEYS.filter((k) => k.startsWith("companies."));
+    expect(companyKeys.sort()).toEqual([
+      "companies.archive",
+      "companies.create",
+      "companies.read",
+      "companies.update",
+    ]);
+    const superAdmin = new Set(defaultGrantsForRoleKey(SUPER_ADMIN_ROLE_KEY));
+    const admin = new Set(defaultGrantsForRoleKey(ADMIN_ROLE_KEY));
+    const employee = new Set(defaultGrantsForRoleKey(EMPLOYEE_ROLE_KEY));
+    for (const key of companyKeys) {
+      expect(superAdmin.has(key)).toBe(true);
+      expect(admin.has(key)).toBe(false);
+      expect(employee.has(key)).toBe(false);
+    }
+  });
+
   it("Employee keeps legacy Personnel behaviour", () => {
     const grants = new Set(defaultGrantsForRoleKey(EMPLOYEE_ROLE_KEY));
     expect(grants.has("requests.create")).toBe(true);

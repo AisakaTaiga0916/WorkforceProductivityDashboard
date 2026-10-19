@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import { loadOnDutySnapshot } from "@/lib/load-on-duty-snapshot";
-import { resolveAdminOnDutyCompanyFilter } from "@/modules/platform/scope/staff-company-scope";
+import { resolveViewerOnDutyCompanyFilter } from "@/modules/platform/scope/staff-company-scope";
 import { withTtlCache } from "@/lib/ttl-cache";
 
 export const dynamic = "force-dynamic";
@@ -18,8 +18,8 @@ export async function GET(req: Request) {
   const searchQuery = searchParams.get("q")?.trim() ?? "";
   const roleFilter = searchParams.get("role")?.trim() ?? "";
 
-  // Admins only see their assigned company (SuperAdmin keeps full company filter).
-  const locked = await resolveAdminOnDutyCompanyFilter(session?.user?.role, session?.user?.email);
+  // Non-global staff only see their current company (SuperAdmin keeps full company filter).
+  const locked = await resolveViewerOnDutyCompanyFilter(session);
   if (locked) companyFilter = locked;
 
   const cacheKey = `on-duty:${session?.user?.role ?? "anon"}:${pageRaw}:${pageSize}:${companyFilter}:${searchQuery.toLowerCase()}:${roleFilter.toLowerCase()}`;
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
     loadOnDutySnapshot({ page: pageRaw, pageSize, companyFilter, searchQuery, roleFilter }),
   );
 
-  // When Admin-scoped, only expose their company in the filter list.
+  // When company-scoped, only expose the current company in the filter list.
   const companies =
     locked && companyFilter && companyFilter !== "__none__" ? [companyFilter] : result.companies;
 

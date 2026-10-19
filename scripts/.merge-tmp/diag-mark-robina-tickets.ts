@@ -67,7 +67,7 @@ async function main() {
   const teamIds = [...new Set(sample.map((t) => t.teamId).filter((id): id is string => Boolean(id)))];
   const [teams, sections, neoHead] = await Promise.all([
     teamIds.length
-      ? prisma.team.findMany({ where: { id: { in: teamIds } }, select: { id: true, name: true } })
+      ? prisma.company.findMany({ where: { id: { in: teamIds } }, select: { id: true, name: true } })
       : [],
     sectionIds.length
       ? prisma.orgChartSection.findMany({

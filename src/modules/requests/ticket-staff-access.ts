@@ -18,7 +18,7 @@ import {
   currentPaymentStepBoardAssigneeId,
   parsePaymentApprovalMeta,
 } from "@/modules/requests/request-for-payment-approval";
-import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { resolveStaffCompanyIds } from "@/modules/platform/scope/staff-company-scope";
 import {
   roleUsesOrgChartSectionBoardScope,
   ticketInViewerSectionScope,
@@ -313,10 +313,10 @@ export async function personnelForbiddenForTicket(args: {
 
   const companyCoordinator = await portalCompanyAdminPrivilegesForEmail(email);
   if (!companyCoordinator) return true;
-  const coordinatorTeamId = await resolveStaffCompanyTeamId(email);
-  if (!coordinatorTeamId) return true;
+  const coordinatorCompanyIds = await resolveStaffCompanyIds(email);
+  if (coordinatorCompanyIds.length === 0) return true;
   return !(
-    ticket.teamId === coordinatorTeamId ||
-    ticket.assignedAgent?.teamId === coordinatorTeamId
+    (ticket.teamId != null && coordinatorCompanyIds.includes(ticket.teamId)) ||
+    (ticket.assignedAgent?.teamId != null && coordinatorCompanyIds.includes(ticket.assignedAgent.teamId))
   );
 }

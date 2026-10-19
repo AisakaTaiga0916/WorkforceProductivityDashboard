@@ -22,7 +22,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PrismaClient as PrismaClientSecondary } from "@prisma/client/secondary";
-import { resolveRosterCompanyName } from "../src/modules/hierarchy/hris-company-aliases";
+import {
+  loadCompanyDirectory,
+  type CompanyDirectory,
+} from "../src/modules/platform/companies/company-directory";
 import { MAX_PROFILE_IMAGE_DATA_URL_CHARS } from "../src/lib/profile-image-limits";
 import { prismaPrimary } from "../src/modules/platform/db/prisma";
 import { ensureMergedCompaniesSchema } from "./ensure-merged-companies-schema";
@@ -137,10 +140,13 @@ function normalizeCompanyKey(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-/** Extra aliases for HRIS company names → roster teams. */
-function resolveTeamName(hrisCompanyName: string | null | undefined): string | null {
-  const roster = resolveRosterCompanyName(hrisCompanyName);
-  if (roster) return roster;
+/** HRIS company name → company: directory name/code/alias first, then script heuristics. */
+function resolveTeamName(
+  directory: CompanyDirectory,
+  hrisCompanyName: string | null | undefined,
+): string | null {
+  const hit = directory.resolveLabel(hrisCompanyName);
+  if (hit) return hit.name;
   const raw = (hrisCompanyName ?? "").trim();
   if (!raw) return null;
   const key = normalizeCompanyKey(raw);
@@ -148,7 +154,6 @@ function resolveTeamName(hrisCompanyName: string | null | undefined): string | n
   if (key === "agc" || key.includes("amalgated capital") || key.includes("amalgamated capital")) {
     return "AGC";
   }
-  if (key.includes("agoc") || key.includes("oil")) return "AGOC";
   return raw.toUpperCase();
 }
 
@@ -250,10 +255,11 @@ async function main() {
   for (const t of teams) {
     teamByKey.set(normalizeCompanyKey(t.name), t);
   }
+  const directory = await loadCompanyDirectory();
 
   let teamsUpdated = 0;
   for (const c of companies) {
-    const rosterName = resolveTeamName(c.name);
+    const rosterName = resolveTeamName(directory, c.name);
     if (!rosterName) continue;
     const team =
       teamByKey.get(normalizeCompanyKey(rosterName)) ||
@@ -306,7 +312,7 @@ async function main() {
 
   for (const d of departments) {
     const companyName = d.company_name ?? companyLogoById.get(d.company_id?.toString() ?? "")?.name;
-    const rosterName = resolveTeamName(companyName);
+    const rosterName = resolveTeamName(directory, companyName);
     const team =
       (rosterName && teamByKey.get(normalizeCompanyKey(rosterName))) ||
       (companyName && teamByKey.get(normalizeCompanyKey(companyName))) ||

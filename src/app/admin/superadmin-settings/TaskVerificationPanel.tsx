@@ -64,7 +64,7 @@ export function TaskVerificationPanel() {
       setSavedEnabled(next);
       setMessage(
         next
-          ? "Task verification is on. Completing work waits for department-head approval."
+          ? "Task verification is on. Completing work waits for team-head approval."
           : "Task verification is off. Completing work goes straight to Done.",
       );
       window.dispatchEvent(new Event("task-verification-settings-changed"));
@@ -92,7 +92,7 @@ export function TaskVerificationPanel() {
             Task verification
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">
-            When on, assignees submit completed work for department-head verification before it
+            When on, assignees submit completed work for team-head verification before it
             counts as Done. Turn off to skip that gate platform-wide.
           </p>
         </div>

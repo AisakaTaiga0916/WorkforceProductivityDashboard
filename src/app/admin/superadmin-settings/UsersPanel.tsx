@@ -99,7 +99,7 @@ export function UsersPanel() {
     void load();
   }, [load]);
 
-  async function patchUser(user: IamUser, body: Record<string, unknown>) {
+  async function patchUser(user: IamUser, body: Record<string, unknown>): Promise<boolean> {
     setSavingId(user.id);
     setError(null);
     try {
@@ -111,11 +111,13 @@ export function UsersPanel() {
       const data = (await res.json().catch(() => ({}))) as { user?: IamUser; error?: string };
       if (!res.ok || !data.user) {
         setError(`${user.name}: ${data.error ?? "update failed."}`);
-        return;
+        return false;
       }
       setUsers((prev) => prev.map((u) => (u.id === user.id ? data.user! : u)));
+      return true;
     } catch {
       setError(`${user.name}: update failed.`);
+      return false;
     } finally {
       setSavingId(null);
     }
@@ -160,9 +162,11 @@ export function UsersPanel() {
             Users
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-zinc-600 dark:text-zinc-400">
-            Users live on the main database. Assign each user one role and a company, or deactivate
-            them. HRIS users arrive through the merged-dump import — there is no live HRIS link.
-            {viewer?.companyScoped ? " You can only manage users in your own company." : ""}
+            Users live on the main database. Assign each user one role, the companies they can
+            access (one is their default), or deactivate them. Team placement and the org chart
+            are managed in Workforce. HRIS users arrive through the merged-dump import — there is
+            no live HRIS link.
+            {viewer?.companyScoped ? " You can only manage users who share one of your companies." : ""}
           </p>
         </div>
         {canImport ? (
@@ -260,7 +264,7 @@ export function UsersPanel() {
             <tr>
               <th className="px-3 py-2 font-semibold">User</th>
               <th className="px-3 py-2 font-semibold">Role</th>
-              <th className="px-3 py-2 font-semibold">Company</th>
+              <th className="px-3 py-2 font-semibold">Company access</th>
               <th className="px-3 py-2 font-semibold">Status</th>
             </tr>
           </thead>
@@ -328,20 +332,14 @@ export function UsersPanel() {
                       </Select>
                     </td>
                     <td className="px-3 py-2">
-                      <Select
-                        className="mt-0 min-w-[10rem]"
-                        value={user.companyId ?? ""}
+                      <CompanyAccessCell
+                        user={user}
+                        companies={companies}
                         disabled={!canUpdate || saving || conflict || Boolean(viewer?.companyScoped)}
-                        onChange={(e) => void patchUser(user, { companyId: e.target.value || null })}
-                        aria-label={`Company for ${user.name}`}
-                      >
-                        <option value="">— No company —</option>
-                        {companies.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </Select>
+                        onSave={(companyIds, defaultCompanyId) =>
+                          patchUser(user, { companyIds, defaultCompanyId })
+                        }
+                      />
                     </td>
                     <td className="px-3 py-2">
                       {conflict ? (
@@ -402,6 +400,119 @@ export function UsersPanel() {
         </div>
       </div>
     </section>
+  );
+}
+
+/** Company access: chips (default first) + inline editor (multi-select + default). */
+function CompanyAccessCell({
+  user,
+  companies,
+  disabled,
+  onSave,
+}: {
+  user: IamUser;
+  companies: CompanyOption[];
+  disabled: boolean;
+  onSave: (companyIds: string[], defaultCompanyId: string | null) => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [defaultId, setDefaultId] = useState<string | null>(null);
+
+  function startEdit() {
+    setSelected(user.companies.map((c) => c.id));
+    setDefaultId(user.defaultCompanyId);
+    setEditing(true);
+  }
+
+  function toggle(id: string) {
+    const next = selected.includes(id) ? selected.filter((c) => c !== id) : [...selected, id];
+    setSelected(next);
+    if (!defaultId || !next.includes(defaultId)) setDefaultId(next[0] ?? null);
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex min-w-[12rem] flex-wrap items-center gap-1">
+        {user.companies.length === 0 ? (
+          <span className="text-xs text-zinc-500">— No company —</span>
+        ) : (
+          user.companies.map((c) => (
+            <span
+              key={c.id}
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                c.isDefault
+                  ? "bg-orange-500/15 text-orange-800 dark:text-orange-200"
+                  : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+                c.archived && "line-through opacity-60",
+              )}
+              title={c.isDefault ? "Default company" : undefined}
+            >
+              {c.name}
+              {c.isDefault ? " · default" : ""}
+            </span>
+          ))
+        )}
+        {!disabled ? (
+          <button
+            type="button"
+            className="text-[11px] font-semibold text-orange-700 hover:underline dark:text-orange-300"
+            onClick={startEdit}
+          >
+            Edit
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-[14rem] space-y-2 rounded-lg border border-zinc-200 p-2 dark:border-zinc-700">
+      <ul className="max-h-48 space-y-1 overflow-y-auto">
+        {companies.map((c) => {
+          const checked = selected.includes(c.id);
+          return (
+            <li key={c.id} className="flex items-center justify-between gap-2 text-xs">
+              <label className="flex items-center gap-1.5">
+                <input type="checkbox" checked={checked} onChange={() => toggle(c.id)} />
+                {c.name}
+              </label>
+              <label
+                className={cn(
+                  "flex items-center gap-1 text-[10px] text-zinc-500",
+                  !checked && "invisible",
+                )}
+              >
+                <input
+                  type="radio"
+                  name={`default-${user.id}`}
+                  checked={defaultId === c.id}
+                  onChange={() => setDefaultId(c.id)}
+                />
+                Default
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="flex gap-1.5">
+        <Button
+          type="button"
+          size="sm"
+          onClick={() =>
+            void onSave(selected, selected.length > 0 ? defaultId : null).then((ok) => {
+              if (ok) setEditing(false);
+            })
+          }
+        >
+          Save
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => setEditing(false)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 

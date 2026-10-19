@@ -5,7 +5,7 @@ import { prisma } from "@/modules/platform/db/prisma";
 import { loadTicketRequestType } from "@/modules/requests/ticket-request-type";
 import { logActivity } from "@/modules/requests/ticket-actions";
 import { isAdminPortalRole } from "@/lib/staff-role";
-import { rosterTeamNameFilter } from "@/lib/company-roster";
+import { ACTIVE_COMPANY_WHERE } from "@/modules/platform/companies/company-directory";
 import {
   canViewerApproveTransfer,
   parseTransferRequestDetail,
@@ -191,10 +191,10 @@ export async function handleRequestTransfer(args: {
     );
   }
   const targetTeam = targetTeamId
-    ? await prisma.team.findFirst({
+    ? await prisma.company.findFirst({
         where: {
           id: targetTeamId,
-          ...rosterTeamNameFilter(),
+          ...ACTIVE_COMPANY_WHERE,
         },
         select: { id: true, name: true },
       })
@@ -213,14 +213,22 @@ export async function handleRequestTransfer(args: {
       ? body.reason.trim()
       : "Unable to resolve with current assignment.";
   if (recipientPortalAccountId) {
+    const assigneeCompanyId = ticket.assignedAgent?.teamId ?? null;
     const reviewer = await prisma.portalAccount.findUnique({
       where: { id: recipientPortalAccountId },
-      select: { accountStatus: true, staffDesignatedCompanyId: true, role: true },
+      select: {
+        accountStatus: true,
+        role: true,
+        companyMemberships: {
+          where: { companyId: assigneeCompanyId ?? "__none__" },
+          select: { companyId: true },
+        },
+      },
     });
     if (
       !reviewer ||
       reviewer.accountStatus !== "ACTIVE" ||
-      reviewer.staffDesignatedCompanyId !== ticket.assignedAgent?.teamId ||
+      reviewer.companyMemberships.length === 0 ||
       !isAdminPortalRole(reviewer.role)
     ) {
       return NextResponse.json(
@@ -354,10 +362,10 @@ export async function handleApproveTransfer(args: {
 
   // Legacy: move to unassigned company queue.
   const targetTeam = parsed?.targetTeamId
-    ? await prisma.team.findFirst({
+    ? await prisma.company.findFirst({
         where: {
           id: parsed.targetTeamId,
-          ...rosterTeamNameFilter(),
+          ...ACTIVE_COMPANY_WHERE,
         },
         select: { id: true },
       })

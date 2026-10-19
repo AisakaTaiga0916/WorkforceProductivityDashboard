@@ -182,7 +182,7 @@ function DepartmentDonutCard({
           {canHide && onHide ? (
             <button
               type="button"
-              title="Hide this section from Departments metrics"
+              title="Hide this section from Teams metrics"
               aria-label={`Hide ${row.name}`}
               className="rounded-lg border border-zinc-200 bg-white p-1.5 text-zinc-500 transition hover:border-rose-300 hover:text-rose-600 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-rose-700 dark:hover:text-rose-300"
               onClick={(e) => {
@@ -785,10 +785,10 @@ export function DepartmentTaskMetricsGrid({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-600 dark:text-orange-300">
-            Department sections
+            Team sections
           </p>
           <h4 className="mt-1 text-lg font-bold text-zinc-950 dark:text-zinc-50">
-            {companyLabel ? `${companyLabel} departments` : "All departments"}
+            {companyLabel ? `${companyLabel} teams` : "All teams"}
           </h4>
           {reportingPeriodLabel ? (
             <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{reportingPeriodLabel}</p>
@@ -804,7 +804,7 @@ export function DepartmentTaskMetricsGrid({
           <div
             className="mt-3 inline-flex max-w-full flex-wrap items-center overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900"
             role="group"
-            aria-label="Department data actions"
+            aria-label="Team data actions"
           >
             <a
               href="/api/kpis/department-task-csv/sample"
@@ -899,7 +899,7 @@ export function DepartmentTaskMetricsGrid({
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 px-6 py-16 text-center dark:border-zinc-700">
             <Building2 className="size-10 text-zinc-400 dark:text-zinc-600" aria-hidden />
             <p className="mt-3 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-              No department section metrics for this scope
+              No team section metrics for this scope
             </p>
             <p className="mt-1 max-w-md text-xs text-zinc-600 dark:text-zinc-500">
               Assign people to org-chart sections, then reload. Metrics use checklist tasks for members
@@ -1084,7 +1084,7 @@ export function DepartmentTaskMetricsGrid({
                   <p className="mt-1 text-xs text-zinc-500">
                     {canShowTasks
                       ? "Use the Tasks tab to see member checklist tasks, or SegmentView for segments."
-                      : "Create nested org-chart sections to break this department down further."}
+                      : "Create nested org-chart sections to break this team down further."}
                   </p>
                 </div>
               ) : (
@@ -1114,7 +1114,7 @@ export function DepartmentTaskMetricsGrid({
               className="fixed inset-0 z-[310] flex items-end justify-center bg-black/50 p-3 sm:items-center sm:p-6"
               role="dialog"
               aria-modal="true"
-              aria-label="Hide department sections"
+              aria-label="Hide team sections"
               data-metrics-inspect=""
               onClick={() => setManageOpen(false)}
             >
@@ -1131,7 +1131,7 @@ export function DepartmentTaskMetricsGrid({
                   Hide sections
                 </h4>
                 <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                  Hidden sections are removed from Departments metrics for everyone. Unhide to restore.
+                  Hidden sections are removed from Teams metrics for everyone. Unhide to restore.
                 </p>
               </div>
               <button

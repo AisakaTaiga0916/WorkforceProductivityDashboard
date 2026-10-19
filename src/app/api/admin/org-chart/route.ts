@@ -3,7 +3,10 @@ import type { Prisma } from "@prisma/client/primary";
 import { requireSession } from "@/lib/access";
 import { permissionDenied } from "@/modules/platform/rbac/permissions";
 import { prismaPrimary } from "@/modules/platform/db/prisma";
-import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
+import {
+  canonicalCompanyName,
+  loadCompanyDirectory,
+} from "@/modules/platform/companies/company-directory";
 import { mapHrisToPortalRole } from "@/modules/platform/auth/role-mapping";
 
 /** SuperAdmin-only guard. Note: hasRole() intentionally lets HighAdmin pass
@@ -37,11 +40,31 @@ async function snapshotPerson(mergedSourceUserId: string) {
     position: person.position,
     department: person.department,
   });
+  const defaultCompanies = await loadDefaultCompanyNamesByMergedId([BigInt(id)]);
   return {
     personName: person.name,
     personRole: mapped.portalRole,
-    companyName: resolveRosterCompanyName(person.companyName) ?? person.companyName,
+    companyName:
+      defaultCompanies.get(String(id)) ?? (await canonicalCompanyName(person.companyName)),
   };
+}
+
+/** Default-membership company name per merged source id (portal-linked people only). */
+async function loadDefaultCompanyNamesByMergedId(
+  mergedIds: bigint[],
+): Promise<Map<string, string>> {
+  if (mergedIds.length === 0) return new Map();
+  const portals = await prismaPrimary.portalAccount.findMany({
+    where: { mergedSourceUserId: { in: mergedIds }, staffDesignatedCompanyId: { not: null } },
+    select: { mergedSourceUserId: true, staffDesignatedCompany: { select: { name: true } } },
+  });
+  const out = new Map<string, string>();
+  for (const p of portals) {
+    if (p.mergedSourceUserId != null && p.staffDesignatedCompany) {
+      out.set(p.mergedSourceUserId.toString(), p.staffDesignatedCompany.name);
+    }
+  }
+  return out;
 }
 
 /** Next sortOrder value among the node's siblings (appends to the end). */
@@ -127,7 +150,6 @@ export async function GET() {
   if (denied) return denied;
   const nodes = await prismaPrimary.orgChartNode.findMany({
     include: {
-      section: { select: { name: true } },
       sectionMemberships: {
         select: {
           sectionId: true,
@@ -140,7 +162,7 @@ export async function GET() {
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   });
 
-  // Keep node company labels in sync with HRIS (e.g. FAMES vs stale LPG).
+  // Keep node labels in sync: company = default membership, else HRIS company.
   const mergedIds = [
     ...new Set(nodes.map((n) => n.mergedSourceUserId.trim()).filter(Boolean)),
   ]
@@ -148,17 +170,22 @@ export async function GET() {
     .filter((id) => Number.isInteger(id) && id > 0);
 
   if (mergedIds.length > 0) {
-    const people = await prismaPrimary.hrisUser.findMany({
-      where: { sourceUserId: { in: mergedIds.map((id) => BigInt(id)) }, isActive: true },
-      select: {
-        sourceUserId: true,
-        name: true,
-        role: true,
-        position: true,
-        department: true,
-        companyName: true,
-      },
-    });
+    const mergedBigints = mergedIds.map((id) => BigInt(id));
+    const [people, defaultCompanies, directory] = await Promise.all([
+      prismaPrimary.hrisUser.findMany({
+        where: { sourceUserId: { in: mergedBigints }, isActive: true },
+        select: {
+          sourceUserId: true,
+          name: true,
+          role: true,
+          position: true,
+          department: true,
+          companyName: true,
+        },
+      }),
+      loadDefaultCompanyNamesByMergedId(mergedBigints),
+      loadCompanyDirectory(),
+    ]);
     const byMerged = new Map(
       people.map((person) => {
         const mapped = mapHrisToPortalRole({
@@ -166,12 +193,16 @@ export async function GET() {
           position: person.position,
           department: person.department,
         });
+        const key = person.sourceUserId.toString();
         return [
-          person.sourceUserId.toString(),
+          key,
           {
             personName: person.name,
             personRole: mapped.portalRole,
-            companyName: resolveRosterCompanyName(person.companyName) ?? person.companyName,
+            companyName:
+              defaultCompanies.get(key) ??
+              directory.resolveLabel(person.companyName)?.name ??
+              person.companyName,
           },
         ] as const;
       }),
@@ -181,10 +212,7 @@ export async function GET() {
     for (const node of nodes) {
       const snap = byMerged.get(node.mergedSourceUserId.trim());
       if (!snap) continue;
-      let nextCompany = snap.companyName ?? null;
-      if (/fames/i.test(node.section?.name ?? "")) {
-        nextCompany = "MCHISI FAMES";
-      }
+      const nextCompany = snap.companyName ?? null;
       const companyChanged = (node.companyName ?? null) !== nextCompany;
       const nameChanged = node.personName !== snap.personName;
       const roleChanged = (node.personRole ?? null) !== (snap.personRole ?? null);
@@ -208,9 +236,7 @@ export async function GET() {
     }
   }
 
-  // Preserve prior response shape (section was only loaded for label sync).
-  const payload = nodes.map(({ section: _section, ...rest }) => rest);
-  return NextResponse.json(payload);
+  return NextResponse.json(nodes);
 }
 
 export async function POST(req: Request) {

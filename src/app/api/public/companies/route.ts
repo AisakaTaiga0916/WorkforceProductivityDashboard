@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { listRosterTeamsForSignup } from "@/lib/roster-teams";
+import { listActiveCompanies } from "@/modules/platform/companies/company-directory";
 
-/** Public list of company queues (for customer signup). */
+/** Public list of active companies (customer signup, intake pickers). */
 export async function GET() {
-  const teams = await listRosterTeamsForSignup();
-  return NextResponse.json(teams);
+  return NextResponse.json(await listActiveCompanies());
 }

@@ -12,7 +12,7 @@ export type TicketRequestMetaDetailsProps = {
   requestingCompany?: string | null;
   branch: string;
   sendRequestTo: string;
-  sendRequestToLabel?: "Send request to (company)" | "Send request to (department)";
+  sendRequestToLabel?: "Send request to (company)" | "Send request to (team)";
   departmentLabel: string;
   department: string;
   requestType: string;
@@ -44,7 +44,7 @@ export function TicketRequestMetaDetails({
   requestingCompany,
   branch,
   sendRequestTo,
-  sendRequestToLabel = "Send request to (department)",
+  sendRequestToLabel = "Send request to (team)",
   departmentLabel,
   department,
   requestType,

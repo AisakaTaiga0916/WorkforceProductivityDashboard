@@ -1,12 +1,17 @@
 import { isElevatedUserRole } from "@/modules/platform/auth";
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
-import { rosterTeamNameFilter } from "@/lib/company-roster";
 import { computeKpis, parseHelpdeskCadence, parseKpiRangeFromQuery } from "@/modules/tasks/kpis";
 import { resolveAgentIdsForOrgChartSection } from "@/modules/hierarchy/org-chart-section-roster";
 import { resolveViewerOrgChartSectionScope } from "@/modules/platform/scope/org-chart-section-scope";
 import { prisma } from "@/modules/platform/db/prisma";
-import { resolveStaffCompanyTeamId, resolveAgentDesignatedCompanyId } from "@/modules/platform/scope/staff-company-scope";
+import { listActiveCompanies } from "@/modules/platform/companies/company-directory";
+import {
+  canAccessCompany,
+  getCompanyAccess,
+  resolveViewerCompanyId,
+} from "@/modules/platform/scope/company-access";
+import { resolveAgentCompanyIds } from "@/modules/platform/scope/staff-company-scope";
 import { findSessionAgentId } from "@/lib/session-agent";
 
 export async function GET(req: Request) {
@@ -47,37 +52,31 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Personnel not found." }, { status: 404 });
     }
     if (session.user.role === "Admin") {
-      const scoped = await resolveStaffCompanyTeamId(session.user.email);
+      const scoped = await resolveViewerCompanyId(session);
       if (!scoped) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      const agentCompanyId = await resolveAgentDesignatedCompanyId(requestedAgentId);
-      if (agentCompanyId !== scoped) {
+      const agentCompanyIds = await resolveAgentCompanyIds(requestedAgentId);
+      if (!agentCompanyIds.includes(scoped)) {
         return NextResponse.json({ error: "Forbidden personnel filter." }, { status: 403 });
       }
     }
     assignedAgentId = requestedAgentId;
   } else if (session?.user?.role === "Admin") {
-    const scoped = await resolveStaffCompanyTeamId(session.user.email);
+    const access = await getCompanyAccess(session);
     const requested = searchParams.get("companyId")?.trim() || null;
-    // Never fall back to an arbitrary client companyId — unscoped Admins see nothing.
-    if (!scoped) {
-      teamId = "__none__";
-    } else if (requested && requested !== "ALL" && requested !== scoped) {
+    // Never fall back to an arbitrary client companyId — Admins without a company see nothing.
+    if (requested && requested !== "ALL" && !canAccessCompany(access, requested)) {
       return NextResponse.json({ error: "Forbidden company filter." }, { status: 403 });
-    } else {
-      teamId = scoped;
     }
+    teamId =
+      requested && requested !== "ALL" ? requested : (access.currentCompanyId ?? "__none__");
   } else if (isElevatedUserRole(session?.user?.role)) {
     const requested = searchParams.get("companyId")?.trim() || null;
     if (requested && requested !== "ALL") {
       teamId = requested;
     } else {
-      const teams = await prisma.team.findMany({
-        where: rosterTeamNameFilter(),
-        select: { id: true },
-      });
-      teamIds = teams.map((t) => t.id);
+      teamIds = (await listActiveCompanies()).map((t) => t.id);
     }
   }
 

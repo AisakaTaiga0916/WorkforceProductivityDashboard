@@ -206,7 +206,7 @@ function PersonnelGroupToggle({
   return (
     <div
       role="tablist"
-      aria-label="Group personnel by company or department"
+      aria-label="Group personnel by company or team"
       className="relative inline-flex rounded-lg border border-orange-300/80 bg-orange-100 p-0.5 text-xs font-semibold dark:border-orange-500/35 dark:bg-orange-950/40"
     >
       {options.map((option) => {
@@ -451,7 +451,7 @@ export function ManualAssignmentBoard({
       if (id === ASSIGNMENT_UNSECTIONED) {
         options.push({
           id,
-          name: "No department",
+          name: "No team",
           depth: 0,
           agentCount: cols.length,
           ticketCount,
@@ -460,7 +460,7 @@ export function ManualAssignmentBoard({
       }
       options.push({
         id,
-        name: nameBySectionId.get(id) ?? cols[0]?.sectionName ?? "Unknown department",
+        name: nameBySectionId.get(id) ?? cols[0]?.sectionName ?? "Unknown team",
         depth: depthBySectionId.get(id) ?? 0,
         agentCount: cols.length,
         ticketCount,
@@ -516,8 +516,8 @@ export function ManualAssignmentBoard({
         id,
         name:
           id === ASSIGNMENT_UNSECTIONED
-            ? "No department"
-            : nameBySectionId.get(id) ?? cols[0]?.sectionName ?? "Unknown department",
+            ? "No team"
+            : nameBySectionId.get(id) ?? cols[0]?.sectionName ?? "Unknown team",
         agentCount: cols.length,
       });
     }

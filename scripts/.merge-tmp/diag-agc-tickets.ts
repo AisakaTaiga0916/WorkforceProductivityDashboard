@@ -2,7 +2,7 @@ import { prisma } from "../../src/modules/platform/db/prisma.ts";
 import { loadAgentIdsForCompanyTeam } from "../../src/modules/platform/scope/staff-company-scope.ts";
 
 void (async () => {
-  const agc = await prisma.team.findFirst({ where: { name: "AGC" }, select: { id: true } });
+  const agc = await prisma.company.findFirst({ where: { name: "AGC" }, select: { id: true } });
   if (!agc) process.exit(1);
   const ids = await loadAgentIdsForCompanyTeam(agc.id);
 

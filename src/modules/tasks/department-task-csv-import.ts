@@ -19,7 +19,7 @@ import {
   type KpiFrequencyCode,
 } from "@/modules/tasks/kpi-recurrence";
 import { getPeriodStartInclusive } from "@/modules/tasks/kpi-period-window";
-import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
+import { resolveCompanyLabel } from "@/modules/platform/companies/company-directory";
 
 export type DepartmentTaskImportResult = {
   created: Array<{ id: string; mainTask: string; assigneeEmail: string }>;
@@ -86,16 +86,9 @@ async function resolveCompanyTeamId(company: string | null): Promise<{
 }> {
   if (!company?.trim()) return { teamId: null, warning: null };
   const raw = company.trim();
-  const canonical = resolveRosterCompanyName(raw) ?? raw;
-  const team = await prisma.team.findFirst({
-    where: { name: { equals: canonical, mode: "insensitive" } },
-    select: { id: true },
-  });
+  const team = await resolveCompanyLabel(raw);
   if (!team) {
-    return {
-      teamId: null,
-      warning: `Company "${raw}" not found on roster (tried "${canonical}")`,
-    };
+    return { teamId: null, warning: `Company "${raw}" not found in the company directory` };
   }
   return { teamId: team.id, warning: null };
 }

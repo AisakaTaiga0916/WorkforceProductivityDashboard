@@ -104,11 +104,12 @@ export type IamUserQuery = {
   q?: string;
   /** Role id, or `"none"` for users without a role. */
   roleId?: string;
+  /** Company id (any membership), or `"none"` for users without company access. */
   companyId?: string;
   status?: IamUserStatusFilter;
   includeCustomers?: boolean;
-  /** Restrict to one company (company-scoped actors). */
-  scopeCompanyId?: string | null;
+  /** Restrict to users sharing one of these companies (company-scoped actors). */
+  scopeCompanyIds?: readonly string[];
   page?: number;
   pageSize?: number;
 };
@@ -123,12 +124,15 @@ export const iamUserSelect = {
   accountStatus: true,
   passwordHash: true,
   mergedSourceUserId: true,
-  staffDesignatedCompanyId: true,
-  staffDesignatedCompany: { select: { name: true } },
   rbacRole: { select: { key: true, name: true } },
+  companyMemberships: {
+    select: { companyId: true, isDefault: true, company: { select: { name: true, isActive: true } } },
+  },
 } as const;
 
 type IamUserRow = Prisma.PortalAccountGetPayload<{ select: typeof iamUserSelect }>;
+
+export type IamUserCompany = { id: string; name: string; isDefault: boolean; archived: boolean };
 
 export type IamUser = {
   id: string;
@@ -140,13 +144,22 @@ export type IamUser = {
   roleKey: string | null;
   roleName: string | null;
   status: string;
-  companyId: string | null;
-  companyName: string | null;
+  /** Company access (memberships), default first. */
+  companies: IamUserCompany[];
+  defaultCompanyId: string | null;
   hrisLinked: boolean;
   hasPassword: boolean;
 };
 
 export function toIamUser(row: IamUserRow): IamUser {
+  const companies = row.companyMemberships
+    .map((m) => ({
+      id: m.companyId,
+      name: m.company.name,
+      isDefault: m.isDefault,
+      archived: !m.company.isActive,
+    }))
+    .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name));
   return {
     id: row.id,
     name: row.name,
@@ -157,8 +170,8 @@ export function toIamUser(row: IamUserRow): IamUser {
     roleKey: row.rbacRole?.key ?? null,
     roleName: row.rbacRole?.name ?? null,
     status: row.accountStatus,
-    companyId: row.staffDesignatedCompanyId,
-    companyName: row.staffDesignatedCompany?.name ?? null,
+    companies,
+    defaultCompanyId: companies.find((c) => c.isDefault)?.id ?? null,
     hrisLinked: row.mergedSourceUserId != null,
     hasPassword: Boolean(row.passwordHash),
   };
@@ -189,10 +202,10 @@ export async function listIamUsers(query: IamUserQuery) {
   }
   if (query.roleId === "none") and.push({ roleId: null });
   else if (query.roleId) and.push({ roleId: query.roleId });
-  if (query.companyId === "none") and.push({ staffDesignatedCompanyId: null });
-  else if (query.companyId) and.push({ staffDesignatedCompanyId: query.companyId });
-  if (query.scopeCompanyId !== undefined) {
-    and.push({ staffDesignatedCompanyId: query.scopeCompanyId ?? "__no_company__" });
+  if (query.companyId === "none") and.push({ companyMemberships: { none: {} } });
+  else if (query.companyId) and.push({ companyMemberships: { some: { companyId: query.companyId } } });
+  if (query.scopeCompanyIds !== undefined) {
+    and.push({ companyMemberships: { some: { companyId: { in: [...query.scopeCompanyIds] } } } });
   }
 
   const where: Prisma.PortalAccountWhereInput = { AND: and };
@@ -211,23 +224,25 @@ export async function listIamUsers(query: IamUserQuery) {
 
 /**
  * Company scope for user administration: Super Admin is global (`undefined`);
- * anyone else is limited to their own designated company (`null` = none).
+ * anyone else is limited to users who share one of their companies (`[]` = none).
  */
 export async function actorCompanyScope(
   actorUserId: string,
   actorRoleKey: string | null,
-): Promise<string | null | undefined> {
+): Promise<string[] | undefined> {
   if (actorRoleKey === SUPER_ADMIN_ROLE_KEY) return undefined;
-  const actor = await prismaPrimary.portalAccount.findUnique({
-    where: { id: actorUserId },
-    select: { staffDesignatedCompanyId: true },
+  const rows = await prismaPrimary.userCompany.findMany({
+    where: { portalAccountId: actorUserId, company: { isActive: true } },
+    select: { companyId: true },
   });
-  return actor?.staffDesignatedCompanyId ?? null;
+  return rows.map((r) => r.companyId);
 }
 
+/** Active companies (display order) for User Management pickers. */
 export async function listIamCompanies() {
-  return prismaPrimary.team.findMany({
-    orderBy: { name: "asc" },
+  return prismaPrimary.company.findMany({
+    where: { isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true, name: true },
   });
 }

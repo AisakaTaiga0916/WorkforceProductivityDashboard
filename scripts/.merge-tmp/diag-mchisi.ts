@@ -3,7 +3,7 @@ import { computeTaskMetrics, parseKpiRangeFromQuery } from "../../src/modules/ta
 import { loadAgentIdsForCompanyTeam } from "../../src/modules/platform/scope/staff-company-scope.ts";
 
 void (async () => {
-  const mchisi = await prisma.team.findFirst({
+  const mchisi = await prisma.company.findFirst({
     where: { name: "MCHISI" },
     select: { id: true, name: true },
   });

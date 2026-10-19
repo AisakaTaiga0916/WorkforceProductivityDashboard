@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { COMPANY_ROSTER } from "@/lib/company-roster";
+import { isActiveCompanyId } from "@/modules/platform/companies/company-directory";
 import {
   OAUTH_SIGNUP_INTENT_COOKIE,
   signOAuthSignupIntent,
@@ -11,8 +11,6 @@ import {
   findPortalByUsername,
   isSignupRole,
 } from "@/lib/portal-account";
-import { prisma } from "@/modules/platform/db/prisma";
-import { ensureRosterTeamsInDb } from "@/lib/roster-teams";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 const INTENT_MAX_AGE = 15 * 60;
@@ -35,8 +33,6 @@ export async function POST(req: Request) {
         { status: 429 },
       );
     }
-
-    await ensureRosterTeamsInDb();
 
     const body = (await req.json()) as {
       mode?: string;
@@ -145,11 +141,10 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
-      const team = await prisma.team.findUnique({ where: { id: cid }, select: { id: true, name: true } });
-      if (!team || !(COMPANY_ROSTER as readonly string[]).includes(team.name)) {
+      if (!(await isActiveCompanyId(cid))) {
         return NextResponse.json({ error: "Invalid company selection." }, { status: 400 });
       }
-      companyId = team.id;
+      companyId = cid;
       customerOrgRole = normalizedOrgRole;
     }
 

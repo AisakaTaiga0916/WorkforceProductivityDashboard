@@ -1,5 +1,4 @@
 import { isElevatedUserRole } from "@/modules/platform/auth";
-import { findPortalByEmailOnly } from "@/lib/portal-account";
 import { loadPortalStaffAssignmentColorMap } from "@/lib/portal-staff-assignment-color-sql";
 import {
   resolveHrisSourceTags,
@@ -7,7 +6,8 @@ import {
 } from "@/lib/merged-database-sources";
 import { mapHrisToPortalRole } from "@/modules/platform/auth/role-mapping";
 import type { UserRole } from "@/modules/platform/auth";
-import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
+import { matchCompanyByLabel } from "@/modules/platform/companies/company-label";
+import { ACTIVE_COMPANY_WHERE, COMPANY_ORDER_BY } from "@/modules/platform/companies/company-directory";
 import { prismaPrimary, prismaSecondary } from "@/modules/platform/db/prisma";
 import { normalizePersonName } from "@/lib/person-name";
 import { normalizePortalRole } from "@/lib/staff-role";
@@ -21,8 +21,12 @@ export type PersonnelRosterRow = {
   name: string;
   email: string;
   username: string | null;
+  /** Default company (membership), else the HRIS company. */
   teamId: string;
   teamName: string;
+  /** Every company the person belongs to (company filters match any of these). */
+  companyIds: string[];
+  companyNames: string[];
   /** Linked portal profile id when present (colors / auth projection). */
   portalAccountId: string | null;
   staffRole: string;
@@ -67,16 +71,20 @@ function companyKey(name: string | null | undefined): string {
 }
 
 /**
- * Map HRIS `company_name` onto a primary Team the same way the Personnel tab does
- * (alias → exact/loose name match). Synthetic ids (`company:…`) are used when no
- * Team row exists — assignable APIs should treat those as unscoped for Team filters.
+ * Map HRIS `company_name` onto a company (directory name/code/alias → exact/loose
+ * name match). Synthetic ids (`company:…`) are used when no company row exists —
+ * assignable APIs should treat those as unscoped for company filters.
  */
 export function matchPersonnelCompanyTeam(
   companyName: string | null | undefined,
-  teams: Array<{ id: string; name: string }>,
+  teams: Array<{ id: string; name: string; code?: string | null; aliases?: readonly string[] }>,
 ): { teamId: string; teamName: string } {
-  const roster = resolveRosterCompanyName(companyName);
-  const display = roster ?? (companyName?.trim() || "Unassigned");
+  const directoryHit = matchCompanyByLabel(
+    companyName,
+    teams.map((t) => ({ ...t, code: t.code ?? null, aliases: t.aliases ?? [] })),
+  );
+  if (directoryHit) return { teamId: directoryHit.id, teamName: directoryHit.name };
+  const display = companyName?.trim() || "Unassigned";
   const key = companyKey(display);
   if (!key || key === "unassigned") {
     return { teamId: "company:unassigned", teamName: "Unassigned" };
@@ -124,15 +132,19 @@ function scoreNames(a: string, b: string): number {
  */
 export async function loadPersonnelAccountsPayload(viewer: {
   role: UserRole;
-  email: string | null | undefined;
+  /** Viewer's current company (switcher). Required scope for non-global viewers. */
+  currentCompanyId: string | null;
 }): Promise<PersonnelAccountsPayload> {
-  const email = (viewer.email ?? "").trim().toLowerCase();
   const isSuperAdmin = isElevatedUserRole(viewer.role);
   const sourceTags = resolveHrisSourceTags();
   const secondaryDatabaseName = `the HRIS import (${resolveSecondaryDatabaseName()} dump)`;
 
   const [teams, agents, portals, mergedUsers, kpiAverages] = await Promise.all([
-    prismaPrimary.team.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prismaPrimary.company.findMany({
+      where: ACTIVE_COMPANY_WHERE,
+      orderBy: COMPANY_ORDER_BY,
+      select: { id: true, name: true, code: true, aliases: true },
+    }),
     prismaPrimary.agent.findMany({ select: { id: true, email: true, name: true } }),
     prismaPrimary.portalAccount.findMany({
       where: {
@@ -146,6 +158,7 @@ export async function loadPersonnelAccountsPayload(viewer: {
         mergedSourceUserId: true,
         accountStatus: true,
         staffDesignatedCompanyId: true,
+        companyMemberships: { select: { companyId: true } },
       },
     }),
     prismaPrimary.$queryRaw<MergedStaffRow[]>`
@@ -198,16 +211,22 @@ export async function loadPersonnelAccountsPayload(viewer: {
     ]),
   );
 
+  const teamNameById = new Map(teams.map((t) => [t.id, t.name] as const));
   const personnel: PersonnelRosterRow[] = mergedUsers.map((m) => {
     const id = m.source_user_id.toString();
     const portal = portalByMergedId.get(id) ?? null;
-    // Company assigned in the app (User Management / Workforce) wins over the HRIS snapshot.
+    // Default membership (User Management) wins over the HRIS snapshot.
     const designatedTeam = portal?.staffDesignatedCompanyId
       ? teams.find((t) => t.id === portal.staffDesignatedCompanyId)
       : undefined;
     const company = designatedTeam
       ? { teamId: designatedTeam.id, teamName: designatedTeam.name }
       : matchTeamId(m.company_name, teams);
+    const memberCompanyIds = (portal?.companyMemberships.map((mc) => mc.companyId) ?? []).filter((cid) =>
+      teamNameById.has(cid),
+    );
+    const companyIds = memberCompanyIds.length > 0 ? memberCompanyIds : [company.teamId];
+    const companyNames = companyIds.map((cid) => teamNameById.get(cid) ?? company.teamName);
     const mapped = mapHrisToPortalRole({
       hrisRole: m.role,
       position: m.position,
@@ -243,6 +262,8 @@ export async function loadPersonnelAccountsPayload(viewer: {
       username: m.username,
       teamId: company.teamId,
       teamName: company.teamName,
+      companyIds,
+      companyNames,
       portalAccountId: portal?.id ?? null,
       staffRole: portalRole,
       accountStatus:
@@ -265,7 +286,7 @@ export async function loadPersonnelAccountsPayload(viewer: {
       companyNames.set(row.teamId, { id: row.teamId, name: row.teamName });
     }
   }
-  const companies = [...companyNames.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const companies = [...companyNames.values()].map((c) => ({ id: c.id, name: c.name }));
 
   if (isSuperAdmin) {
     return {
@@ -279,9 +300,9 @@ export async function loadPersonnelAccountsPayload(viewer: {
     };
   }
 
-  const portal = email ? await findPortalByEmailOnly(email) : null;
-  const scopeId = portal?.staffDesignatedCompanyId ?? null;
-  if (!scopeId) {
+  const scopeId = viewer.currentCompanyId;
+  const companyTeam = scopeId ? teams.find((t) => t.id === scopeId) : undefined;
+  if (!scopeId || !companyTeam) {
     return {
       teams: [],
       personnel: [],
@@ -293,15 +314,11 @@ export async function loadPersonnelAccountsPayload(viewer: {
     };
   }
 
-  const companyTeam = teams.find((t) => t.id === scopeId);
-  const scopedName = companyTeam?.name ?? portal?.staffDesignatedCompanyName ?? null;
-  const scopedKey = companyKey(scopedName);
+  const scopedName = companyTeam.name;
 
   return {
-    teams: companies.filter((t) => t.id === scopeId || companyKey(t.name) === scopedKey),
-    personnel: personnel.filter(
-      (row) => row.teamId === scopeId || companyKey(row.teamName) === scopedKey,
-    ),
+    teams: companies.filter((t) => t.id === scopeId),
+    personnel: personnel.filter((row) => row.companyIds.includes(scopeId)),
     scopedCompanyTeamId: scopeId,
     scopedCompanyName: scopedName,
     scopeUnavailable: false,

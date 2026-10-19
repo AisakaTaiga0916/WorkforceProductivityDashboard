@@ -3,7 +3,7 @@ import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-alias
 import { Prisma } from "@prisma/client/secondary";
 
 async function main() {
-  const famesTeam = await prisma.team.findFirst({
+  const famesTeam = await prisma.company.findFirst({
     where: { name: "MCHISI FAMES" },
     select: { id: true, name: true },
   });

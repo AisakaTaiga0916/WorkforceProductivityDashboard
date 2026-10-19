@@ -1,7 +1,7 @@
 import {
   resolveDirectManagerAgentId,
   resolveMergedSourceUserIdForAgent,
-} from "@/modules/hierarchy/approval-position-resolver";
+} from "@/modules/platform/approvals/approval-position-resolver";
 import { loadHrisAssignableStaff } from "@/modules/hierarchy/hris-staff-roster";
 import { isHrSectionName } from "@/modules/hierarchy/hr-section-name";
 import {

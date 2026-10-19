@@ -58,7 +58,7 @@ async function main() {
   else console.log("WARN: Redis unreachable (chat HTTP still works; sockets degrade)");
 
   // --- fixture: team + agent + ISSUE ticket ---
-  const team = await prisma.team.create({
+  const team = await prisma.company.create({
     data: { name: `Smoke Chat Team ${stamp}` },
   });
   const agent = await prisma.agent.create({
@@ -245,7 +245,7 @@ async function main() {
     await prisma.chatMessage.deleteMany({ where: { ticketId: ticket.id } });
     await prisma.ticket.delete({ where: { id: ticket.id } }).catch(() => undefined);
     await prisma.agent.delete({ where: { id: agent.id } }).catch(() => undefined);
-    await prisma.team.delete({ where: { id: team.id } }).catch(() => undefined);
+    await prisma.company.delete({ where: { id: team.id } }).catch(() => undefined);
     await prisma.$disconnect();
   }
 }

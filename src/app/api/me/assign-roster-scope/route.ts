@@ -1,24 +1,21 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/access";
 import { isElevatedUserRole } from "@/modules/platform/auth";
-import { rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
 import { buildOrgChartDepartmentFilterOptions } from "@/modules/hierarchy/org-chart-section-display";
 import { listOrgChartSectionOptions } from "@/modules/hierarchy/org-chart-section-roster";
 import {
   resolveViewerOrgChartSectionScope,
   roleUsesCompanyDepartmentTaskAssignScope,
 } from "@/modules/platform/scope/org-chart-section-scope";
-import { prisma } from "@/modules/platform/db/prisma";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
-import {
-  loadAgentIdsForCompanyTeam,
-  resolveStaffCompanyTeamId,
-} from "@/modules/platform/scope/staff-company-scope";
+import { listActiveCompanies } from "@/modules/platform/companies/company-directory";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
+import { loadAgentIdsForCompanyTeam } from "@/modules/platform/scope/staff-company-scope";
 
 /**
  * Roster scope for Task Board reassignment:
- * - Elevated (SuperAdmin / HighAdmin): all companies + org-chart departments; pick either scope.
- * - Admin / Personnel: locked to designated company ∩ org-chart department tree.
+ * - Elevated (SuperAdmin / HighAdmin): all companies + org-chart teams; pick either scope.
+ * - Admin / Personnel: locked to the current company ∩ their org-chart team tree.
  */
 export async function GET() {
   const { session, unauthorized } = await requireRole([
@@ -42,14 +39,10 @@ export async function GET() {
   }
 
   const elevated = isElevatedUserRole(session.user.role);
-  const [teams, sections] = await Promise.all([
-    sortByRosterOrder(
-      await prisma.team.findMany({
-        where: rosterTeamNameFilter(),
-        select: { id: true, name: true },
-      }),
-    ),
+  const [teams, sections, companyId] = await Promise.all([
+    listActiveCompanies(),
     listOrgChartSectionOptions(),
+    resolveViewerCompanyId(session),
   ]);
 
   const departments = buildOrgChartDepartmentFilterOptions(sections);
@@ -76,7 +69,6 @@ export async function GET() {
     });
   }
 
-  const companyId = await resolveStaffCompanyTeamId(session.user.email);
   const companyName = companyId
     ? (teams.find((t) => t.id === companyId)?.name ?? null)
     : null;

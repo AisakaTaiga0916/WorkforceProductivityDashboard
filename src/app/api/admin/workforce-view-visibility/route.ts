@@ -21,8 +21,8 @@ export async function GET() {
 
 /**
  * PUT /api/admin/workforce-view-visibility
- * SuperAdmin only: hide/show ListView, Activity, and Org. Chart on Workforce.
- * Body: { hiddenViews: ("list" | "activity" | "sections")[] }
+ * SuperAdmin only: hide/show Activity and Org. Chart on Workforce.
+ * Body: { hiddenViews: ("activity" | "sections")[] }
  */
 export async function PUT(req: Request) {
   const { session, unauthorized } = await requireRole(["SuperAdmin"]);
@@ -39,7 +39,7 @@ export async function PUT(req: Request) {
     hiddenViews: Array.isArray(body.hiddenViews) ? body.hiddenViews : [],
   });
 
-  if (next.hiddenViews.length >= 3) {
+  if (next.hiddenViews.length >= 2) {
     return NextResponse.json(
       { error: "At least one Workforce toggle must stay visible." },
       { status: 400 },

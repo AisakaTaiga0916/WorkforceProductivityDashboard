@@ -12,8 +12,9 @@ import type { PersonnelRosterRow } from "@/lib/personnel-accounts-data";
 type CompanyOption = { id: string; name: string };
 
 /**
- * Workforce → Org. Chart: shared chart + Manage departments workspace.
- * Keeps nodes/sections in one place so department edits refresh the diagram.
+ * Workforce → Org. Chart: shared chart + Manage teams workspace.
+ * Keeps nodes/sections in one place so team edits refresh the diagram.
+ * Structure only — roles and company access live in Settings → User Management.
  */
 export function WorkforceSectioningClient({
   initialSections,
@@ -22,7 +23,8 @@ export function WorkforceSectioningClient({
   roster,
   companyOptions,
   readOnly = false,
-  canSetPortalRoles = false,
+  canEditAssignmentColor = false,
+  currentCompanyName = null,
   initialPortalRoleByMergedId = {},
 }: {
   initialSections: OrgChartSectionRow[];
@@ -32,8 +34,10 @@ export function WorkforceSectioningClient({
   companyOptions: CompanyOption[];
   /** Admin / heads: browse only (scoped server-side). */
   readOnly?: boolean;
-  /** SuperAdmin: elevate Personnel / Admin / HighAdmin from member rows. */
-  canSetPortalRoles?: boolean;
+  /** Admin / Super Admin: edit staff assignment colors from the team member lists. */
+  canEditAssignmentColor?: boolean;
+  /** Current company context; the chart shows its teams plus their parent chain. */
+  currentCompanyName?: string | null;
   initialPortalRoleByMergedId?: Record<string, string>;
 }) {
   const [sections, setSections] = useState(initialSections);
@@ -54,10 +58,15 @@ export function WorkforceSectioningClient({
           {error}
         </p>
       ) : null}
+      {currentCompanyName ? (
+        <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
+          Showing teams in <strong className="font-semibold">{currentCompanyName}</strong> plus the parent teams
+          they report into. Switch company from the sidebar to see another company&apos;s teams.
+        </p>
+      ) : null}
       {readOnly ? (
         <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
-          Read-only: you can view your department / sub-department tree. SuperAdmin elevates
-          Personnel, Admin, and HighAdmin from this Org Chart.
+          Read-only: you can view your team / sub-team tree.
         </p>
       ) : null}
 
@@ -76,7 +85,7 @@ export function WorkforceSectioningClient({
         onMessage={setMessage}
         onError={setError}
         readOnly={readOnly}
-        canSetPortalRoles={canSetPortalRoles}
+        canEditAssignmentColor={canEditAssignmentColor}
         initialPortalRoleByMergedId={initialPortalRoleByMergedId}
       />
     </div>

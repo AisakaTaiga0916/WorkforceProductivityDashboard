@@ -8,17 +8,16 @@
 import { Prisma } from "@prisma/client/primary";
 import { roleIdPatchForLegacyChange } from "@/modules/platform/rbac/rbac-role-sync";
 import { prisma } from "@/modules/platform/db/prisma";
-import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/hierarchy/approval-position-resolver";
+import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/platform/approvals/approval-position-resolver";
 import { personnelRequestBoardWhere } from "@/modules/requests/rfp-request-board";
 import {
   resolveOrgChartSectionIdsForMergedUser,
   resolveAgentIdsForOrgChartSection,
 } from "@/modules/hierarchy/org-chart-section-roster";
-import { orgChartSectionCompanyTeamId } from "@/modules/hierarchy/org-chart-section-display";
 import { loadHrisAssignableStaff } from "@/modules/hierarchy/hris-staff-roster";
 import { isElevatedUserRole } from "@/modules/platform/auth";
 import { hasSubKpiAssignedTo } from "@/modules/tasks/kpi-subkpis";
-import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { resolveStaffCompanyIds } from "@/modules/platform/scope/staff-company-scope";
 import { normalizePortalRole } from "@/lib/staff-role";
 
 /** Pure helper: membership / filter roots → self + nested sub-departments. */
@@ -518,50 +517,35 @@ export async function isViewerOrgChartHeadForSection(
 }
 
 /**
- * Companies linked to the viewer's department tree (section companyTeamId walking
- * parents) plus the viewer's designated company. Used for company-only intake
- * tickets (teamId set, orgChartSectionId null).
+ * Companies for company-only intake tickets (teamId set, orgChartSectionId null):
+ * the viewer's current company when given, else every company they belong to.
+ * Team membership never adds a company — companies are the access boundary.
  */
 async function resolveCompanyTeamIdsForViewerSectionScope(
   email: string | null | undefined,
-  sectionIds: string[],
+  currentCompanyId?: string | null,
 ): Promise<string[]> {
-  const companyIds = new Set<string>();
-  const designated = await resolveStaffCompanyTeamId(email);
-  if (designated) companyIds.add(designated);
-
-  const ids = [...new Set(sectionIds.map((s) => s.trim()).filter(Boolean))];
-  if (ids.length > 0) {
-    const sections = await prisma.orgChartSection.findMany({
-      select: { id: true, parentId: true, companyTeamId: true },
-    });
-    for (const sid of ids) {
-      const teamId = orgChartSectionCompanyTeamId(sections, sid);
-      if (teamId) companyIds.add(teamId);
-    }
-  }
-
-  return [...companyIds];
+  if (currentCompanyId) return [currentCompanyId];
+  return resolveStaffCompanyIds(email);
 }
 
 /**
  * Ticket visibility for Admin / HighAdmin / Personnel Request Board:
- * send-to section in the viewer's section tree, OR company-only send-to
- * (teamId in viewer companies, no department), OR personal assignee /
+ * send-to team in the viewer's team tree (workflow routing), OR company-only
+ * send-to (teamId = current company, no team), OR personal assignee /
  * procedural / transfer scope.
- * SuperAdmin keeps unrestricted board scope (all departments).
+ * SuperAdmin keeps unrestricted board scope (all teams).
  */
 export async function sectionScopedTicketWhere(input: {
   email: string | null | undefined;
   agentId: string | null | undefined;
+  /** Viewer's current company (switcher) for the company-only queue. */
+  companyId?: string | null;
 }): Promise<Prisma.TicketWhereInput> {
   const scope = await resolveViewerOrgChartSectionScope(input.email);
   const personal =
     input.agentId != null ? await personnelRequestBoardWhere(input.agentId) : null;
-  const companyIds = await resolveCompanyTeamIdsForViewerSectionScope(
-    input.email,
-    scope.sectionIds,
-  );
+  const companyIds = await resolveCompanyTeamIdsForViewerSectionScope(input.email, input.companyId);
 
   const clauses: Prisma.TicketWhereInput[] = [];
   if (scope.sectionIds.length > 0) {
@@ -595,10 +579,7 @@ export async function ticketInViewerSectionScope(input: {
   }
   const teamId = (input.teamId ?? "").trim();
   if (!teamId) return false;
-  const companyIds = await resolveCompanyTeamIdsForViewerSectionScope(
-    input.email,
-    scope.sectionIds,
-  );
+  const companyIds = await resolveCompanyTeamIdsForViewerSectionScope(input.email);
   return companyIds.includes(teamId);
 }
 

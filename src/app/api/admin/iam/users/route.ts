@@ -11,8 +11,9 @@ import { requirePermission } from "@/modules/platform/rbac/permissions";
 
 /**
  * GET /api/admin/iam/users  (users.read)
- * Query: q, roleId (id | "none"), companyId (id | "none"), status (active|inactive|conflict|all),
- *        customers=1, page, pageSize. Non–Super Admins only see their own company.
+ * Query: q, roleId (id | "none"), companyId (id | "none"; matches any membership),
+ *        status (active|inactive|conflict|all), customers=1, page, pageSize.
+ * Non–Super Admins only see users who share one of their companies.
  */
 export async function GET(req: Request) {
   const { session, role, permissions, unauthorized } = await requirePermission("users.read");
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
   const status = (IAM_USER_STATUS_FILTERS as readonly string[]).includes(statusRaw)
     ? (statusRaw as IamUserStatusFilter)
     : "active";
-  const scopeCompanyId = await actorCompanyScope(actorId, role?.key ?? null);
+  const scopeCompanyIds = await actorCompanyScope(actorId, role?.key ?? null);
 
   const [result, roles, companies] = await Promise.all([
     listIamUsers({
@@ -34,7 +35,7 @@ export async function GET(req: Request) {
       companyId: sp.get("companyId") ?? undefined,
       status,
       includeCustomers: sp.get("customers") === "1",
-      scopeCompanyId,
+      scopeCompanyIds,
       page: Number(sp.get("page") ?? 1) || 1,
       pageSize: Number(sp.get("pageSize") ?? 50) || 50,
     }),
@@ -46,11 +47,13 @@ export async function GET(req: Request) {
     ...result,
     roles: roles.map((r) => ({ id: r.id, key: r.key, name: r.name, isSystem: r.isSystem })),
     companies:
-      scopeCompanyId === undefined ? companies : companies.filter((c) => c.id === scopeCompanyId),
+      scopeCompanyIds === undefined
+        ? companies
+        : companies.filter((c) => scopeCompanyIds.includes(c.id)),
     viewer: {
       userId: actorId,
       roleKey: role?.key ?? null,
-      companyScoped: scopeCompanyId !== undefined,
+      companyScoped: scopeCompanyIds !== undefined,
       permissions: [...(permissions ?? [])],
     },
   });

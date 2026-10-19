@@ -47,7 +47,6 @@ import type { PersonnelTicketMetric } from "@/modules/tasks/kpis";
 import type { DepartmentMainMetric } from "@/modules/tasks/department-task-metrics";
 import { KpiDefinitionConsole } from "@/components/KpiDefinitionConsole";
 import { InsightsMetricsPanes } from "@/app/insights/insights-metrics-panes";
-import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
 import { DEFAULT_TIME_ZONE } from "@/modules/tasks/kpi-recurrence";
 import type {
   CsatStarDistributionRow,
@@ -378,7 +377,7 @@ function InsightsPageInner() {
     try {
       const res = await fetch(`/api/kpis/department-metrics?${qs.toString()}`, { cache: "no-store" });
       if (!res.ok) {
-        setDepartmentMetricsError("Could not load department metrics for the selected dates.");
+        setDepartmentMetricsError("Could not load team metrics for the selected dates.");
         setDepartmentMetrics([]);
         return;
       }
@@ -516,14 +515,19 @@ function InsightsPageInner() {
         }
         return;
       }
-      const json = (await res.json()) as { companies: Array<{ id: string; name: string }> };
+      const json = (await res.json()) as {
+        companies: Array<{ id: string; name: string }>;
+        currentCompanyId?: string | null;
+      };
       if (cancelled) return;
       const companies = json.companies ?? [];
+      const adminDefault =
+        companies.find((company) => company.id === json.currentCompanyId)?.id ?? companies[0]?.id ?? "";
       setTaskMetricCompanies(companies);
       setSelectedTaskMetricCompany((current) => {
         if (isCompanyScopedAdmin) {
           if (companies.some((company) => company.id === current)) return current;
-          return companies[0]?.id ?? "";
+          return adminDefault;
         }
         // SuperAdmin: never invent a default company — empty means all companies.
         if (!current || current === "ALL") return "";
@@ -533,7 +537,7 @@ function InsightsPageInner() {
       setSelectedTicketMetricCompany((current) => {
         if (current === "ALL" && !isCompanyScopedAdmin) return current;
         if (companies.some((company) => company.id === current)) return current;
-        if (isCompanyScopedAdmin) return companies[0]?.id ?? "";
+        if (isCompanyScopedAdmin) return adminDefault;
         return "ALL";
       });
     }
@@ -1733,9 +1737,7 @@ function TaskMetricsPanel({
   }, [metricsViewMode, mergedPeriod.periodKey, mergedPeriod.frequency]);
 
   const mergedPersonnelCards = useMemo<PersonnelCombinedMetricCard[]>(() => {
-    const companyFilter = selectedCompanyName
-      ? (resolveRosterCompanyName(selectedCompanyName) ?? selectedCompanyName).trim().toLowerCase()
-      : null;
+    const companyFilter = selectedCompanyName ? selectedCompanyName.trim().toLowerCase() : null;
     return buildPersonnelInsightCards({
       mergedRows: mergedPersonnelRows,
       selectedCompanyName: companyFilter,

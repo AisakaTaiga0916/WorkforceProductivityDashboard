@@ -1,7 +1,7 @@
 /** Resolve send-to label + value for open/running ticket headers. */
 
 export type TicketSendRequestToDisplay = {
-  label: "Send request to (company)" | "Send request to (department)";
+  label: "Send request to (company)" | "Send request to (team)";
   value: string;
 };
 
@@ -37,7 +37,7 @@ export function resolveTicketSendRequestToDisplay(input: {
   const sectionName = (input.orgChartSectionName ?? "").trim();
   const departmentValue = sectionName || departmentActivity;
   if (departmentValue) {
-    return { label: "Send request to (department)", value: departmentValue };
+    return { label: "Send request to (team)", value: departmentValue };
   }
 
   const sectionId = (input.orgChartSectionId ?? "").trim();
@@ -46,5 +46,5 @@ export function resolveTicketSendRequestToDisplay(input: {
     return { label: "Send request to (company)", value: teamName };
   }
 
-  return { label: "Send request to (department)", value: "—" };
+  return { label: "Send request to (team)", value: "—" };
 }

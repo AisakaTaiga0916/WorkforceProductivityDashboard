@@ -51,9 +51,10 @@ import {
   roleUsesCompanyDepartmentTaskAssignScope,
 } from "@/modules/platform/scope/org-chart-section-scope";
 import {
-  resolveAgentDesignatedCompanyId,
+  resolveAgentCompanyIds,
   resolveStaffCompanyTeamId,
 } from "@/modules/platform/scope/staff-company-scope";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 
 type AssignBody = {
   ticketId?: string;
@@ -61,10 +62,9 @@ type AssignBody = {
   portalAccountId?: string;
 };
 
-async function getDefaultTeamId() {
-  const teams = await prisma.team.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
-  const preferred = teams.find((t) => t.name.toLowerCase().includes("general"));
-  return preferred?.id ?? teams[0]?.id ?? null;
+/** Agent roster company for a new agent row: the person's default company, else the viewer's. */
+async function getDefaultTeamId(email: string, viewerCompanyId: string | null) {
+  return (await resolveStaffCompanyTeamId(email)) ?? viewerCompanyId;
 }
 
 export async function POST(req: Request) {
@@ -97,9 +97,8 @@ export async function POST(req: Request) {
 
     const companyDeptLock =
       roleUsesCompanyDepartmentTaskAssignScope(session.user.role) && !isSuperAdmin;
-    const adminCompanyId = companyDeptLock
-      ? await resolveStaffCompanyTeamId(session.user.email)
-      : null;
+    const viewerCompanyId = await resolveViewerCompanyId(session);
+    const adminCompanyId = companyDeptLock ? viewerCompanyId : null;
     let sectionScope: Awaited<ReturnType<typeof resolveViewerOrgChartSectionScope>> | null =
       null;
     if (companyDeptLock) {
@@ -168,9 +167,12 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Account must use a staff role." }, { status: 400 });
       }
 
-      const defaultTeamId = await getDefaultTeamId();
+      const defaultTeamId = await getDefaultTeamId(account.email, viewerCompanyId);
       if (!defaultTeamId) {
-        return NextResponse.json({ error: "Create at least one team before assigning." }, { status: 400 });
+        return NextResponse.json(
+          { error: "Give this person company access in User Management before assigning." },
+          { status: 400 },
+        );
       }
 
       const existing = await prisma.agent.findUnique({ where: { email: account.email } });
@@ -186,17 +188,17 @@ export async function POST(req: Request) {
     }
 
     if (companyDeptLock) {
-      const agentCompanyId = await resolveAgentDesignatedCompanyId(agent.id);
+      const agentCompanyIds = await resolveAgentCompanyIds(agent.id);
       const inDepartmentRoster = Boolean(
         sectionScope?.agentIds.includes(agent.id),
       );
-      // Allow company roster or org-chart department roster (list page merges both).
+      // Allow company members or the org-chart team roster (list page merges both).
       if (
         !adminCompanyId ||
-        (agentCompanyId !== adminCompanyId && !inDepartmentRoster)
+        (!agentCompanyIds.includes(adminCompanyId) && !inDepartmentRoster)
       ) {
         return NextResponse.json(
-          { error: "You can only assign to personnel in your designated company." },
+          { error: "You can only assign to personnel in your current company." },
           { status: 403 },
         );
       }

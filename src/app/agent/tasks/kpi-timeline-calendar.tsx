@@ -36,6 +36,8 @@ type CalendarKpiRow = {
   createdAt?: string;
   assignedAgent?: { id: string; name: string } | null;
   isFieldAssignment?: boolean;
+  /** Per-company Task Schedule Config mask (1=Mon…7=Sun) from /api/kpi-maintenance. */
+  workingDays?: readonly number[] | null;
 };
 
 type CalendarTaskCategory = "task" | "project" | "field";
@@ -111,8 +113,22 @@ function toCalendarEntry(r: CalendarKpiRow): CalendarEntry {
   let startYmd = localYmd(r.nonRecurringStartAt);
 
   if (!targetYmd && isRecurring) {
-    const start = getPeriodStartInclusive(freq, r.recurrenceWeekday, r.recurrenceMonthDay, now, DEFAULT_TIME_ZONE);
-    const endExclusive = getPeriodEndExclusive(freq, r.recurrenceWeekday, r.recurrenceMonthDay, now, DEFAULT_TIME_ZONE);
+    const start = getPeriodStartInclusive(
+      freq,
+      r.recurrenceWeekday,
+      r.recurrenceMonthDay,
+      now,
+      DEFAULT_TIME_ZONE,
+      r.workingDays,
+    );
+    const endExclusive = getPeriodEndExclusive(
+      freq,
+      r.recurrenceWeekday,
+      r.recurrenceMonthDay,
+      now,
+      DEFAULT_TIME_ZONE,
+      r.workingDays,
+    );
     targetYmd = ymdOfDate(new Date(endExclusive.getTime() - 86_400_000));
     if (!startYmd) startYmd = ymdOfDate(start);
   } else if (!targetYmd) {

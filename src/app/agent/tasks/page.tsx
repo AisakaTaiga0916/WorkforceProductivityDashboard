@@ -4,11 +4,10 @@ import { requireSession } from "@/lib/access";
 import { isSystemModuleEnabled } from "@/modules/platform/settings/system-modules-db";
 import { ModuleDisabledNotice } from "@/components/ModuleDisabledNotice";
 import { BRAND_TITLE } from "@/lib/brand";
-import { rosterTeamNameFilter, sortByRosterOrder } from "@/lib/company-roster";
 import { buildOrgChartDepartmentFilterOptions } from "@/modules/hierarchy/org-chart-section-display";
 import { listOrgChartSectionOptions } from "@/modules/hierarchy/org-chart-section-roster";
-import { prisma } from "@/modules/platform/db/prisma";
-import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { listActiveCompanies } from "@/modules/platform/companies/company-directory";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 import { TASK_FREQUENCY_DONUT_KEYS } from "@/modules/tasks/task-metrics-task-type";
 import { AgentKpiKanbanFlow } from "../kpi-kanban-flow";
 import { TaskBoardFilterBar } from "./task-board-filter-bar";
@@ -65,20 +64,15 @@ export default async function AgentTasksPage({
   const isAdminRole = isElevated || session.user.role === "Admin";
   const showCompanyFilter = isAdminRole;
 
-  const [allTeams, orgChartSections] = await Promise.all([
+  const [allTeams, orgChartSections, viewerCompanyId] = await Promise.all([
     showCompanyFilter
-      ? sortByRosterOrder(
-          await prisma.team.findMany({
-            where: rosterTeamNameFilter(),
-            select: { id: true, name: true },
-          }),
-        )
+      ? listActiveCompanies()
       : Promise.resolve([] as Array<{ id: string; name: string }>),
     listOrgChartSectionOptions(),
+    resolveViewerCompanyId(session),
   ]);
 
-  const scopedAdminCompanyId =
-    session.user.role === "Admin" ? await resolveStaffCompanyTeamId(session.user.email) : null;
+  const scopedAdminCompanyId = session.user.role === "Admin" ? viewerCompanyId : null;
 
   const companies =
     session.user.role === "Admin" && scopedAdminCompanyId
@@ -89,7 +83,8 @@ export default async function AgentTasksPage({
   const companyFilterTeamId = (() => {
     if (session.user.role === "Admin" && scopedAdminCompanyId) return scopedAdminCompanyId;
     if (!showCompanyFilter) return null;
-    if (!companyFromUrl || companyFromUrl === "ALL") return null;
+    if (companyFromUrl === "ALL") return null;
+    if (!companyFromUrl) return viewerCompanyId;
     return companies.some((c) => c.id === companyFromUrl) ? companyFromUrl : null;
   })();
 
@@ -117,7 +112,7 @@ export default async function AgentTasksPage({
   ];
 
   const companyOptions = companies.map((c) => ({ value: c.id, label: c.name }));
-  const departmentOptions = buildOrgChartDepartmentFilterOptions(orgChartSections);
+  const departmentOptions = buildOrgChartDepartmentFilterOptions(orgChartSections, companyFilterTeamId);
 
   return (
     <main className="flex min-h-[calc(100vh-56px)] flex-col bg-zinc-50 px-3 py-4 text-zinc-900 dark:bg-background dark:text-zinc-100 sm:px-4">

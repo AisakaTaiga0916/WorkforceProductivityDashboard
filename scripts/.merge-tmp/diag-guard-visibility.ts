@@ -4,7 +4,7 @@ import { findTravelOrdersVisibleToAgent } from "../../src/modules/work-plans/tra
 import { isPersonnelGuardPortalRole, normalizePortalRole } from "../../src/lib/staff-role";
 
 async function main() {
-  const team = await prisma.team.findUnique({
+  const team = await prisma.company.findUnique({
     where: { id: "3fe47d9d-b558-42ad-8cee-d84752f883b1" },
     select: { id: true, name: true },
   });

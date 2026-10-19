@@ -1,7 +1,6 @@
 import { runHrisAttendanceSync } from "@/modules/platform/auth/hris-attendance-sync";
 import { syncHrisPasswordsIntoMerged } from "@/modules/platform/auth/merged-credentials";
 import { importMergedUsers, readMergedDump } from "@/modules/platform/auth/merged-user-import";
-import { reconcilePortalStaffRolesFromOrgChart } from "@/modules/platform/scope/org-chart-section-scope";
 import { runHrisToMergedIncremental } from "@/lib/sync/hris-to-merged-incremental";
 
 export type HrisSyncResult = {
@@ -59,15 +58,6 @@ export async function runHrisPortalSync(): Promise<HrisSyncResult> {
   });
   const synced = imported.created + imported.updated + imported.unchanged;
   const failed = imported.errors.length + imported.conflicts.length;
-
-  try {
-    await reconcilePortalStaffRolesFromOrgChart();
-  } catch (e) {
-    console.warn(
-      "[hris-sync-job] org-chart Personnel/Admin reconcile skipped:",
-      e instanceof Error ? e.message : e,
-    );
-  }
 
   return {
     total: rows.length,

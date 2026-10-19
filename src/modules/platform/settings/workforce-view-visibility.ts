@@ -1,6 +1,6 @@
 export const WORKFORCE_VIEW_VISIBILITY_KEY = "workforce_view_visibility";
 
-export const WORKFORCE_VIEW_IDS = ["list", "activity", "sections"] as const;
+export const WORKFORCE_VIEW_IDS = ["activity", "sections"] as const;
 export type WorkforceViewId = (typeof WORKFORCE_VIEW_IDS)[number];
 
 export type WorkforceViewVisibility = {
@@ -9,13 +9,12 @@ export type WorkforceViewVisibility = {
 };
 
 export const WORKFORCE_VIEW_LABELS: Record<WorkforceViewId, string> = {
-  list: "ListView",
   activity: "Activity",
   sections: "Org. Chart",
 };
 
 export function isWorkforceViewId(value: unknown): value is WorkforceViewId {
-  return value === "list" || value === "activity" || value === "sections";
+  return value === "activity" || value === "sections";
 }
 
 export function parseWorkforceViewVisibility(raw: unknown): WorkforceViewVisibility {
@@ -34,7 +33,7 @@ export function normalizeWorkforceViewVisibility(
 ): WorkforceViewVisibility {
   const hidden = new Set(parseWorkforceViewVisibility(next).hiddenViews);
   if (hidden.size >= WORKFORCE_VIEW_IDS.length) {
-    hidden.delete("list");
+    hidden.delete("activity");
   }
   return { hiddenViews: WORKFORCE_VIEW_IDS.filter((id) => hidden.has(id)) };
 }
@@ -56,5 +55,5 @@ export function firstVisibleWorkforceView(
   for (const id of WORKFORCE_VIEW_IDS) {
     if (isWorkforceViewVisible(visibility, id)) return id;
   }
-  return "list";
+  return "activity";
 }

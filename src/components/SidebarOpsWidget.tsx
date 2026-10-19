@@ -25,6 +25,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { COMPANY_CONTEXT_CHANGED_EVENT, CompanySwitcher } from "@/components/CompanySwitcher";
 
 type SidebarSummary = {
   open: number;
@@ -237,10 +238,12 @@ export function SidebarOpsWidget({ className, compact = false }: Props) {
     }, 60_000);
     const onVisibilityChanged = () => void refresh();
     window.addEventListener("workforce-view-visibility-changed", onVisibilityChanged);
+    window.addEventListener(COMPANY_CONTEXT_CHANGED_EVENT, onVisibilityChanged);
     return () => {
       stopped = true;
       window.clearInterval(timer);
       window.removeEventListener("workforce-view-visibility-changed", onVisibilityChanged);
+      window.removeEventListener(COMPANY_CONTEXT_CHANGED_EVENT, onVisibilityChanged);
     };
   }, []);
 
@@ -297,12 +300,7 @@ export function SidebarOpsWidget({ className, compact = false }: Props) {
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
                 Company
               </p>
-              <p
-                className="mt-0.5 truncate text-[11px] font-semibold text-zinc-800 dark:text-zinc-100"
-                title={summary.companyDesignation ?? "Not set"}
-              >
-                {summary.companyDesignation ?? "Not set"}
-              </p>
+              <CompanySwitcher fallbackLabel={summary.companyDesignation} />
             </div>
           </div>
           <div className="flex min-w-0 items-start gap-2">
@@ -311,7 +309,7 @@ export function SidebarOpsWidget({ className, compact = false }: Props) {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500 dark:text-zinc-400">
-                Department
+                Team
               </p>
               <p
                 className="mt-0.5 truncate text-[11px] font-semibold text-zinc-800 dark:text-zinc-100"

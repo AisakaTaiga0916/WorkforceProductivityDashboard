@@ -16,7 +16,7 @@ describe("resolveTicketSendRequestToDisplay", () => {
     });
   });
 
-  it("uses department activity and label when send-to is department", () => {
+  it("uses legacy department activity and the Team label when send-to is a team", () => {
     expect(
       resolveTicketSendRequestToDisplay({
         activities: [
@@ -26,7 +26,7 @@ describe("resolveTicketSendRequestToDisplay", () => {
         orgChartSectionName: "IT Department",
       }),
     ).toEqual({
-      label: "Send request to (department)",
+      label: "Send request to (team)",
       value: "IT Department",
     });
   });

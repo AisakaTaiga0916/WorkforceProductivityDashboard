@@ -32,8 +32,10 @@ function collectDescendantIds(
   return out;
 }
 
+/** Active teams (org-chart sections) as picker options, tree-ordered. */
 export async function listOrgChartSectionOptions(): Promise<OrgChartSectionOption[]> {
   const sections = await prisma.orgChartSection.findMany({
+    where: { isActive: true },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true, name: true, parentId: true, companyTeamId: true, sortOrder: true },
   });

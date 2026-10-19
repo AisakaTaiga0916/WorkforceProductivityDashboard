@@ -36,7 +36,6 @@ export async function POST(req: Request) {
     isActing?: boolean;
     portalAccountId?: string;
     primaryPosition?: boolean;
-    departmentId?: string | null;
     reportsToPortalAccountId?: string | null;
   };
 
@@ -56,7 +55,7 @@ export async function POST(req: Request) {
     if (companyTeamId.startsWith("company:")) {
       companyTeamId = null;
     } else {
-      const team = await prisma.team.findUnique({
+      const team = await prisma.company.findUnique({
         where: { id: companyTeamId },
         select: { id: true },
       });
@@ -121,7 +120,6 @@ export async function POST(req: Request) {
       where: { id: portalAccountId },
       data: {
         primaryPositionId: positionId,
-        ...(body.departmentId !== undefined ? { departmentId: body.departmentId } : {}),
         ...(body.reportsToPortalAccountId !== undefined
           ? { reportsToPortalAccountId: body.reportsToPortalAccountId }
           : {}),

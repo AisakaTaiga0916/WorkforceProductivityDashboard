@@ -107,7 +107,7 @@ async function linkedRfpPayload(opts: {
 
   let companyName: string | null = null;
   if (requestBudgetFromCompanyTeamId) {
-    const team = await prisma.team.findUnique({
+    const team = await prisma.company.findUnique({
       where: { id: requestBudgetFromCompanyTeamId },
       select: { name: true },
     });
@@ -398,7 +398,7 @@ export async function PATCH(
     );
   }
 
-  const company = await prisma.team.findUnique({
+  const company = await prisma.company.findUnique({
     where: { id: requestBudgetFromCompanyTeamId },
     select: { id: true, name: true },
   });

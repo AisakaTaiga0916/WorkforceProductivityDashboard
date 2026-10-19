@@ -285,8 +285,8 @@ export function JobOrderAssistanceTeamPanel({
         </p>
         <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
           {sendToDepartmentName
-            ? `Send request to: ${sendToDepartmentName}. Stage helpers scoped by department or company when the execution assignee is outside this department — or prepare assistance ahead of time as the department head.`
-            : "Stage helpers scoped by department or company when the execution assignee is outside Send request to (department)."}
+            ? `Send request to: ${sendToDepartmentName}. Stage helpers scoped by team or company when the execution assignee is outside this team — or prepare assistance ahead of time as the team head.`
+            : "Stage helpers scoped by team or company when the execution assignee is outside Send request to (team)."}
         </p>
       </div>
 
@@ -305,7 +305,7 @@ export function JobOrderAssistanceTeamPanel({
                   : "border-zinc-300 bg-white text-zinc-700 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200"
               }`}
             >
-              Department
+              Team
             </button>
             <button
               type="button"
@@ -325,7 +325,7 @@ export function JobOrderAssistanceTeamPanel({
             <p className="mt-2 text-xs text-zinc-500">Loading scope options…</p>
           ) : scopeMode === "department" ? (
             <label className="mt-2 block text-xs font-medium text-zinc-600 dark:text-zinc-400">
-              Department
+              Team
               <select
                 value={orgChartSectionId}
                 disabled={!canManage || busy}
@@ -337,7 +337,7 @@ export function JobOrderAssistanceTeamPanel({
                 }}
                 className="mt-1 min-h-9 w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               >
-                <option value="">Select department…</option>
+                <option value="">Select team…</option>
                 {sections.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}

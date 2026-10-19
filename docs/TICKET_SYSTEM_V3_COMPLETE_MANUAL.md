@@ -242,7 +242,7 @@ Admins define tasks on **Task Board** (`/agent?board=kpi`), not the Insights Tas
 
 - **`/`** — Ticket dashboard (on-duty, activity, priority stack).  
 - **`/admin/ticket-requests`** — Create requests on behalf of users.  
-- **`/admin/workforce`** — Workforce: personnel registry (ListView) and live personnel activity cards (Activity).  
+- **`/admin/workforce`** — Workforce: live personnel activity cards (Activity) and the company Org. Chart (teams + people, structure only).  
 - **`/admin/manual-assignment`** — Assignment board (drag to personnel lanes).  
 - **`/agent?board=company`** — Company board.  
 - **`/agent?board=ticket`** — Ticket board.  
@@ -259,7 +259,7 @@ Admins define tasks on **Task Board** (`/agent?board=kpi`), not the Insights Tas
 
 ### 7.3 Accounts  
 
-- **`/admin/account-management`** — Redirects to **`/admin/workforce`** (ListView). Portal account administration is handled in Workforce, including account creation, role/designated-company updates, roster sync, duplicate-agent reconciliation, assignment colors, and request review.
+- **`/admin/account-management`** — Redirects to **Settings → User Management**. Portal account administration (account creation, role/company updates, roster sync, assignment colors, request review) lives there and in Workforce → Org. Chart.
 
 ---
 

@@ -1,6 +1,4 @@
 import type { PersonnelTicketMetric, TaskChecklistPillarMetrics } from "@/modules/tasks/kpis";
-import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
-
 export type PersonnelAccumulatedTaskMetric = {
   id: string;
   name: string;
@@ -484,11 +482,7 @@ export function buildPersonnelDepartmentOptions(
   let scoped = rows;
   if (selectedCompanyName) {
     const target = selectedCompanyName.trim().toLowerCase();
-    scoped = rows.filter((row) => {
-      const rowCompany =
-        (resolveRosterCompanyName(row.companyName) ?? row.companyName)?.trim().toLowerCase() ?? "";
-      return rowCompany === target;
-    });
+    scoped = rows.filter((row) => (row.companyName ?? "").trim().toLowerCase() === target);
   }
   const names = new Set<string>();
   for (const row of scoped) {
@@ -518,11 +512,7 @@ export function buildPersonnelInsightCards(args: {
   let rows = dedupeMergedPersonnelRows(args.mergedRows);
   if (args.selectedCompanyName) {
     const target = args.selectedCompanyName.trim().toLowerCase();
-    rows = rows.filter((row) => {
-      const rowCompany =
-        (resolveRosterCompanyName(row.companyName) ?? row.companyName)?.trim().toLowerCase() ?? "";
-      return rowCompany === target;
-    });
+    rows = rows.filter((row) => (row.companyName ?? "").trim().toLowerCase() === target);
   }
   if (args.selectedOrgChartMemberIds) {
     rows = rows.filter((row) => args.selectedOrgChartMemberIds!.has(row.sourceUserId));

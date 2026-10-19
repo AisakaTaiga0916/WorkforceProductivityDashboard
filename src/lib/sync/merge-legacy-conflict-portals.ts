@@ -7,6 +7,10 @@ import { pickCanonicalAgentForPortal } from "@/lib/admin-roster";
 import { normalizePersonName } from "@/lib/person-name";
 import { mergeAgentOwnership } from "@/lib/reconcile-duplicate-agents";
 import { prismaAuth, prismaPrimary, prismaSecondary } from "@/modules/platform/db/prisma";
+import {
+  copyCompanyMemberships,
+  ensureCompanyMembership,
+} from "@/modules/platform/companies/company-membership";
 
 const STAFF_ROLES = ["Admin", "Personnel", "SuperAdmin"] as const;
 
@@ -304,10 +308,8 @@ export async function mergeLegacyConflictPortals(options?: {
 
     if (!dryRun) {
       if (pair.legacy.staffDesignatedCompanyId && !pair.canonical.staffDesignatedCompanyId) {
-        await prismaPrimary.portalAccount.update({
-          where: { id: pair.canonical.id },
-          data: { staffDesignatedCompanyId: pair.legacy.staffDesignatedCompanyId },
-        });
+        await copyCompanyMemberships(pair.legacy.id, pair.canonical.id);
+        await ensureCompanyMembership(pair.canonical.id, pair.legacy.staffDesignatedCompanyId);
         result.staffCompanyCopied++;
       }
 

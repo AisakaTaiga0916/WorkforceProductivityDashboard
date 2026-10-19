@@ -200,18 +200,25 @@ function ymdInTimeZone(d: Date, timeZone: string): string {
   return iso ?? d.toISOString().slice(0, 10);
 }
 
-/** Mon–Sat local days in range (Sundays excluded). */
-function workingDayIntervalsInRange(range: KpiRange, timeZone: string): WorkingDayInterval[] {
+/** Local working days in range — defaults to Mon–Sat (Sunday excluded); mask-aware when provided. */
+function workingDayIntervalsInRange(
+  range: KpiRange,
+  timeZone: string,
+  workingDays?: readonly number[] | null,
+): WorkingDayInterval[] {
   const zone = normalizeTimeZone(timeZone);
-  return enumerateYmdDaysInRange(ymdInTimeZone(range.from, zone), ymdInTimeZone(range.to, zone), zone).map(
-    (ymd) => {
-      const dt = DateTime.fromISO(ymd, { zone });
-      return {
-        start: dt.startOf("day").toJSDate(),
-        end: dt.endOf("day").toJSDate(),
-      };
-    },
-  );
+  return enumerateYmdDaysInRange(
+    ymdInTimeZone(range.from, zone),
+    ymdInTimeZone(range.to, zone),
+    zone,
+    workingDays,
+  ).map((ymd) => {
+    const dt = DateTime.fromISO(ymd, { zone });
+    return {
+      start: dt.startOf("day").toJSDate(),
+      end: dt.endOf("day").toJSDate(),
+    };
+  });
 }
 
 function timestampOnWorkingDaysWhere(
@@ -480,7 +487,12 @@ export async function computeTaskMetrics(
   range: KpiRange,
   scope: KpiScope = {},
   helpdeskCadence: HelpdeskTaskCadence = "MONTHLY",
-  opts: { timeZone?: string; taskType?: TaskMetricsTaskTypeFilter } = {},
+  opts: {
+    timeZone?: string;
+    taskType?: TaskMetricsTaskTypeFilter;
+    /** Per-company Task Schedule Config mask (1=Mon…7=Sun); defaults to Mon–Sat. */
+    workingDays?: readonly number[] | null;
+  } = {},
 ): Promise<TaskMetricsPayload> {
   const scoped = scope.assignedAgentIds
     ? ({ assignedAgentId: { in: scope.assignedAgentIds.length > 0 ? scope.assignedAgentIds : ["__none__"] } } as const)
@@ -496,7 +508,7 @@ export async function computeTaskMetrics(
     opts.taskType === "requests"
       ? opts.taskType
       : "ALL";
-  const workingDays = workingDayIntervalsInRange(range, helpdeskTz);
+  const workingDays = workingDayIntervalsInRange(range, helpdeskTz, opts.workingDays);
   const { fromYmd, toYmd } = kpiRangeToYmd(range);
 
   const backlogOpen = await prisma.ticket.count({

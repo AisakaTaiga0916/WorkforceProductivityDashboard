@@ -5,6 +5,16 @@ vi.mock("@/lib/portal-staff", () => ({
 }));
 vi.mock("@/modules/platform/scope/staff-company-scope", () => ({
   resolveStaffCompanyTeamId: vi.fn(),
+  resolveStaffCompanyIds: vi.fn(),
+}));
+vi.mock("@/modules/platform/scope/org-chart-section-scope", () => ({
+  roleUsesOrgChartSectionBoardScope: (role: string) =>
+    role === "Admin" || role === "HighAdmin" || role === "Personnel",
+  ticketInViewerSectionScope: vi.fn(async (input: { teamId?: string | null; email?: string | null }) => {
+    const { resolveStaffCompanyIds } = await import("@/modules/platform/scope/staff-company-scope");
+    const companies = await resolveStaffCompanyIds(input.email);
+    return Boolean(input.teamId && (companies ?? []).includes(input.teamId));
+  }),
 }));
 
 import {
@@ -14,12 +24,12 @@ import {
   personnelForbiddenForTicket,
 } from "@/modules/requests/ticket-staff-access";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
-import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { resolveStaffCompanyIds } from "@/modules/platform/scope/staff-company-scope";
 
 const portalCompanyAdminPrivilegesForEmailMock = vi.mocked(
   portalCompanyAdminPrivilegesForEmail,
 );
-const resolveStaffCompanyTeamIdMock = vi.mocked(resolveStaffCompanyTeamId);
+const resolveStaffCompanyIdsMock = vi.mocked(resolveStaffCompanyIds);
 
 describe("isTicketAssignee", () => {
   it("matches operator id or email", () => {
@@ -85,11 +95,11 @@ describe("adminOutsideCompanyScope", () => {
         ticketTeamId: "other",
       }),
     ).toBe(false);
-    expect(resolveStaffCompanyTeamIdMock).not.toHaveBeenCalled();
+    expect(resolveStaffCompanyIdsMock).not.toHaveBeenCalled();
   });
 
-  it("blocks Admin when ticket company differs from scoped company", async () => {
-    resolveStaffCompanyTeamIdMock.mockResolvedValue("company-a");
+  it("blocks Admin when ticket company is not one of their companies", async () => {
+    resolveStaffCompanyIdsMock.mockResolvedValue(["company-a"]);
     expect(
       await adminOutsideCompanyScope({
         role: "Admin",
@@ -106,8 +116,19 @@ describe("adminOutsideCompanyScope", () => {
     ).toBe(false);
   });
 
+  it("allows a multi-company Admin on any of their companies", async () => {
+    resolveStaffCompanyIdsMock.mockResolvedValue(["company-a", "company-b"]);
+    expect(
+      await adminOutsideCompanyScope({
+        role: "Admin",
+        email: "a@ex.com",
+        ticketTeamId: "company-b",
+      }),
+    ).toBe(false);
+  });
+
   it("blocks Admin with no company scope", async () => {
-    resolveStaffCompanyTeamIdMock.mockResolvedValue(null);
+    resolveStaffCompanyIdsMock.mockResolvedValue([]);
     expect(
       await adminOutsideCompanyScope({
         role: "Admin",
@@ -136,6 +157,7 @@ describe("personnelForbiddenForTicket", () => {
 
   it("forbids peer who is neither assignee nor company coordinator", async () => {
     portalCompanyAdminPrivilegesForEmailMock.mockResolvedValue(false);
+    resolveStaffCompanyIdsMock.mockResolvedValue([]);
     expect(
       await personnelForbiddenForTicket({
         email: "peer@ex.com",

@@ -10,10 +10,12 @@ import {
   type WorkforceViewVisibility,
 } from "@/modules/platform/settings/workforce-view-visibility";
 
-/** Server-only: read Workforce toggle visibility from platform_settings. */
+/** Server-only: read Workforce toggle visibility from platform_settings.
+ *  Normalized on read so stale values (e.g. the removed `list` view, or an
+ *  all-hidden state) can never hide every toggle. */
 export async function getWorkforceViewVisibility(): Promise<WorkforceViewVisibility> {
   const raw = await getPlatformSettingJson(WORKFORCE_VIEW_VISIBILITY_KEY);
-  return parseWorkforceViewVisibility(raw);
+  return normalizeWorkforceViewVisibility(parseWorkforceViewVisibility(raw));
 }
 
 /** Server-only: persist Workforce toggle visibility. */

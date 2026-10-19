@@ -5,13 +5,14 @@ import {
   resolveAgentIdsForPositionCode,
   resolveDirectManagerAgentId,
   resolveMergedSourceUserIdForSessionEmail,
-} from "@/modules/hierarchy/approval-position-resolver";
+} from "@/modules/platform/approvals/approval-position-resolver";
 import { loadHrisAssignableStaff } from "@/modules/hierarchy/hris-staff-roster";
 import { loadOnDutyAgentIdSet } from "@/lib/load-on-duty-snapshot";
 import { prisma } from "@/modules/platform/db/prisma";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
 import { resolveAgentDesignatedCompanyId } from "@/modules/platform/scope/staff-company-scope";
-import { rosterTeamNameFilter } from "@/lib/company-roster";
+import { isActiveCompanyId } from "@/modules/platform/companies/company-directory";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 import {
   listOrgChartSectionHeads,
   resolveAgentIdsForOrgChartSection,
@@ -68,15 +69,11 @@ export async function GET(req: Request) {
     companyIdFilter = mainCompanyId;
   } else if (companyTeamId && companyTeamId !== "ALL") {
     // Honor explicit company for Admin and Personnel (RFP send-to Accounting/Finance, etc.).
-    const team = await prisma.team.findFirst({
-      where: { id: companyTeamId, ...rosterTeamNameFilter() },
-      select: { id: true },
-    });
-    if (!team) return NextResponse.json([]);
-    companyIdFilter = team.id;
+    if (!(await isActiveCompanyId(companyTeamId))) return NextResponse.json([]);
+    companyIdFilter = companyTeamId;
   } else if (!perms.canAssignWork && perms.operator?.id) {
-    // Personnel with no company param: colleagues in their own company only.
-    companyIdFilter = await resolveAgentDesignatedCompanyId(perms.operator.id);
+    // Personnel with no company param: colleagues in their current company only.
+    companyIdFilter = await resolveViewerCompanyId(session);
     if (!companyIdFilter) return NextResponse.json([]);
   }
 

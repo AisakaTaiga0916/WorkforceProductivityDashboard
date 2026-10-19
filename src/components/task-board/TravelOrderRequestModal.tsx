@@ -416,7 +416,7 @@ export function TravelOrderRequestModal({
           if (headId && !byId.has(headId)) {
             byId.set(headId, {
               id: headId,
-              name: body.defaults?.departmentHeadName?.trim() || "Department head",
+              name: body.defaults?.departmentHeadName?.trim() || "Team head",
               email: null,
             });
           }

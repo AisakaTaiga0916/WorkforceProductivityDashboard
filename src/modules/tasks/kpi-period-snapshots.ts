@@ -59,6 +59,8 @@ import {
   type TaskMetricsTaskType,
 } from "@/modules/tasks/task-metrics-task-type";
 import { prisma } from "@/modules/platform/db/prisma";
+import { getTaskScheduleSettings } from "@/modules/platform/settings/task-schedule-settings-db";
+import { workingDaysForCompany } from "@/modules/platform/settings/task-schedule-settings";
 import {
   applyPenaltiesToAssigneeProgress,
   applyPenaltyToTaskEfficiency,
@@ -86,6 +88,10 @@ export type KpiRowForSnapshot = {
   periodCycleStartAt: Date | null;
   isRecurring: boolean;
   assignedAgent?: { id: string; name: string } | null;
+  /** Company scope — used to resolve the working-day mask when `workingDays` is absent. */
+  scopedCompanyTeamId?: string | null;
+  /** Resolved ISO working days (1=Mon…7=Sun); omit to fall back to the company default. */
+  workingDays?: readonly number[] | null;
 };
 
 export type StoredContributorProgress = {
@@ -158,18 +164,30 @@ export function resolvePeriodKeyForKpi(
 ): string {
   if (row.periodKey?.trim()) return row.periodKey.trim();
   const freq = row.frequency as KpiFrequencyCode;
-  return computePeriodKey(freq, row.recurrenceWeekday, row.recurrenceMonthDay, at, timeZone);
+  return computePeriodKey(
+    freq,
+    row.recurrenceWeekday,
+    row.recurrenceMonthDay,
+    at,
+    timeZone,
+    row.workingDays,
+  );
 }
 
-/** Inclusive local calendar days between two YYYY-MM-DD values. */
-export function enumerateYmdDaysInRange(fromYmd: string, toYmd: string, timeZone: string): string[] {
+/** Inclusive local calendar days between two YYYY-MM-DD values (mask-aware working days). */
+export function enumerateYmdDaysInRange(
+  fromYmd: string,
+  toYmd: string,
+  timeZone: string,
+  workingDays?: readonly number[] | null,
+): string[] {
   const zone = normalizeTimeZone(timeZone);
   let cursor = DateTime.fromISO(fromYmd, { zone }).startOf("day");
   const end = DateTime.fromISO(toYmd, { zone }).startOf("day");
   if (!cursor.isValid || !end.isValid || cursor > end) return [];
   const out: string[] = [];
   while (cursor <= end) {
-    if (isKpiMetricsWorkingDay(cursor)) {
+    if (isKpiMetricsWorkingDay(cursor, workingDays)) {
       const iso = cursor.toISODate();
       if (iso) out.push(iso);
     }
@@ -195,6 +213,7 @@ export async function upsertKpiPeriodSnapshot(
       row.recurrenceMonthDay,
       at,
       zone,
+      row.workingDays,
     );
     const progress = kpiSnapshotProgress(row);
     const fullyComplete = progress.total > 0 && progress.missing === 0;
@@ -235,7 +254,7 @@ export async function upsertKpiPeriodSnapshot(
     });
     return;
   }
-  if ((row.frequency as KpiFrequencyCode) === "DAILY" && !isKpiMetricsWorkingDay(atDt)) {
+  if ((row.frequency as KpiFrequencyCode) === "DAILY" && !isKpiMetricsWorkingDay(atDt, row.workingDays)) {
     return;
   }
   const periodKey =
@@ -282,7 +301,10 @@ export async function upsertKpiPeriodSnapshot(
 
 /** All recurrence period keys for one KPI overlapping an inclusive local date range. */
 export function enumeratePeriodKeysForKpiInRange(
-  kpi: Pick<KpiRowForSnapshot, "frequency" | "recurrenceWeekday" | "recurrenceMonthDay">,
+  kpi: Pick<
+    KpiRowForSnapshot,
+    "frequency" | "recurrenceWeekday" | "recurrenceMonthDay" | "workingDays"
+  >,
   fromYmd: string,
   toYmd: string,
   timeZone: string,
@@ -296,8 +318,8 @@ export function enumeratePeriodKeysForKpiInRange(
   const keys = new Set<string>();
   if (freq === "DAILY") {
     while (cursor <= end) {
-      if (isKpiMetricsWorkingDay(cursor)) {
-        keys.add(getDailyPeriodKey(cursor.toJSDate(), zone));
+      if (isKpiMetricsWorkingDay(cursor, kpi.workingDays)) {
+        keys.add(getDailyPeriodKey(cursor.toJSDate(), zone, kpi.workingDays));
       }
       cursor = cursor.plus({ days: 1 });
     }
@@ -2301,23 +2323,29 @@ export async function backfillKpiPeriodSnapshotsForRange(args: {
       recurrenceMonthDay: true,
       periodCycleStartAt: true,
       isRecurring: true,
+      scopedCompanyTeamId: true,
       assignedAgent: { select: { id: true, name: true } },
     },
   });
 
+  const scheduleSettings = await getTaskScheduleSettings();
   let applied = 0;
   let skipped = 0;
 
   for (const row of rows) {
+    const scoped = {
+      ...row,
+      workingDays: workingDaysForCompany(scheduleSettings, row.scopedCompanyTeamId),
+    };
     for (const ymd of days) {
-      const periodKeys = enumeratePeriodKeysForKpiInRange(row, ymd, ymd, zone);
+      const periodKeys = enumeratePeriodKeysForKpiInRange(scoped, ymd, ymd, zone);
       const at = DateTime.fromISO(ymd, { zone }).toJSDate();
       for (const periodKey of periodKeys) {
         if (fillMissingOnly) {
           const existing = await prisma.kpiMaintenancePeriodSnapshot.findUnique({
             where: {
               kpiMaintenanceId_periodKey: {
-                kpiMaintenanceId: row.id,
+                kpiMaintenanceId: scoped.id,
                 periodKey,
               },
             },
@@ -2328,7 +2356,7 @@ export async function backfillKpiPeriodSnapshotsForRange(args: {
             continue;
           }
         }
-        await upsertKpiPeriodSnapshot(row, zone, at, periodKey);
+        await upsertKpiPeriodSnapshot(scoped, zone, at, periodKey);
         applied += 1;
       }
     }

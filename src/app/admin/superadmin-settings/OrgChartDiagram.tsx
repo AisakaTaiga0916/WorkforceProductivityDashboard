@@ -789,7 +789,7 @@ const SectionBox = memo(function SectionBox({ data }: NodeProps<Node<SectionBoxD
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-              Department
+              Team
             </p>
             <h3 className="mt-0.5 line-clamp-2 text-[13px] font-bold leading-snug text-zinc-950 dark:text-zinc-50">
               {section.name}
@@ -1026,7 +1026,7 @@ function SectionTreeCanvas({
             selected: false,
             selectionLockCount: 1,
             sectionLabel: isIndividual
-              ? "Individual (no department)"
+              ? "Individual (no team)"
               : sectionLabelForNode(person, sectionNameById),
             onReparent,
             onMove,
@@ -1625,7 +1625,7 @@ export function OrgChartDiagram({
     return (
       <div className="space-y-3">
         <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-          Create departments under <span className="font-semibold">Manage departments</span> to
+          Create teams under <span className="font-semibold">Manage teams</span> to
           browse by group. Until then, all chart members are shown here.
         </p>
         <ReactFlowProvider>
@@ -1670,7 +1670,7 @@ export function OrgChartDiagram({
           <div className="min-w-0">
             <nav
               className="flex flex-wrap items-center gap-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400"
-              aria-label="Outside departments path"
+              aria-label="Outside teams path"
             >
               <button
                 type="button"
@@ -1681,17 +1681,17 @@ export function OrgChartDiagram({
                   onSelectNode(null);
                 }}
               >
-                Department chart
+                Team chart
               </button>
               <span className="text-zinc-400">/</span>
-              <span className="text-zinc-800 dark:text-zinc-200">Outside departments</span>
+              <span className="text-zinc-800 dark:text-zinc-200">Outside teams</span>
             </nav>
             <h3 className="mt-1 text-base font-semibold text-zinc-900 dark:text-zinc-50">
-              Outside departments
+              Outside teams
             </h3>
             <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-              Members on the chart with no department — reports-to still applies. Assign a
-              department anytime from Manage departments or by re-adding with a department.
+              Members on the chart with no team — reports-to still applies. Assign a
+              team anytime from Manage teams or by re-adding with a team.
             </p>
           </div>
           <Button type="button" variant="outline" className="h-9 rounded-xl" onClick={goBack}>
@@ -1744,14 +1744,14 @@ export function OrgChartDiagram({
     return (
       <div className="space-y-3">
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          Department org chart — white department cards in a horizontal row. Nested departments
-          sit under their parent. Drag onto another department to nest. Reports-to is a reporting
+          Team org chart — white team cards in a horizontal row. Nested teams
+          sit under their parent. Drag onto another team to nest. Reports-to is a reporting
           line, not a nest. Click a department to open its members.
         </p>
         {unassignedCount > 0 ? (
           <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100">
             {unassignedCount} individual{unassignedCount === 1 ? "" : "s"} with no department —
-            shown as person cards on the chart. Use Manage departments anytime to assign them.
+            shown as person cards on the chart. Use Manage teams anytime to assign them.
           </p>
         ) : null}
         <ReactFlowProvider>
@@ -1782,7 +1782,7 @@ export function OrgChartDiagram({
         <div className="min-w-0">
           <nav
             className="flex flex-wrap items-center gap-1 text-[11px] font-semibold text-zinc-500 dark:text-zinc-400"
-            aria-label="Department path"
+            aria-label="Team path"
           >
             <button
               type="button"
@@ -1793,7 +1793,7 @@ export function OrgChartDiagram({
                 onSelectNode(null);
               }}
             >
-              Department chart
+              Team chart
             </button>
             {drillStack.map((id, index) => {
               const s = sectionById.get(id);
@@ -1838,7 +1838,7 @@ export function OrgChartDiagram({
       {childSections.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-500">
-            Child departments
+            Child teams
           </span>
           {childSections.map((section) => (
             <button
@@ -1858,13 +1858,13 @@ export function OrgChartDiagram({
 
       <div className="space-y-2">
         <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
-          Members in this department
-          {childSections.length > 0 ? " (includes sub-departments)" : ""}
+          Members in this team
+          {childSections.length > 0 ? " (includes sub-teams)" : ""}
         </p>
         {scopedNodes.length === 0 ? (
           <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
-            No members assigned to this department or its sub-departments yet. Use Manage
-            departments to add people.
+            No members assigned to this team or its sub-teams yet. Use Manage
+            teams to add people.
           </p>
         ) : (
           <ReactFlowProvider>

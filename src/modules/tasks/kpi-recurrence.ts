@@ -4,6 +4,7 @@
  */
 
 import { DateTime } from "luxon";
+import { DEFAULT_WORKING_DAYS } from "@/modules/platform/settings/task-schedule-settings";
 
 export type KpiFrequencyCode =
   | "DAILY"
@@ -41,25 +42,47 @@ function atZone(now: Date, timeZone: string): DateTime {
   return DateTime.fromMillis(now.getTime(), { zone: timeZone });
 }
 
-/** Luxon weekday 7 = Sunday — excluded from daily KPI task metrics and snapshots. */
-export function isKpiMetricsWorkingDay(dt: DateTime): boolean {
-  return dt.weekday !== 7;
+/** Resolved ISO weekday mask; empty/omitted falls back to the platform default (Mon–Sat). */
+function workingMask(workingDays?: readonly number[] | null): readonly number[] {
+  return workingDays && workingDays.length > 0 ? workingDays : DEFAULT_WORKING_DAYS;
 }
 
-export function isKpiMetricsWorkingYmd(ymd: string, timeZone: string): boolean {
+/** Luxon weekday 7 = Sunday by default; respects a per-company mask when provided. */
+export function isKpiMetricsWorkingDay(
+  dt: DateTime,
+  workingDays?: readonly number[] | null,
+): boolean {
+  return workingMask(workingDays).includes(dt.weekday);
+}
+
+export function isKpiMetricsWorkingYmd(
+  ymd: string,
+  timeZone: string,
+  workingDays?: readonly number[] | null,
+): boolean {
   const zone = normalizeTimeZone(timeZone);
   const dt = DateTime.fromISO(ymd, { zone }).startOf("day");
-  return dt.isValid && isKpiMetricsWorkingDay(dt);
+  return dt.isValid && isKpiMetricsWorkingDay(dt, workingDays);
 }
 
-export function getDailyPeriodStartDt(now: Date, timeZone: string): DateTime {
-  const dt = atZone(now, timeZone).startOf("day");
-  return isKpiMetricsWorkingDay(dt) ? dt : dt.minus({ days: 1 });
+export function getDailyPeriodStartDt(
+  now: Date,
+  timeZone: string,
+  workingDays?: readonly number[] | null,
+): DateTime {
+  let dt = atZone(now, timeZone).startOf("day");
+  for (let i = 0; i < 7 && !isKpiMetricsWorkingDay(dt, workingDays); i += 1) {
+    dt = dt.minus({ days: 1 });
+  }
+  return dt;
 }
 
-export function getNextDailyPeriodStartDt(periodStart: DateTime): DateTime {
+export function getNextDailyPeriodStartDt(
+  periodStart: DateTime,
+  workingDays?: readonly number[] | null,
+): DateTime {
   let next = periodStart.startOf("day").plus({ days: 1 });
-  while (!isKpiMetricsWorkingDay(next)) {
+  for (let i = 0; i < 7 && !isKpiMetricsWorkingDay(next, workingDays); i += 1) {
     next = next.plus({ days: 1 });
   }
   return next;
@@ -70,8 +93,12 @@ function jsWeekdayToLuxon(js: number): number {
   return js === 0 ? 7 : js;
 }
 
-export function getDailyPeriodKey(now: Date, timeZone: string): string {
-  const dt = getDailyPeriodStartDt(now, timeZone);
+export function getDailyPeriodKey(
+  now: Date,
+  timeZone: string,
+  workingDays?: readonly number[] | null,
+): string {
+  const dt = getDailyPeriodStartDt(now, timeZone, workingDays);
   return `D:${timeZone}:${dt.toISODate()}`;
 }
 
@@ -174,11 +201,12 @@ export function computePeriodKey(
   recurrenceMonthDay: number | null | undefined,
   now: Date,
   timeZone: string,
+  workingDays?: readonly number[] | null,
 ): string {
   const zone = normalizeTimeZone(timeZone);
   switch (frequency) {
     case "DAILY":
-      return getDailyPeriodKey(now, zone);
+      return getDailyPeriodKey(now, zone, workingDays);
     case "WEEKLY": {
       const wd = typeof recurrenceWeekday === "number" ? recurrenceWeekday : 1;
       return getWeeklyPeriodKey(now, wd, zone);
@@ -200,7 +228,7 @@ export function computePeriodKey(
       return getYearlyPeriodKey(now, dom, zone);
     }
     default:
-      return getDailyPeriodKey(now, zone);
+      return getDailyPeriodKey(now, zone, workingDays);
   }
 }
 
@@ -243,11 +271,12 @@ export function getPeriodEndExclusive(
   recurrenceMonthDay: number | null | undefined,
   now: Date,
   timeZone: string,
+  workingDays?: readonly number[] | null,
 ): Date {
   const zone = normalizeTimeZone(timeZone);
   switch (frequency) {
     case "DAILY":
-      return getNextDailyPeriodStartDt(getDailyPeriodStartDt(now, zone)).toJSDate();
+      return getNextDailyPeriodStartDt(getDailyPeriodStartDt(now, zone, workingDays), workingDays).toJSDate();
     case "WEEKLY": {
       const wd = typeof recurrenceWeekday === "number" ? recurrenceWeekday : 1;
       return getWeeklyPeriodStartDt(now, wd, zone).plus({ weeks: 1 }).toJSDate();
@@ -287,12 +316,13 @@ export function getPeriodEndExclusiveFromCycleStart(
   recurrenceWeekday: number | null | undefined,
   recurrenceMonthDay: number | null | undefined,
   timeZone: string,
+  workingDays?: readonly number[] | null,
 ): Date {
   const zone = normalizeTimeZone(timeZone);
   const start = DateTime.fromMillis(cycleStartUtc.getTime(), { zone }).startOf("day");
   switch (frequency) {
     case "DAILY":
-      return getNextDailyPeriodStartDt(start).toJSDate();
+      return getNextDailyPeriodStartDt(start, workingDays).toJSDate();
     case "WEEKLY":
       void recurrenceWeekday;
       return start.plus({ weeks: 1 }).toJSDate();
@@ -330,6 +360,7 @@ export function getRolloverEligibleAfterCompletion(
   completedAtUtc: Date,
   timeZone: string,
   frequency?: KpiFrequencyCode | null,
+  workingDays?: readonly number[] | null,
 ): Date {
   // Multi-day cadences must recur as soon as the checklist hits DONE.
   if (
@@ -343,7 +374,7 @@ export function getRolloverEligibleAfterCompletion(
   }
   const zone = normalizeTimeZone(timeZone);
   const completedDay = DateTime.fromMillis(completedAtUtc.getTime(), { zone }).startOf("day");
-  return getNextDailyPeriodStartDt(completedDay).toJSDate();
+  return getNextDailyPeriodStartDt(completedDay, workingDays).toJSDate();
 }
 
 /**
@@ -354,6 +385,7 @@ export function advanceDueDateYmdForFrequency(
   dueYmd: string,
   frequency: KpiFrequencyCode,
   timeZone: string,
+  workingDays?: readonly number[] | null,
 ): string | null {
   const zone = normalizeTimeZone(timeZone);
   const dt = DateTime.fromISO(dueYmd.trim(), { zone }).startOf("day");
@@ -372,7 +404,7 @@ export function advanceDueDateYmdForFrequency(
 
   switch (frequency) {
     case "DAILY":
-      return getNextDailyPeriodStartDt(dt).toISODate();
+      return getNextDailyPeriodStartDt(dt, workingDays).toISODate();
     case "WEEKLY":
       return dt.plus({ weeks: 1 }).toISODate();
     case "MONTHLY":
@@ -396,6 +428,7 @@ export function countRecurrencePeriodsBetween(
   recurrenceWeekday: number | null | undefined,
   recurrenceMonthDay: number | null | undefined,
   timeZone: string,
+  workingDays?: readonly number[] | null,
 ): number {
   const fromMs = fromCycleStart.getTime();
   const toMs = toCycleStart.getTime();
@@ -409,6 +442,7 @@ export function countRecurrencePeriodsBetween(
       recurrenceWeekday,
       recurrenceMonthDay,
       timeZone,
+      workingDays,
     );
     count += 1;
   }

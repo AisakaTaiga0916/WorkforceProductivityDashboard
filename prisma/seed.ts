@@ -19,7 +19,7 @@ async function main() {
   await prisma.ticketActivity.deleteMany();
   await prisma.ticket.deleteMany();
   await prisma.agent.deleteMany();
-  await prisma.team.deleteMany();
+  await prisma.company.deleteMany();
 
   const policies: {
     priority: TicketPriority;
@@ -56,7 +56,7 @@ async function main() {
   };
 
   for (const name of DEPARTMENT_ROSTER) {
-    await prisma.team.create({
+    await prisma.company.create({
       data: {
         name,
         description: teamDescriptions[name],
@@ -64,7 +64,7 @@ async function main() {
     });
   }
 
-  const teams = await prisma.team.findMany();
+  const teams = await prisma.company.findMany();
   const team = (n: string) => teams.find((t) => t.name === n) ?? teams[0];
 
   const it = team("IT");

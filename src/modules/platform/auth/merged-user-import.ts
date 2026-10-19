@@ -16,7 +16,12 @@
 import { randomUUID } from "node:crypto";
 import { PrismaClient as PrismaClientSecondary } from "@prisma/client/secondary";
 import { ensureAgentRowForPortalStaff } from "@/lib/admin-roster";
-import { resolveRosterCompanyName } from "@/modules/hierarchy/hris-company-aliases";
+import {
+  ACTIVE_COMPANY_WHERE,
+  invalidateCompanyDirectory,
+  loadCompanyDirectory,
+} from "@/modules/platform/companies/company-directory";
+import { ensureCompanyMembership } from "@/modules/platform/companies/company-membership";
 import { resolveHrisSourceTags } from "@/lib/merged-database-sources";
 import { prismaPrimary } from "@/modules/platform/db/prisma";
 import {
@@ -245,14 +250,19 @@ export async function importMergedUsers(
   summary.duplicates = duplicates.length;
   summary.unidentifiable = unidentifiable.length;
 
-  const [users, aliases, companies, roles] = await Promise.all([
+  invalidateCompanyDirectory();
+  const [users, aliases, companies, roles, directory] = await Promise.all([
     prismaPrimary.portalAccount.findMany({ select: userSelect }),
     prismaPrimary.portalUsernameAlias.findMany({ select: { username: true } }),
-    prismaPrimary.team.findMany({ select: { id: true, name: true, hrisCompanyId: true } }),
+    prismaPrimary.company.findMany({
+      where: ACTIVE_COMPANY_WHERE,
+      select: { id: true, name: true, hrisCompanyId: true },
+    }),
     prismaPrimary.role.findMany({
       where: { key: { in: [...SYSTEM_ROLE_KEYS] } },
       select: { id: true, key: true },
     }),
+    loadCompanyDirectory(),
   ]);
   const index = new UserIndex(users, aliases.map((a) => a.username));
   const roleIdByKey = new Map(roles.map((r) => [r.key, r.id]));
@@ -273,7 +283,7 @@ export async function importMergedUsers(
     const companyId = resolveImportCompanyId(
       row,
       companies,
-      resolveRosterCompanyName(row.companyName),
+      directory.resolveLabel(row.companyName)?.name ?? null,
     );
 
     try {
@@ -311,6 +321,7 @@ export async function importMergedUsers(
             data: { ...created, profileSyncedAt: new Date() },
           });
           if (companyId) {
+            await ensureCompanyMembership(created.id, companyId, { makeDefault: "always" });
             await ensureAgentRowForPortalStaff({ email, name }, companyId);
           }
         }
@@ -391,6 +402,9 @@ export async function importMergedUsers(
             data: { ...data, profileSyncedAt: new Date() },
           });
           if (setCompany && companyId) {
+            await ensureCompanyMembership(existing.id, companyId, {
+              makeDefault: options.overwriteCompany ? "always" : "ifNone",
+            });
             await ensureAgentRowForPortalStaff({ email: data.email ?? existing.email, name }, companyId);
           }
         }

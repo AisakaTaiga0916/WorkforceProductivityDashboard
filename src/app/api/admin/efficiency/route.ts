@@ -9,6 +9,7 @@ import {
 } from "@/modules/tasks/efficiency/user-efficiency-queries";
 import { resolveHrisSourceTags } from "@/lib/merged-database-sources";
 import { prismaPrimary } from "@/modules/platform/db/prisma";
+import { loadCompanyDirectory } from "@/modules/platform/companies/company-directory";
 
 const FREQ = new Set(["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "LIFETIME"]);
 
@@ -44,13 +45,13 @@ export async function GET(req: Request) {
     if (mode === "personnel") {
       // Soft-path roster: only ACTIVE portal profiles linked to current HRIS merge users.
       // Excludes LEGACY_CONFLICT ticketing-only accounts and stale breakdown rows.
-      const [activePortals, hrisUsers] = await Promise.all([
+      const [activePortals, hrisUsers, directory] = await Promise.all([
         prismaPrimary.portalAccount.findMany({
           where: {
             accountStatus: "ACTIVE",
             mergedSourceUserId: { not: null },
           },
-          select: { mergedSourceUserId: true },
+          select: { mergedSourceUserId: true, staffDesignatedCompany: { select: { name: true } } },
         }),
         db.mergedUser.findMany({
           where: {
@@ -59,7 +60,19 @@ export async function GET(req: Request) {
           },
           select: { sourceUserId: true },
         }),
+        loadCompanyDirectory(),
       ]);
+      /** Report company = default membership, else the canonical HRIS company label. */
+      const defaultCompanyByMergedId = new Map(
+        activePortals
+          .filter((p) => p.mergedSourceUserId != null && p.staffDesignatedCompany)
+          .map((p) => [p.mergedSourceUserId!.toString(), p.staffDesignatedCompany!.name] as const),
+      );
+      const reportCompanyName = (sourceUserId: string, hrisCompany: string | null | undefined) =>
+        defaultCompanyByMergedId.get(sourceUserId) ??
+        directory.resolveLabel(hrisCompany)?.name ??
+        hrisCompany ??
+        null;
 
       const activePortalIds = new Set(
         activePortals
@@ -133,7 +146,7 @@ export async function GET(req: Request) {
         const mapped: PersonnelRow = {
           sourceUserId: row.sourceUserId.toString(),
           name,
-          companyName: row.user?.companyName ?? null,
+          companyName: reportCompanyName(row.sourceUserId.toString(), row.user?.companyName),
           departmentName: row.user?.department?.trim() || null,
           totalTasks: row.totalTasks,
           completedTasks: row.completedTasks,

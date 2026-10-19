@@ -1,12 +1,16 @@
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/access";
-import { sortByRosterOrder, rosterTeamNameFilter } from "@/lib/company-roster";
 import { loadPersonnelAccountsPayload } from "@/lib/personnel-accounts-data";
 import { loadOnDutySnapshot } from "@/lib/load-on-duty-snapshot";
 import { prisma } from "@/modules/platform/db/prisma";
-import { resolveAdminOnDutyCompanyFilter } from "@/modules/platform/scope/staff-company-scope";
+import { listActiveCompanies } from "@/modules/platform/companies/company-directory";
+import { getCompanyAccess } from "@/modules/platform/scope/company-access";
+import { resolveViewerOnDutyCompanyFilter } from "@/modules/platform/scope/staff-company-scope";
 import {
-  reconcilePortalStaffRolesFromOrgChart,
+  loadMergedIdsWithCompanyMembership,
+  scopeOrgChartToCompany,
+} from "@/modules/hierarchy/org-chart-company-scope";
+import {
   resolvePortalTechnicalRolesByMergedSourceUserIds,
   resolveViewerOrgChartSectionScope,
 } from "@/modules/platform/scope/org-chart-section-scope";
@@ -34,7 +38,6 @@ export default async function WorkforcePage({
     view?: string | string[];
     q?: string | string[];
     role?: string | string[];
-    company?: string | string[];
     onDutyCompany?: string | string[];
   }>;
 }) {
@@ -46,7 +49,6 @@ export default async function WorkforcePage({
   const isSuperAdmin = session.user.role === "SuperAdmin";
   const viewVisibility = await getWorkforceViewVisibility();
   const visibleViews = {
-    list: isWorkforceViewVisible(viewVisibility, "list"),
     activity: isWorkforceViewVisible(viewVisibility, "activity"),
     sections: isWorkforceViewVisible(viewVisibility, "sections"),
   };
@@ -54,23 +56,19 @@ export default async function WorkforcePage({
   const initialView = firstVisibleWorkforceView(viewVisibility, viewParam);
   const initialSearchQuery = firstQuery(params.q)?.trim() ?? "";
   const initialRoleFilter = firstQuery(params.role)?.trim() ?? "";
-  const initialCompanyFilter = firstQuery(params.company)?.trim() ?? "";
+
+  const [access, lockedCompanyFilter] = await Promise.all([
+    getCompanyAccess(session),
+    resolveViewerOnDutyCompanyFilter(session),
+  ]);
+  const currentCompanyId = access.currentCompanyId;
+  const currentCompanyName =
+    access.companies.find((c) => c.id === currentCompanyId)?.name ?? null;
   const initialOnDutyCompanyFilter = firstQuery(params.onDutyCompany)?.trim() ?? "";
 
-  const lockedCompanyFilter = await resolveAdminOnDutyCompanyFilter(
-    session.user.role,
-    session.user.email,
-  );
-
-  const [payload, assignableTeams, onDuty, orgPayload] = await Promise.all([
-    loadPersonnelAccountsPayload({
-      role: session.user.role,
-      email: session.user.email,
-    }),
-    prisma.team.findMany({
-      where: rosterTeamNameFilter(),
-      select: { id: true, name: true },
-    }),
+  const [payload, orderedCompanies, onDuty, orgPayload, companyMemberMergedIds] = await Promise.all([
+    loadPersonnelAccountsPayload({ role: session.user.role, currentCompanyId }),
+    listActiveCompanies(),
     // Activity reads attendance from the merged DB; the rest of Workforce must render without it.
     loadOnDutySnapshot({
       page: 1,
@@ -131,15 +129,12 @@ export default async function WorkforcePage({
           }),
         ])
       : Promise.resolve(null),
+    visibleViews.sections && currentCompanyId
+      ? loadMergedIdsWithCompanyMembership(currentCompanyId)
+      : Promise.resolve(new Set<string>()),
   ]);
 
-  const orderedCompanies = sortByRosterOrder(assignableTeams);
-
-  if (isSuperAdmin && visibleViews.sections && orgPayload) {
-    await reconcilePortalStaffRolesFromOrgChart();
-  }
-
-  /** Admins (and non-elevated heads): org chart is read-only and limited to their dept tree. */
+  /** Admins (and non-elevated heads): org chart is read-only and limited to their team tree. */
   const scopeOrgChartToViewer =
     Boolean(orgPayload) &&
     !isSuperAdmin &&
@@ -173,6 +168,22 @@ export default async function WorkforcePage({
     );
   }
 
+  // Company context: the current company's teams + their parent chain (structure context),
+  // and the people in those teams or with access to the company + their reports-to chain.
+  if (orgPayload && currentCompanyId) {
+    const scoped = scopeOrgChartToCompany({
+      companyId: currentCompanyId,
+      sections: scopedOrgSections,
+      nodes: scopedOrgNodes,
+      companyMemberMergedIds,
+    });
+    scopedOrgSections = scopedOrgSections.filter((s) => scoped.sectionIds.has(s.id));
+    scopedOrgNodes = scopedOrgNodes.filter((n) => scoped.nodeIds.has(n.id));
+    scopedEitherOr = scopedEitherOr.filter(
+      (l) => scoped.nodeIds.has(l.nodeAId) && scoped.nodeIds.has(l.nodeBId),
+    );
+  }
+
   const headMergedIds = scopedOrgSections
     .map((s) => s.headNode?.mergedSourceUserId)
     .filter((id): id is string => Boolean(id?.trim()));
@@ -194,6 +205,7 @@ export default async function WorkforcePage({
           name: s.name,
           description: s.description,
           sortOrder: s.sortOrder,
+          isActive: s.isActive,
           parentId: s.parentId,
           companyTeamId: s.companyTeamId,
           companyName: s.companyTeam?.name ?? null,
@@ -223,15 +235,8 @@ export default async function WorkforcePage({
       initialView={initialView}
       initialSearchQuery={initialSearchQuery}
       initialRoleFilter={initialRoleFilter}
-      initialCompanyFilter={initialCompanyFilter}
       initialOnDutyCompanyFilter={initialOnDutyCompanyFilter}
-      initialTeams={payload.teams}
       initialPersonnel={payload.personnel}
-      initialAssignableCompanies={orderedCompanies}
-      viewerMode={payload.viewerMode}
-      scopeUnavailable={payload.scopeUnavailable}
-      scopedCompanyName={payload.scopedCompanyName}
-      secondaryDatabaseName={payload.secondaryDatabaseName}
       initialOnDutyAgents={onDuty.agents}
       initialOnDutyPage={onDuty.page}
       onDutyTotalPages={onDuty.totalPages}
@@ -247,7 +252,8 @@ export default async function WorkforcePage({
       userEmail={session.user.email}
       visibleViews={visibleViews}
       canManageSections={isSuperAdmin}
-      canSetPortalRoles={isSuperAdmin}
+      canEditAssignmentColor
+      currentCompanyName={currentCompanyName}
       initialOrgSections={initialOrgSections}
       initialOrgNodes={orgPayload ? scopedOrgNodes : undefined}
       initialOrgEitherOrLinks={orgPayload ? initialOrgEitherOrLinks : undefined}

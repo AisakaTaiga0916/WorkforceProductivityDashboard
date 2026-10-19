@@ -131,15 +131,26 @@ import {
   listPendingVerificationKpiIdsForOrgChartHead,
   pendingSubKpiItemsForVerification,
 } from "@/modules/tasks/task-completion-verification-access";
-import { rosterTeamNameFilter } from "@/lib/company-roster";
+import { ACTIVE_COMPANY_WHERE } from "@/modules/platform/companies/company-directory";
+import {
+  getCompanyAccess,
+  resolveViewerCompanyId,
+  viewerCanAccessCompany,
+} from "@/modules/platform/scope/company-access";
 import { portalCompanyAdminPrivilegesForEmail } from "@/lib/portal-staff";
 import { timeZoneFromPeriodKey, upsertKpiPeriodSnapshot } from "@/modules/tasks/kpi-period-snapshots";
+import { getCompanyWorkingDays, getTaskScheduleSettings } from "@/modules/platform/settings/task-schedule-settings-db";
+import {
+  DEFAULT_TASK_SCHEDULE_SETTINGS,
+  workingDaysForCompany,
+  type TaskScheduleSettings,
+} from "@/modules/platform/settings/task-schedule-settings";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
 import { isPlatformSuperAdminPortalRole } from "@/lib/staff-role";
 import {
   loadAgentIdsForCompanyTeam,
+  resolveAgentCompanyIds,
   resolveAgentDesignatedCompanyId,
-  resolveStaffCompanyTeamId,
 } from "@/modules/platform/scope/staff-company-scope";
 import {
   hasBeforeAndAfterScreenshots,
@@ -319,13 +330,16 @@ export async function GET(req: Request) {
   const timeZone = normalizeTimeZone(searchParams.get("tz"));
 
   const perms = await resolveOpsPermissions(session);
-  let where: Prisma.KpiMaintenanceWhereInput = perms.canAssignWork ? {} : {};
+  const where: Prisma.KpiMaintenanceWhereInput = perms.canAssignWork ? {} : {};
 
   const companyTeamId = searchParams.get("company")?.trim();
   /** When set, company membership is applied in memory so sub-task assignees are included. */
   let companyAgentIdSet: Set<string> | null = null;
   let companyFilterId: string | null = null;
   if (perms.canAssignWork && companyTeamId && companyTeamId !== "ALL") {
+    if (!(await viewerCanAccessCompany(session, companyTeamId))) {
+      return NextResponse.json({ error: "You do not have access to that company." }, { status: 403 });
+    }
     companyFilterId = companyTeamId;
     const agentIds = await loadAgentIdsForCompanyTeam(companyTeamId);
     companyAgentIdSet = new Set(agentIds);
@@ -418,6 +432,24 @@ export async function GET(req: Request) {
     }
   }
 
+  // Per-company Task Schedule Config: resolve working-day masks on demand so
+  // daily recurrence, rollovers, and snapshots follow each company's calendar.
+  let scheduleSettings: TaskScheduleSettings = DEFAULT_TASK_SCHEDULE_SETTINGS;
+  try {
+    scheduleSettings = await getTaskScheduleSettings();
+  } catch {
+    // Fall back to the default mask (Mon–Sat) if settings storage is unavailable.
+  }
+  const workingDaysByCompany = new Map<string, number[]>();
+  const workingDaysForRow = (companyId: string | null | undefined): number[] => {
+    const key = companyId ?? "";
+    const cached = workingDaysByCompany.get(key);
+    if (cached) return cached;
+    const mask = workingDaysForCompany(scheduleSettings, companyId);
+    workingDaysByCompany.set(key, mask);
+    return mask;
+  };
+
   const now = new Date();
   const updates: Promise<unknown>[] = [];
 
@@ -433,6 +465,7 @@ export async function GET(req: Request) {
       row.recurrenceMonthDay,
       now,
       timeZone,
+      workingDaysForRow(row.scopedCompanyTeamId),
     );
     const anchor =
       row.periodCycleStartAt ??
@@ -442,6 +475,7 @@ export async function GET(req: Request) {
         row.recurrenceMonthDay,
         row.createdAt,
         timeZone,
+        workingDaysForRow(row.scopedCompanyTeamId),
       );
 
     const patch: Prisma.KpiMaintenanceUpdateManyMutationInput & {
@@ -451,7 +485,14 @@ export async function GET(req: Request) {
       verifiedByAgentId?: string | null;
       verificationRejectionComment?: string | null;
     } = {};
-    const expectedKey = computePeriodKey(freq, row.recurrenceWeekday, row.recurrenceMonthDay, now, timeZone);
+    const expectedKey = computePeriodKey(
+      freq,
+      row.recurrenceWeekday,
+      row.recurrenceMonthDay,
+      now,
+      timeZone,
+      workingDaysForRow(row.scopedCompanyTeamId),
+    );
 
     if (!row.periodCycleStartAt) {
       patch.periodCycleStartAt = currentCycleStart;
@@ -482,6 +523,7 @@ export async function GET(req: Request) {
           row.recurrenceWeekday,
           row.recurrenceMonthDay,
           timeZone,
+          workingDaysForRow(row.scopedCompanyTeamId),
         );
         const holdUntil = recurringIncompleteRolloverEligibleAt(
           cycleDeadline,
@@ -496,7 +538,14 @@ export async function GET(req: Request) {
       const snapshotPeriodKey =
         row.periodKey && !isLegacyPeriodKey(row.periodKey)
           ? row.periodKey
-          : computePeriodKey(freq, row.recurrenceWeekday, row.recurrenceMonthDay, anchor, timeZone);
+          : computePeriodKey(
+              freq,
+              row.recurrenceWeekday,
+              row.recurrenceMonthDay,
+              anchor,
+              timeZone,
+              workingDaysForRow(row.scopedCompanyTeamId),
+            );
       await upsertKpiPeriodSnapshot(
         {
           id: row.id,
@@ -508,6 +557,8 @@ export async function GET(req: Request) {
           recurrenceMonthDay: row.recurrenceMonthDay,
           periodCycleStartAt: row.periodCycleStartAt,
           isRecurring: row.isRecurring,
+          scopedCompanyTeamId: row.scopedCompanyTeamId,
+          workingDays: workingDaysForRow(row.scopedCompanyTeamId),
           assignedAgent: row.assignedAgent
             ? { id: row.assignedAgent.id, name: row.assignedAgent.name }
             : null,
@@ -523,6 +574,7 @@ export async function GET(req: Request) {
         timeZone,
         fromCycleStart: anchor,
         toCycleStart: currentCycleStart,
+        workingDays: workingDaysForRow(row.scopedCompanyTeamId),
       });
       patch.periodCycleStartAt = currentCycleStart;
       patch.periodKey = expectedKey;
@@ -539,7 +591,7 @@ export async function GET(req: Request) {
     if (!staleCycle && complete && lastFull) {
       // WEEKLY/MONTHLY/QUARTERLY: eligible immediately on DONE.
       // DAILY: still waits until the next calendar day (see getRolloverEligibleAfterCompletion).
-      const eligible = nextRolloverEligibleAtUtc(lastFull, timeZone, freq);
+      const eligible = nextRolloverEligibleAtUtc(lastFull, timeZone, freq, workingDaysForRow(row.scopedCompanyTeamId));
       if (eligible && now.getTime() >= eligible.getTime()) {
         await upsertKpiPeriodSnapshot(
           {
@@ -552,6 +604,8 @@ export async function GET(req: Request) {
             recurrenceMonthDay: row.recurrenceMonthDay,
             periodCycleStartAt: row.periodCycleStartAt,
             isRecurring: row.isRecurring,
+            scopedCompanyTeamId: row.scopedCompanyTeamId,
+            workingDays: workingDaysForRow(row.scopedCompanyTeamId),
             assignedAgent: row.assignedAgent
               ? { id: row.assignedAgent.id, name: row.assignedAgent.name }
               : null,
@@ -565,6 +619,7 @@ export async function GET(req: Request) {
           row.recurrenceWeekday,
           row.recurrenceMonthDay,
           timeZone,
+          workingDaysForRow(row.scopedCompanyTeamId),
         );
         patch.subKpis = resetAllSubKpiDone(row.subKpis, {
           frequency: freq,
@@ -573,6 +628,7 @@ export async function GET(req: Request) {
           timeZone,
           fromCycleStart: anchor,
           toCycleStart: nextCycleStart,
+          workingDays: workingDaysForRow(row.scopedCompanyTeamId),
         });
         patch.periodCycleStartAt = nextCycleStart;
         patch.lastFullCompletionAt = null;
@@ -582,7 +638,14 @@ export async function GET(req: Request) {
         patch.verifiedByAgentId = null;
         patch.verificationRejectionComment = null;
         patch.rolledOverIncomplete = false;
-        patch.periodKey = computePeriodKey(freq, row.recurrenceWeekday, row.recurrenceMonthDay, nextCycleStart, timeZone);
+        patch.periodKey = computePeriodKey(
+          freq,
+          row.recurrenceWeekday,
+          row.recurrenceMonthDay,
+          nextCycleStart,
+          timeZone,
+          workingDaysForRow(row.scopedCompanyTeamId),
+        );
       }
     }
 
@@ -660,7 +723,12 @@ export async function GET(req: Request) {
       checklistFullyComplete(row.subKpis, kpiMainTaskLabel(row)) &&
       isCompletionEffectivelyVerified(row);
     if (!complete) continue;
-    const eligible = nextRolloverEligibleAtUtc(row.lastFullCompletionAt, timeZone);
+    const eligible = nextRolloverEligibleAtUtc(
+      row.lastFullCompletionAt,
+      timeZone,
+      null,
+      workingDaysForRow(row.scopedCompanyTeamId),
+    );
     if (!eligible || now.getTime() < eligible.getTime()) continue;
     // Take a period snapshot to archive the completed state
     await upsertKpiPeriodSnapshot(
@@ -674,6 +742,8 @@ export async function GET(req: Request) {
         recurrenceMonthDay: row.recurrenceMonthDay,
         periodCycleStartAt: row.periodCycleStartAt,
         isRecurring: false,
+        scopedCompanyTeamId: row.scopedCompanyTeamId,
+        workingDays: workingDaysForRow(row.scopedCompanyTeamId),
         assignedAgent: row.assignedAgent
           ? { id: row.assignedAgent.id, name: row.assignedAgent.name }
           : null,
@@ -728,6 +798,8 @@ export async function GET(req: Request) {
         linkedJobOrders: linkedJobOrdersForRow,
         travelOrderSummary: travelSummary,
         viewerCanVerifyCompletion: pendingApprovalIds.has(r.id),
+        /** Resolved Task Schedule Config mask — clients render daily calendars with it. */
+        workingDays: workingDaysForRow(r.scopedCompanyTeamId),
       };
     }),
     canAssignWork: perms.canAssignWork,
@@ -741,11 +813,7 @@ export async function GET(req: Request) {
     operatorAgentId: perms.operator?.id ?? null,
     operatorAgentName: perms.operator?.name ?? null,
     rosterCompanies: perms.canAssignWork
-      ? await prisma.team.findMany({
-          where: rosterTeamNameFilter(),
-          select: { id: true, name: true },
-          orderBy: { name: "asc" },
-        })
+      ? (await getCompanyAccess(session)).companies.map((c) => ({ id: c.id, name: c.name }))
       : [],
   });
 }
@@ -844,8 +912,8 @@ export async function POST(req: Request) {
     );
   }
   const isRecurring = isItProject ? false : body.isRecurring !== false;
-  let nonRecurringStartAt: Date | null = null;
-  let nonRecurringEndAt: Date | null = null;
+  const nonRecurringStartAt: Date | null = null;
+  const nonRecurringEndAt: Date | null = null;
 
   let recurrenceWeekday: number | null = null;
   let recurrenceMonthDay: number | null = null;
@@ -905,12 +973,15 @@ export async function POST(req: Request) {
   const scopedCompanyTeamIdRaw = body.scopedCompanyTeamId?.trim() ?? "";
   let scopedCompanyTeamId: string | null = null;
   if (scopedCompanyTeamIdRaw) {
-    const companyTeam = await prisma.team.findFirst({
-      where: { id: scopedCompanyTeamIdRaw, ...rosterTeamNameFilter() },
+    const companyTeam = await prisma.company.findFirst({
+      where: { id: scopedCompanyTeamIdRaw, ...ACTIVE_COMPANY_WHERE },
       select: { id: true },
     });
     if (!companyTeam) {
       return NextResponse.json({ error: "Company not found." }, { status: 404 });
+    }
+    if (!(await viewerCanAccessCompany(session, companyTeam.id))) {
+      return NextResponse.json({ error: "You do not have access to that company." }, { status: 403 });
     }
     scopedCompanyTeamId = companyTeam.id;
   }
@@ -1148,6 +1219,7 @@ export async function POST(req: Request) {
   }
 
   const timeZone = normalizeTimeZone(body.timeZone);
+  const companyWorkingDays = await getCompanyWorkingDays(scopedCompanyTeamId);
   const periodKey = isRecurring
     ? computePeriodKey(
         frequency as KpiFrequencyCode,
@@ -1155,11 +1227,19 @@ export async function POST(req: Request) {
         recurrenceMonthDay,
         new Date(),
         timeZone,
+        companyWorkingDays,
       )
     : null;
 
   const periodCycleStartAt = isRecurring
-    ? getPeriodStartInclusive(frequency as KpiFrequencyCode, recurrenceWeekday, recurrenceMonthDay, new Date(), timeZone)
+    ? getPeriodStartInclusive(
+        frequency as KpiFrequencyCode,
+        recurrenceWeekday,
+        recurrenceMonthDay,
+        new Date(),
+        timeZone,
+        companyWorkingDays,
+      )
     : null;
 
   const itProjectName =
@@ -1610,6 +1690,7 @@ export async function PATCH(req: Request) {
   }
 
   const snapshotTz = timeZoneFromPeriodKey(kpiRow.periodKey) || patchTz;
+  const snapshotWorkingDays = await getCompanyWorkingDays(kpiRow.scopedCompanyTeamId);
 
   async function captureCurrentPeriodSnapshot(subKpis: unknown) {
     if (!kpiRow.isRecurring) return;
@@ -1624,6 +1705,8 @@ export async function PATCH(req: Request) {
         recurrenceMonthDay: kpiRow.recurrenceMonthDay,
         periodCycleStartAt: kpiRow.periodCycleStartAt,
         isRecurring: kpiRow.isRecurring,
+        scopedCompanyTeamId: kpiRow.scopedCompanyTeamId,
+        workingDays: snapshotWorkingDays,
         assignedAgent: kpiRow.assignedAgent
           ? { id: kpiRow.assignedAgent.id, name: kpiRow.assignedAgent.name }
           : null,
@@ -2442,16 +2525,16 @@ export async function PATCH(req: Request) {
         );
       }
       const mainAssigneeCompanyId = await resolveAgentDesignatedCompanyId(kpiRow.assignedAgentId);
-      const subAssigneeCompanyId = await resolveAgentDesignatedCompanyId(assignee.id);
+      const subAssigneeCompanyIds = await resolveAgentCompanyIds(assignee.id);
       // Elevated roles may assign helpers cross-company; Admin/Personnel stay company-locked.
       if (!isElevatedUserRole(session.user.role)) {
-        if (!mainAssigneeCompanyId || !subAssigneeCompanyId) {
+        if (!mainAssigneeCompanyId || subAssigneeCompanyIds.length === 0) {
           return NextResponse.json(
-            { error: "Both main task and sub-task assignees must have a designated company." },
+            { error: "Both main task and sub-task assignees must belong to a company." },
             { status: 400 },
           );
         }
-        if (subAssigneeCompanyId !== mainAssigneeCompanyId) {
+        if (!subAssigneeCompanyIds.includes(mainAssigneeCompanyId)) {
           return NextResponse.json(
             { error: "Sub-task assignee must belong to the same company as the main task assignee." },
             { status: 400 },
@@ -2634,7 +2717,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Screenshot not found." }, { status: 404 });
     }
     const updatedJson = removePillarScreenshot(kpiRow.subKpis, slot, storedFileName);
-    let syncedJson = isPillarOnlyTask(updatedJson)
+    const syncedJson = isPillarOnlyTask(updatedJson)
       ? syncPillarDoneFromRequirements(updatedJson)
       : updatedJson;
     const updated = await prisma.kpiMaintenance.update({
@@ -2812,7 +2895,7 @@ export async function PATCH(req: Request) {
     }
     // Admin / Personnel: must stay within company ∩ org-chart department scope.
     if (roleUsesCompanyDepartmentTaskAssignScope(session.user.role)) {
-      const companyId = await resolveStaffCompanyTeamId(session.user.email);
+      const companyId = await resolveViewerCompanyId(session);
       const sectionScope = await resolveViewerOrgChartSectionScope(session.user.email);
       const sectionAgents = new Set(sectionScope.agentIds);
       const companyAgents = companyId
@@ -3170,14 +3253,23 @@ export async function PATCH(req: Request) {
       data.nonRecurringEndAt = null;
       data.recurrenceWeekday = recurrenceWeekday;
       data.recurrenceMonthDay = recurrenceMonthDay;
+      const scheduleWorkingDays = await getCompanyWorkingDays(kpiRow.scopedCompanyTeamId);
       data.periodCycleStartAt = getPeriodStartInclusive(
         freqCode,
         recurrenceWeekday,
         recurrenceMonthDay,
         now,
         patchTz,
+        scheduleWorkingDays,
       );
-      data.periodKey = computePeriodKey(freqCode, recurrenceWeekday, recurrenceMonthDay, now, patchTz);
+      data.periodKey = computePeriodKey(
+        freqCode,
+        recurrenceWeekday,
+        recurrenceMonthDay,
+        now,
+        patchTz,
+        scheduleWorkingDays,
+      );
       data.rolledOverIncomplete = false;
     } else {
       data.nonRecurringStartAt = null;
@@ -3195,6 +3287,7 @@ export async function PATCH(req: Request) {
       data,
     });
     if (isRecurring) {
+      const scheduleWorkingDays = await getCompanyWorkingDays(kpiRow.scopedCompanyTeamId);
       await upsertKpiPeriodSnapshot(
         {
           id: updated.id,
@@ -3206,6 +3299,8 @@ export async function PATCH(req: Request) {
           recurrenceMonthDay: updated.recurrenceMonthDay,
           periodCycleStartAt: updated.periodCycleStartAt,
           isRecurring: updated.isRecurring,
+          scopedCompanyTeamId: kpiRow.scopedCompanyTeamId,
+          workingDays: scheduleWorkingDays,
           assignedAgent: kpiRow.assignedAgent
             ? { id: kpiRow.assignedAgent.id, name: kpiRow.assignedAgent.name }
             : null,

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { SuperAdminSettingsNav, type SuperAdminSettingsTab } from "@/components/SuperAdminSettingsNav";
 import { BRAND_TITLE } from "@/lib/brand";
 import { superAdminSettingsHref } from "@/lib/superadmin-settings-tabs";
+import { CompaniesPanel } from "./CompaniesPanel";
 import { RolesPanel } from "./RolesPanel";
 import { SystemSettingsPanel } from "./SystemSettingsPanel";
 import { UsersPanel } from "./UsersPanel";
@@ -54,6 +55,8 @@ export function SuperAdminSettingsClient({
 
       {tab === "users" ? (
         <UsersPanel />
+      ) : tab === "companies" ? (
+        <CompaniesPanel />
       ) : tab === "system" ? (
         <SystemSettingsPanel initialTriggers={initialTriggers} />
       ) : (

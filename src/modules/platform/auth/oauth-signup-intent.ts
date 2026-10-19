@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
-import { COMPANY_ROSTER } from "@/lib/company-roster";
+import { isActiveCompanyId } from "@/modules/platform/companies/company-directory";
 import { findPortalByEmailOnly, findPortalByUsername } from "@/lib/portal-account";
 import { prisma } from "@/modules/platform/db/prisma";
 
@@ -111,11 +111,7 @@ export async function applyOAuthSignupIntent(email: string, portalId: string): P
     return;
   }
 
-  const team = await prisma.team.findUnique({
-    where: { id: intent.companyId },
-    select: { name: true },
-  });
-  if (!team || !(COMPANY_ROSTER as readonly string[]).includes(team.name)) {
+  if (!(await isActiveCompanyId(intent.companyId))) {
     await clearOAuthSignupIntentCookie();
     return;
   }
@@ -174,8 +170,7 @@ export async function validateOAuthSignupInput(input: {
     return { ok: false, error: "Choose your org role (Admin or Personnel).", status: 400 };
   }
 
-  const team = await prisma.team.findUnique({ where: { id: companyId }, select: { name: true } });
-  if (!team || !(COMPANY_ROSTER as readonly string[]).includes(team.name)) {
+  if (!(await isActiveCompanyId(companyId))) {
     return { ok: false, error: "Invalid company selection.", status: 400 };
   }
 

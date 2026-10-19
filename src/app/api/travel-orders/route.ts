@@ -4,6 +4,7 @@ import { isElevatedUserRole } from "@/modules/platform/auth";
 import { resolveOpsPermissions } from "@/lib/ops-permissions";
 import { prisma } from "@/modules/platform/db/prisma";
 import { resolveAgentDesignatedCompanyId } from "@/modules/platform/scope/staff-company-scope";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 import { isPersonnelGuardPortalRole } from "@/lib/staff-role";
 import {
   findTravelOrdersVisibleToAgent,
@@ -55,17 +56,20 @@ export async function GET() {
       return NextResponse.json({ travelOrders: [], companyTeamId: null });
     }
 
+    // Work plans are created in the viewer's current company (switcher).
     const companyTeamId = gatePassOnly
       ? null
-      : await resolveAgentDesignatedCompanyId(operatorId ?? "").catch(async (err) => {
-          console.warn("[api/travel-orders] designated company lookup failed:", err);
-          if (!operatorId) return null;
-          const agent = await prisma.agent.findUnique({
-            where: { id: operatorId },
-            select: { teamId: true },
-          });
-          return agent?.teamId ?? null;
-        });
+      : ((await resolveViewerCompanyId(session)) ??
+        (operatorId
+          ? await resolveAgentDesignatedCompanyId(operatorId).catch(async (err) => {
+              console.warn("[api/travel-orders] default company lookup failed:", err);
+              const agent = await prisma.agent.findUnique({
+                where: { id: operatorId },
+                select: { teamId: true },
+              });
+              return agent?.teamId ?? null;
+            })
+          : null));
     const rows = await findTravelOrdersVisibleToAgent({
       companyTeamId,
       agentId: operatorId,

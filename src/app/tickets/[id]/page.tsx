@@ -166,7 +166,7 @@ export default async function TicketPage({
           sendToOrgChartSectionId = ensured.orgChartSectionId;
           sendToSectionName = ensured.orgChartSectionName;
           sendRequestToDisplay = {
-            label: "Send request to (department)",
+            label: "Send request to (team)",
             value: (ensured.orgChartSectionName ?? "").trim() || "Accounting",
           };
         }
@@ -412,7 +412,7 @@ export default async function TicketPage({
             branch={branch ?? "—"}
             sendRequestTo={sendRequestToDisplay.value}
             sendRequestToLabel={sendRequestToDisplay.label}
-            departmentLabel="Requesting department"
+            departmentLabel="Requesting team"
             department={department ?? "—"}
             requestType={requestTypeLabelText}
             proceduralStatus={proceduralStatusLabel}

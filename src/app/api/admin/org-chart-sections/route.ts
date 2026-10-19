@@ -2,11 +2,8 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/access";
 import { permissionDenied } from "@/modules/platform/rbac/permissions";
 import { prismaPrimary } from "@/modules/platform/db/prisma";
-import {
-  ensurePortalAdminForAllOrgChartSectionHeads,
-  reconcilePortalStaffRolesFromOrgChart,
-  resolvePortalTechnicalRolesByMergedSourceUserIds,
-} from "@/modules/platform/scope/org-chart-section-scope";
+import { resolvePortalTechnicalRolesByMergedSourceUserIds } from "@/modules/platform/scope/org-chart-section-scope";
+import { isActiveCompanyId } from "@/modules/platform/companies/company-directory";
 
 /** SuperAdmin-only guard. Writes additionally require the given RBAC permission. */
 async function guardSuperAdmin(permissionKey?: string) {
@@ -29,6 +26,7 @@ function serializeSection(s: {
   name: string;
   description: string | null;
   sortOrder: number;
+  isActive?: boolean;
   parentId: string | null;
   companyTeamId: string | null;
   headNodeId: string | null;
@@ -61,6 +59,7 @@ function serializeSection(s: {
     name: s.name,
     description: s.description,
     sortOrder: s.sortOrder,
+    isActive: s.isActive ?? true,
     parentId: s.parentId,
     companyTeamId: s.companyTeamId,
     companyName: s.companyTeam?.name ?? null,
@@ -265,9 +264,6 @@ export async function GET() {
   const denied = await guardSuperAdmin();
   if (denied) return denied;
 
-  // Lazy backfill: align Personnel / Admin with department + sub-department heads.
-  await ensurePortalAdminForAllOrgChartSectionHeads();
-
   const sections = await prismaPrimary.orgChartSection.findMany({
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     include: sectionIncludeArgs,
@@ -316,24 +312,18 @@ export async function POST(req: Request) {
   const reportsToNodeId = reportsResolved?.reportsToNodeId ?? null;
   // Nesting (parentId) and people-chart reports-to are independent — metrics use parentId.
 
+  // Every team belongs to exactly one company; sub-teams default to the parent's company.
   let companyTeamId: string | null = body.companyTeamId
     ? String(body.companyTeamId).trim()
     : null;
-  if (parentResolved && body.companyTeamId === undefined) {
+  if (!companyTeamId && parentResolved) {
     companyTeamId = parentResolved.companyTeamId;
   }
-  if (companyTeamId) {
-    if (companyTeamId.startsWith("company:")) {
-      companyTeamId = null;
-    } else {
-      const team = await prismaPrimary.team.findUnique({
-        where: { id: companyTeamId },
-        select: { id: true },
-      });
-      if (!team) {
-        return NextResponse.json({ error: "Company not found." }, { status: 400 });
-      }
-    }
+  if (!companyTeamId) {
+    return NextResponse.json({ error: "Choose the company this team belongs to." }, { status: 400 });
+  }
+  if (!(await isActiveCompanyId(companyTeamId))) {
+    return NextResponse.json({ error: "Company not found or archived." }, { status: 400 });
   }
 
   const [max] = await prismaPrimary.orgChartSection.findMany({
@@ -501,7 +491,6 @@ export async function PATCH(req: Request) {
     }
 
     await syncPrimarySections(nodeIds);
-    await reconcilePortalStaffRolesFromOrgChart();
 
     return NextResponse.json({
       sectionId: clearAll ? null : sectionId,
@@ -526,13 +515,12 @@ export async function PATCH(req: Request) {
     if ("error" in resolved) {
       return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
+    // Structure only: portal roles are assigned in Settings → User Management.
     const updated = await prismaPrimary.orgChartSection.update({
       where: { id },
       data: { headNodeId: resolved.headNodeId },
       include: sectionIncludeArgs,
     });
-    // Align Personnel / Admin with chart heads (promotes new head, demotes former).
-    await reconcilePortalStaffRolesFromOrgChart();
     return NextResponse.json(await serializeSectionWithHeadPortalRole(updated as any));
   }
 
@@ -636,10 +624,18 @@ export async function PATCH(req: Request) {
     name?: string;
     description?: string | null;
     sortOrder?: number;
-    companyTeamId?: string | null;
+    companyTeamId?: string;
     parentId?: string | null;
     reportsToNodeId?: string | null;
+    isActive?: boolean;
   } = {};
+
+  if (body.isActive !== undefined) {
+    if (typeof body.isActive !== "boolean") {
+      return NextResponse.json({ error: "isActive must be true or false." }, { status: 400 });
+    }
+    data.isActive = body.isActive;
+  }
 
   if (body.name !== undefined) {
     const name = String(body.name ?? "").trim();
@@ -688,21 +684,15 @@ export async function PATCH(req: Request) {
   }
 
   if (body.companyTeamId !== undefined) {
-    let companyTeamId: string | null = body.companyTeamId
-      ? String(body.companyTeamId).trim()
-      : null;
-    if (companyTeamId) {
-      if (companyTeamId.startsWith("company:")) {
-        companyTeamId = null;
-      } else {
-        const team = await prismaPrimary.team.findUnique({
-          where: { id: companyTeamId },
-          select: { id: true },
-        });
-        if (!team) {
-          return NextResponse.json({ error: "Company not found." }, { status: 400 });
-        }
-      }
+    const companyTeamId = body.companyTeamId ? String(body.companyTeamId).trim() : "";
+    if (!companyTeamId) {
+      return NextResponse.json(
+        { error: "A team must belong to a company. Choose a company instead of clearing it." },
+        { status: 400 },
+      );
+    }
+    if (!(await isActiveCompanyId(companyTeamId))) {
+      return NextResponse.json({ error: "Company not found or archived." }, { status: 400 });
     }
     data.companyTeamId = companyTeamId;
   }
@@ -733,19 +723,40 @@ export async function DELETE(req: Request) {
   const existing = await prismaPrimary.orgChartSection.findUnique({
     where: { id },
     include: {
-      _count: { select: { memberships: true, children: true } },
-      children: { select: { id: true, _count: { select: { memberships: true } } } },
+      _count: { select: { children: true } },
     },
   });
   if (!existing) {
     return NextResponse.json({ error: "Section not found." }, { status: 404 });
   }
 
-  const childMemberCount = existing.children.reduce((sum, c) => sum + c._count.memberships, 0);
+  // Deleting a team cascades to nested teams and memberships, so count the
+  // whole subtree: teams with members must be emptied (reassigned) first.
+  const subtreeMembershipRows = await prismaPrimary.$queryRaw<Array<{ count: bigint }>>`
+    WITH RECURSIVE subtree AS (
+      SELECT id FROM "org_chart_sections" WHERE id = ${id}
+      UNION ALL
+      SELECT s.id FROM "org_chart_sections" s JOIN subtree t ON s.parent_id = t.id
+    )
+    SELECT COUNT(*)::bigint AS count
+    FROM "org_chart_node_section_memberships" m
+    JOIN subtree t ON t.id = m.section_id
+  `;
+  const memberCount = Number(subtreeMembershipRows[0]?.count ?? 0);
+  if (memberCount > 0) {
+    return NextResponse.json(
+      {
+        error: `This team still has ${memberCount} member${memberCount === 1 ? "" : "s"}. Move them to another team before deleting.`,
+        memberCount,
+      },
+      { status: 409 },
+    );
+  }
+
   await prismaPrimary.orgChartSection.delete({ where: { id } });
   return NextResponse.json({
     removed: id,
-    removedMemberships: existing._count.memberships + childMemberCount,
+    removedMemberships: 0,
     removedSubsections: existing._count.children,
   });
 }

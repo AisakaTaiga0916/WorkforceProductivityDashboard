@@ -9,7 +9,7 @@ import {
   issueConcernIntakeLockMessage,
   requestorHasIntakeBlockingTicket,
 } from "@/modules/requests/customer-pending-resolution";
-import { ensureOutsideCompanyTeam } from "@/modules/requests/outside-company-team";
+import { resolveViewerCompanyId } from "@/modules/platform/scope/company-access";
 import { logActivity } from "@/modules/requests/ticket-actions";
 import { prisma } from "@/modules/platform/db/prisma";
 import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
@@ -106,7 +106,7 @@ import {
 import {
   resolveFtrAssigneesFromPositions,
   resolveMergedSourceUserIdForSessionEmail,
-} from "@/modules/hierarchy/approval-position-resolver";
+} from "@/modules/platform/approvals/approval-position-resolver";
 
 function pickAgentId(v: unknown): string | null {
   if (v === null || v === "") return null;
@@ -171,6 +171,7 @@ export async function GET(req: Request) {
     sectionBoardWhere = await sectionScopedTicketWhere({
       email: session.user.email,
       agentId: operator?.id,
+      companyId: await resolveViewerCompanyId(session),
     });
   }
 
@@ -584,7 +585,7 @@ export async function POST(req: Request) {
     const requestingCompanyTeamId = (requestingCompanyTeamIdRaw ?? "").trim();
     let requestingCompanyName: string | null = null;
     if (requestingCompanyTeamId) {
-      const requestingCompany = await prisma.team.findUnique({
+      const requestingCompany = await prisma.company.findUnique({
         where: { id: requestingCompanyTeamId },
         select: { id: true, name: true },
       });
@@ -608,7 +609,8 @@ export async function POST(req: Request) {
     const skipJobOrderApprovedBy = isFormFlag(skipJobOrderApprovedByRaw);
 
     const requestorMergedSourceUserId = await resolveMergedSourceUserIdForSessionEmail(accountEmail);
-    const requestorCompanyTeamId = await resolveStaffCompanyTeamId(session.user.email);
+    const requestorCompanyTeamId =
+      (await resolveViewerCompanyId(session)) ?? (await resolveStaffCompanyTeamId(session.user.email));
     const sendToOrgChartSectionId = (orgChartSectionIdRaw ?? "").trim();
     const requestorOrgChartSectionId = (requestorOrgChartSectionIdRaw ?? "").trim();
     const staffSendToMode = sendToModeRaw === "company" ? "company" : "department";
@@ -881,8 +883,7 @@ export async function POST(req: Request) {
     let team: { id: string; name: string } | null = null;
     let customerRequestSbuText: string | null = null;
     let customerAssignedCompanyText: string | null = null;
-    let customerAssignedOutsideQueue = false;
-    let customerRequestOutsideQueue = false;
+    let customerRequestUnrouted = false;
     let intakeRequestorSectionId: string | null = null;
     let intakeSendToSectionId: string | null = null;
 
@@ -903,9 +904,7 @@ export async function POST(req: Request) {
         requestText: assignedCompanyText,
         fallbackTeamId: sessionCompanyId,
       });
-      const outsideTeam = await ensureOutsideCompanyTeam();
-      customerAssignedOutsideQueue = !resolvedAssigned;
-      const effectivePortalCompanyId = resolvedAssigned?.team.id ?? outsideTeam.id;
+      const effectivePortalCompanyId = resolvedAssigned?.team.id ?? null;
 
       if (googleOAuthCustomer) {
         const trimmedOrgRole =
@@ -946,8 +945,8 @@ export async function POST(req: Request) {
         requestText: requestToCompanySbu,
         fallbackTeamId: null,
       });
-      customerRequestOutsideQueue = !routed?.matched;
-      team = routed?.matched ? routed.team : outsideTeam;
+      customerRequestUnrouted = !routed?.matched;
+      team = routed?.matched ? routed.team : null;
     } else {
       const rawCompanyTeamId = (companyTeamIdRaw || "").trim();
       const requestToCompanySbu = (requestToCompanySbuRaw ?? "").trim();
@@ -1172,7 +1171,7 @@ export async function POST(req: Request) {
         await logActivity(ticket.id, "USER", "Send request to department", sendToSection.name);
       }
     } else if (staffSendToMode === "company" && sendToCompanyTeamId) {
-      const sendToTeam = await prisma.team.findUnique({
+      const sendToTeam = await prisma.company.findUnique({
         where: { id: sendToCompanyTeamId },
         select: { name: true },
       });
@@ -1196,7 +1195,7 @@ export async function POST(req: Request) {
       ticket.id,
       "SYSTEM",
       "Ticket logged",
-      `Queued for ${team?.name ?? "triage"}. SLA: first response by ${firstResponseDueAt.toISOString()}, resolution by ${resolutionDueAt.toISOString()}.`,
+      `Queued for ${team?.name ?? "unassigned"}. SLA: first response by ${firstResponseDueAt.toISOString()}, resolution by ${resolutionDueAt.toISOString()}.`,
     );
     await logActivity(ticket.id, "USER", "Request type", requestTypeLabel(requestType));
     if (requestType === "REQUEST_FOR_PAYMENT") {
@@ -1473,30 +1472,20 @@ export async function POST(req: Request) {
       );
     }
     const requestSbuFreeText = customerRequestSbuText;
-    if (team) {
-      if (requestSbuFreeText) {
-        await logActivity(ticket.id, "USER", "Request to Company/SBU", requestSbuFreeText);
-        if (customerRequestOutsideQueue) {
-          await logActivity(
-            ticket.id,
-            "SYSTEM",
-            "Routing note",
-            `No roster SBU matched the request text; ticket queued under ${team.name}.`,
-          );
-        }
-      } else {
-        await logActivity(ticket.id, "USER", "Request to Company/SBU", team.name);
-      }
-    }
-    if (session.user.role === "Customer") {
-      if (customerAssignedOutsideQueue) {
+    if (requestSbuFreeText) {
+      await logActivity(ticket.id, "USER", "Request to Company/SBU", requestSbuFreeText);
+      if (customerRequestUnrouted) {
         await logActivity(
           ticket.id,
           "SYSTEM",
-          "Assigned company routing",
-          "Could not map typed assigned company to a roster SBU; account company set to OUTSIDE COMPANY for triage.",
+          "Routing note",
+          "No company in the directory matched the request text; the ticket is unassigned.",
         );
       }
+    } else if (team) {
+      await logActivity(ticket.id, "USER", "Request to Company/SBU", team.name);
+    }
+    if (session.user.role === "Customer") {
       if (customerAssignedCompanyText) {
         await logActivity(ticket.id, "USER", "Assigned company", customerAssignedCompanyText);
       }

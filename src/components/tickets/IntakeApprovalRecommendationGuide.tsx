@@ -120,12 +120,12 @@ export function IntakeApprovalRecommendationGuide({
     if (requestType === "REQUEST_FOR_PAYMENT") {
       const parts: string[] = [];
       if (guide.requestorSectionName) {
-        parts.push(`requesting department ${guide.requestorSectionName}`);
+        parts.push(`requesting team ${guide.requestorSectionName}`);
       }
       if (guide.requestorMainSectionName) {
         parts.push(
           requestorIsSubsection
-            ? `main section ${guide.requestorMainSectionName} (sub-department head first)`
+            ? `main section ${guide.requestorMainSectionName} (sub-team head first)`
             : `main section ${guide.requestorMainSectionName}`,
         );
       }
@@ -142,7 +142,7 @@ export function IntakeApprovalRecommendationGuide({
     if (requestType === "ITEM_REQUISITION_SLIP") {
       return guide.requestorMainSectionName
         ? `Approved By from ${guide.requestorMainSectionName} (Canvassed By is set on the Assignment Board)`
-        : "Approved By from your department (Canvassed By is set on the Assignment Board)";
+        : "Approved By from your team (Canvassed By is set on the Assignment Board)";
     }
     if (requestType === "JOB_ORDER") {
       const parts: string[] = [];
@@ -157,7 +157,7 @@ export function IntakeApprovalRecommendationGuide({
     }
     if (guide.requestorMainSectionName) {
       return requestorIsSubsection
-        ? `main section ${guide.requestorMainSectionName} (sub-department head first for ${guide.requestorSectionName})`
+        ? `main section ${guide.requestorMainSectionName} (sub-team head first for ${guide.requestorSectionName})`
         : `main section ${guide.requestorMainSectionName}`;
     }
     return null;
@@ -165,13 +165,13 @@ export function IntakeApprovalRecommendationGuide({
 
   const helpText = useMemo(() => {
     if (requestType === "ITEM_REQUISITION_SLIP") {
-      return "Suggested Approved By from your department. Canvassed By is assigned later on the Assignment Board. You can still choose someone else below.";
+      return "Suggested Approved By from your team. Canvassed By is assigned later on the Assignment Board. You can still choose someone else below.";
     }
     if (requestType === "REQUEST_FOR_PAYMENT") {
       return "Suggested assignees from org-chart sections. You can pick any company user for each seat below.";
     }
     if (requestType === "JOB_ORDER") {
-      return "Suggested chain: head of your department → head of the send-to department → HR Approver. The form seat is Approved By. You can pick any company user for each seat below.";
+      return "Suggested chain: head of your team → head of the send-to team → HR Approver. The form seat is Approved By. You can pick any company user for each seat below.";
     }
     return "Suggested assignees from org-chart sections and position holders. You can pick any company user for each seat below.";
   }, [requestType]);
@@ -193,8 +193,8 @@ export function IntakeApprovalRecommendationGuide({
 
   const emptyHint =
     requestType === "JOB_ORDER"
-      ? "Select your department and Send request to (department) to see recommended approvers."
-      : "Select your department to see recommended approvers.";
+      ? "Select your team and Send request to (team) to see recommended approvers."
+      : "Select your team to see recommended approvers.";
 
   return (
     <div className="rounded-xl border border-orange-200/80 bg-orange-50/40 p-3 dark:border-orange-500/25 dark:bg-orange-950/15 sm:p-4">

@@ -344,7 +344,7 @@ export async function resolveRfpBookkeeperForBudgetCompany(opts: {
   if (!companyTeamId) return null;
 
   const [company, sections, maps] = await Promise.all([
-    prisma.team.findUnique({
+    prisma.company.findUnique({
       where: { id: companyTeamId },
       select: { id: true, name: true },
     }),
@@ -819,13 +819,13 @@ export async function resolveIntakeApprovalRecommendations(opts: {
       loadSectionContextNames(sendToSectionId),
       loadStaffMaps(),
       requestorCompanyTeamId
-        ? prisma.team.findUnique({
+        ? prisma.company.findUnique({
             where: { id: requestorCompanyTeamId },
             select: { id: true, name: true },
           })
         : Promise.resolve(null),
       requestingCompanyTeamId
-        ? prisma.team.findUnique({
+        ? prisma.company.findUnique({
             where: { id: requestingCompanyTeamId },
             select: { id: true, name: true },
           })

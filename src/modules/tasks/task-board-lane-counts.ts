@@ -64,6 +64,8 @@ export async function countTaskBoardLanes(input: {
   role: string;
   email: string | null | undefined;
   name: string | null | undefined;
+  /** Viewer's current company (switcher); falls back to the person's default company. */
+  companyTeamId?: string | null;
   timeZone?: string;
 }): Promise<TaskBoardLaneCounts> {
   const isSuperAdmin = isElevatedUserRole(input.role);
@@ -83,7 +85,10 @@ export async function countTaskBoardLanes(input: {
     sectionAgentIdSet = new Set(sectionScope.agentIds);
     where = { assignedAgentId: { in: sectionScope.agentIds } };
   } else if (!isSuperAdmin && !isPersonnel) {
-    const scopedCompanyTeamId = await resolveStaffCompanyTeamId(input.email);
+    const scopedCompanyTeamId =
+      input.companyTeamId !== undefined
+        ? input.companyTeamId
+        : await resolveStaffCompanyTeamId(input.email);
     if (!scopedCompanyTeamId) {
       return { current: 0, done: 0, delayed: 0 };
     }

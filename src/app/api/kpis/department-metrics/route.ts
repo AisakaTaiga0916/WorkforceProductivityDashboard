@@ -13,7 +13,7 @@ import {
   resolveViewerOrgChartSectionScope,
   roleShowsDesignatedDepartmentLabel,
 } from "@/modules/platform/scope/org-chart-section-scope";
-import { resolveStaffCompanyTeamId } from "@/modules/platform/scope/staff-company-scope";
+import { resolveViewerCompanyFilter } from "@/modules/platform/scope/company-access";
 import { parseTaskMetricsCadence } from "@/modules/tasks/task-metrics-range";
 
 function rangeToYmd(from: Date, to: Date): { fromYmd: string; toYmd: string } {
@@ -41,11 +41,12 @@ export async function GET(req: Request) {
   const timeZone = normalizeTimeZone(searchParams.get("tz"));
   const role = session?.user?.role;
 
+  const requestedCompanyId = searchParams.get("companyId")?.trim() || null;
   const companyId =
     role === "Admin"
-      ? (await resolveStaffCompanyTeamId(session.user.email)) ?? "__none__"
+      ? await resolveViewerCompanyFilter(session, requestedCompanyId)
       : isElevatedUserRole(role)
-        ? searchParams.get("companyId")?.trim() || null
+        ? requestedCompanyId
         : null;
 
   if (companyId === "__none__") {

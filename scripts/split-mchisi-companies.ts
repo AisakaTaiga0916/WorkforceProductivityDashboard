@@ -1,10 +1,7 @@
 import { prisma } from "../src/modules/platform/db/prisma";
-import { ensureRosterTeamsInDb } from "../src/lib/roster-teams";
 
 async function main() {
-  await ensureRosterTeamsInDb();
-
-  const teams = await prisma.team.findMany({
+  const teams = await prisma.company.findMany({
     where: { name: { in: ["MCHISI", "MCHISI LPG", "MCHISI FAMES"] } },
     select: {
       id: true,

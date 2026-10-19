@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/modules/platform/auth";
 import { findPortalByEmailOnly, findPortalByUsername } from "@/lib/portal-account";
 import { ensureAgentRowForPortalStaff } from "@/lib/admin-roster";
+import { ensureCompanyMembership } from "@/modules/platform/companies/company-membership";
 import { roleIdPatchForLegacyChange } from "@/modules/platform/rbac/rbac-role-sync";
 import { prisma } from "@/modules/platform/db/prisma";
 
@@ -59,8 +60,11 @@ export async function POST(req: Request) {
 
   const companyId = body.companyId.trim();
 
-  const company = await prisma.team.findUnique({ where: { id: companyId }, select: { id: true, name: true } });
-  if (!company) {
+  const company = await prisma.company.findUnique({
+    where: { id: companyId },
+    select: { id: true, isActive: true },
+  });
+  if (!company?.isActive) {
     return NextResponse.json({ error: "Selected company does not exist." }, { status: 400 });
   }
 
@@ -76,11 +80,11 @@ export async function POST(req: Request) {
         headPrivileges: false,
         companyId: isStaffRole ? null : companyId,
         customerOrgRole: isStaffRole ? null : "Personnel",
-        staffDesignatedCompanyId: isStaffRole ? companyId : null,
       },
     });
 
     if (isStaffRole) {
+      await ensureCompanyMembership(portal.id, companyId);
       try {
         await ensureAgentRowForPortalStaff(
           { email: portal.email, name: portal.name },

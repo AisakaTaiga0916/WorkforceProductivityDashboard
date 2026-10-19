@@ -5,7 +5,7 @@ import {
   orderOrgChartSectionsTree,
   resolveOrgChartSectionIdsForMergedUser,
 } from "@/modules/hierarchy/org-chart-section-roster";
-import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/hierarchy/approval-position-resolver";
+import { resolveMergedSourceUserIdForSessionEmail } from "@/modules/platform/approvals/approval-position-resolver";
 import { prisma } from "@/modules/platform/db/prisma";
 
 /** Org-chart sections the signed-in user belongs to (for RFP requestor section). */
