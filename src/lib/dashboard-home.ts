@@ -39,6 +39,11 @@ import {
 } from "@/modules/tasks/it-project-subkpis";
 import { isItProjectImplementationPillar } from "@/modules/tasks/it-task-pillar-titles";
 import { isCompletionEffectivelyVerified } from "@/modules/tasks/task-completion-verification";
+import { isSystemModuleEnabled } from "@/modules/platform/settings/system-modules-db";
+import {
+  listProjectsForViewer,
+  resolveProjectViewer,
+} from "@/modules/projects/project-service";
 
 export type DashboardActionItem = {
   id: string;
@@ -70,7 +75,9 @@ export type DashboardSummary = {
   unassigned: number;
   slaBreached: number;
   slaAtRisk: number;
+  tasksCurrent: number;
   tasksDelayed: number;
+  projectsAtRisk: number;
   pendingApprovals: number;
   escalated: number;
   avgResponseMinutes: number;
@@ -91,6 +98,11 @@ export type StaffDashboardHome = {
 
 function minsBetween(a: Date, b: Date) {
   return Math.max(0, (a.getTime() - b.getTime()) / 60000);
+}
+
+function todayLocalYmd(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 async function resolveTicketScope(session: Session): Promise<{
@@ -555,6 +567,22 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
     pendingTravelConfirmations.length +
     (isAdminView ? accountRequestsPending : 0);
 
+  let projectsAtRisk = 0;
+  if (await isSystemModuleEnabled("projects")) {
+    const projectViewer = await resolveProjectViewer(session);
+    const projects = await listProjectsForViewer(projectViewer);
+    const today = todayLocalYmd();
+    projectsAtRisk = projects.filter((project) => {
+      if (project.status === "DONE") return false;
+      if (project.dueDate && project.dueDate < today) return true;
+      return project.phases.some((phase) =>
+        phase.items.some(
+          (item) => item.status !== "DONE" && item.dueDate != null && item.dueDate < today,
+        ),
+      );
+    }).length;
+  }
+
   const travelActions: DashboardActionItem[] = [
     ...pendingTravelApprovals.map((row) => ({
       id: `travel-approval-${row.id}`,
@@ -612,7 +640,9 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
       unassigned,
       slaBreached,
       slaAtRisk,
+      tasksCurrent: taskLanes.current,
       tasksDelayed: taskLanes.delayed,
+      projectsAtRisk,
       pendingApprovals,
       escalated,
       avgResponseMinutes,

@@ -7,7 +7,6 @@ import {
   DashboardFilterPills,
   DashboardRecentActivity,
   DashboardSummaryCards,
-  formatDashboardResponseDuration,
   type SummaryCard,
 } from "@/components/dashboard/DashboardHomeSections";
 
@@ -19,6 +18,19 @@ type Props = {
 
 export function PersonalizedStaffDashboard({ data, nowLabel }: Props) {
   const { summary } = data;
+
+  const projectsAtRiskCard: SummaryCard[] =
+    summary.projectsAtRisk > 0
+      ? [
+          {
+            id: "projects-at-risk",
+            label: "Projects at risk",
+            value: summary.projectsAtRisk,
+            href: "/work/projects",
+            tone: "danger",
+          },
+        ]
+      : [];
 
   const summaryCards: SummaryCard[] = data.isPersonnelView
     ? [
@@ -42,11 +54,19 @@ export function PersonalizedStaffDashboard({ data, nowLabel }: Props) {
           href: "/work/tasks",
           tone: summary.tasksDelayed > 0 ? "warning" : "default",
         },
+        ...projectsAtRiskCard,
       ]
     : [];
 
   const adminSummaryCards: SummaryCard[] = data.isAdminView
     ? [
+        {
+          id: "needs-action",
+          label: "Needs your action",
+          value: data.needsAction.length,
+          href: "#needs-action",
+          tone: data.needsAction.length > 0 ? "warning" : "default",
+        },
         {
           id: "open-unassigned",
           label: "Open / Unassigned",
@@ -62,36 +82,13 @@ export function PersonalizedStaffDashboard({ data, nowLabel }: Props) {
           tone: summary.pendingApprovals > 0 ? "warning" : "default",
         },
         {
-          id: "avg-response",
-          label: "Avg. response",
-          value: formatDashboardResponseDuration(summary.avgResponseMinutes),
+          id: "tasks-due",
+          label: "Tasks due",
+          value: summary.tasksCurrent,
+          href: "/work/tasks",
+          tone: summary.tasksDelayed > 0 ? "warning" : "default",
         },
-        {
-          id: "resolution-rate",
-          label: "Resolution rate",
-          value: `${summary.resolutionRate.toFixed(1)}%`,
-        },
-        {
-          id: "sla-breached",
-          label: "Overdue (24h in column)",
-          value: summary.slaBreached,
-          href: "/agent",
-          tone: summary.slaBreached > 0 ? "danger" : "default",
-        },
-        {
-          id: "sla-risk",
-          label: "Approaching overdue",
-          value: summary.slaAtRisk,
-          href: "/agent",
-          tone: summary.slaAtRisk > 0 ? "warning" : "default",
-        },
-        {
-          id: "escalated",
-          label: "Escalated",
-          value: summary.escalated,
-          href: "/agent?status=ESCALATED",
-          tone: summary.escalated > 0 ? "danger" : "default",
-        },
+        ...projectsAtRiskCard,
       ]
     : [];
 
@@ -148,8 +145,8 @@ export function PersonalizedStaffDashboard({ data, nowLabel }: Props) {
           ) : null}
         </div>
 
-        <section className="grid items-start gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-          {data.isPersonnelView ? (
+        {data.isPersonnelView ? (
+          <section className="grid items-start gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
             <div className="min-w-0 space-y-4 self-start sm:space-y-5">
               <DashboardActionList
                 title="Assigned to me"
@@ -159,40 +156,36 @@ export function PersonalizedStaffDashboard({ data, nowLabel }: Props) {
               />
               <DashboardRecentActivity items={data.recentActivity} />
             </div>
-          ) : (
-            <div className="min-w-0 space-y-4 self-start sm:space-y-5">
+            <div className="space-y-4 sm:space-y-5">
               <DashboardActionList
-                title="Needs your action"
-                emptyMessage="No urgent items in your scope right now."
-                items={data.needsAction}
-                viewAllHref="/agent"
-              />
-              <DashboardRecentActivity items={data.recentActivity} />
-            </div>
-          )}
-
-          <div className="space-y-4 sm:space-y-5">
-            {data.isPersonnelView ? (
-              <DashboardActionList
+                id="needs-action"
                 title="Needs your action"
                 emptyMessage="You're caught up — nothing is waiting on you right now."
                 items={data.needsAction}
                 viewAllHref="/agent"
               />
-            ) : null}
-
+              <DashboardActionList
+                title="Tasks assigned to me"
+                emptyMessage="No tasks assigned to you yet."
+                items={data.overdueItems}
+                viewAllHref="/work/tasks"
+              />
+            </div>
+          </section>
+        ) : (
+          <section className="grid items-start gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
             <DashboardActionList
-              title={data.isPersonnelView ? "Tasks assigned to me" : "Overdue (24h+ in column)"}
-              emptyMessage={
-                data.isPersonnelView
-                  ? "No tasks assigned to you yet."
-                  : "No overdue or at-risk items."
-              }
-              items={data.overdueItems}
-              viewAllHref={data.isPersonnelView ? "/work/tasks" : "/agent"}
+              id="needs-action"
+              title="Needs your action"
+              emptyMessage="No urgent items in your scope right now."
+              items={data.needsAction}
+              viewAllHref="/agent"
             />
-          </div>
-        </section>
+            <div className="min-w-0">
+              <DashboardRecentActivity items={data.recentActivity} />
+            </div>
+          </section>
+        )}
       </div>
     </main>
   );

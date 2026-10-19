@@ -58,11 +58,13 @@ export function DashboardSummaryCards({
 }
 
 export function DashboardActionList({
+  id,
   title,
   emptyMessage,
   items,
   viewAllHref,
 }: {
+  id?: string;
   title: string;
   emptyMessage: string;
   items: Array<{
@@ -78,7 +80,10 @@ export function DashboardActionList({
   viewAllHref?: string;
 }) {
   return (
-    <article className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-sm sm:rounded-2xl sm:p-5 dark:border-zinc-800 dark:bg-zinc-900">
+    <article
+      id={id}
+      className="scroll-mt-20 rounded-xl border border-zinc-200 bg-white p-3.5 shadow-sm sm:rounded-2xl sm:p-5 dark:border-zinc-800 dark:bg-zinc-900"
+    >
       <div className="mb-3 flex items-center justify-between gap-2 sm:mb-4">
         <h2 className="text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-500 sm:text-sm">{title}</h2>
         {viewAllHref ? (
