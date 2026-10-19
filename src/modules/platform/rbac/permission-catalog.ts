@@ -16,6 +16,7 @@
 export const PERMISSION_RESOURCES = [
   "requests",
   "tasks",
+  "projects",
   "work_plans",
   "hierarchy",
   "users",
@@ -29,6 +30,7 @@ export type PermissionResource = (typeof PERMISSION_RESOURCES)[number];
 export const PERMISSION_RESOURCE_LABELS: Record<PermissionResource, string> = {
   requests: "Requests",
   tasks: "Tasks",
+  projects: "Projects",
   work_plans: "Work Plans",
   hierarchy: "Hierarchy / Org Chart",
   users: "Users",
@@ -149,6 +151,38 @@ const CATALOG = [
     resource: "tasks",
     action: "submit",
     description: "Mark assigned task work complete and submit it for verification.",
+  },
+
+  // Projects (finite delivery with phases; no schedule, recurrence, or verification)
+  {
+    key: "projects.create",
+    resource: "projects",
+    action: "create",
+    description: "Create a project.",
+  },
+  {
+    key: "projects.read",
+    resource: "projects",
+    action: "read",
+    description: "View projects the user is authorized to access.",
+  },
+  {
+    key: "projects.update",
+    resource: "projects",
+    action: "update",
+    description: "Update project details, phases, and item progress.",
+  },
+  {
+    key: "projects.delete",
+    resource: "projects",
+    action: "delete",
+    description: "Delete a project. Reserved; not granted by default templates.",
+  },
+  {
+    key: "projects.assign",
+    resource: "projects",
+    action: "assign",
+    description: "Assign or reassign a project, its phases, or items to an eligible employee.",
   },
 
   // Work Plans / Terms of Order

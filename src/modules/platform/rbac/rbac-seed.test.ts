@@ -66,6 +66,26 @@ describe("system role definitions", () => {
     }
   });
 
+  it("splits project grants across Admin and Employee without verification keys", () => {
+    const projectKeys = ALL_PERMISSION_KEYS.filter((k) => k.startsWith("projects."));
+    expect(projectKeys.sort()).toEqual([
+      "projects.assign",
+      "projects.create",
+      "projects.delete",
+      "projects.read",
+      "projects.update",
+    ]);
+    const admin = new Set(defaultGrantsForRoleKey(ADMIN_ROLE_KEY));
+    const employee = new Set(defaultGrantsForRoleKey(EMPLOYEE_ROLE_KEY));
+    expect(admin.has("projects.create")).toBe(true);
+    expect(admin.has("projects.assign")).toBe(true);
+    expect(employee.has("projects.read")).toBe(true);
+    expect(employee.has("projects.update")).toBe(true);
+    expect(employee.has("projects.create")).toBe(false);
+    expect(employee.has("projects.assign")).toBe(false);
+    expect(projectKeys.some((k) => k.endsWith(".verify") || k.endsWith(".submit"))).toBe(false);
+  });
+
   it("Employee keeps legacy Personnel behaviour", () => {
     const grants = new Set(defaultGrantsForRoleKey(EMPLOYEE_ROLE_KEY));
     expect(grants.has("requests.create")).toBe(true);

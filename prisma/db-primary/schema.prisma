@@ -68,6 +68,21 @@ enum DelayPenaltyFrequency {
   MONTHLY
 }
 
+/// Projects module — finite delivery work with phases (Tasks vs Projects split).
+enum ProjectStatus {
+  PENDING
+  ON_GOING
+  FINALIZING
+  DONE
+}
+
+/// Project item priority (legacy envelope values High | Medium | Low).
+enum ProjectPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
 model PortalAccount {
   id                        String                 @id @default(cuid())
   username                  String?                @unique @map("username")
@@ -216,6 +231,9 @@ model Agent {
   confirmedTravelOrders TravelOrder[] @relation("TravelOrderConfirmer")
   createdTravelOrders TravelOrder[] @relation("TravelOrderCreator")
   driverTravelOrders TravelOrder[] @relation("TravelOrderDriver")
+  projectLeadProjects      Project[]      @relation("ProjectLead")
+  assignedProjectPhases    ProjectPhase[] @relation("ProjectPhaseAssignee")
+  assignedProjectItems     ProjectItem[]  @relation("ProjectItemAssignee")
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([teamId, name])
@@ -1011,4 +1029,73 @@ model RequestBoardUserLayout {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("request_board_user_layouts")
+}
+
+/// Projects module root — finite delivery with phases (Tasks vs Projects split).
+model Project {
+  id                  String        @id @default(cuid())
+  title               String        @map("title")
+  status              ProjectStatus @default(PENDING) @map("status")
+  /// Main project target date (wins over phase dates for timeline display).
+  dueDate             DateTime?     @map("due_date") @db.Date
+  /// Roster company (Team id) used for visibility and picker scoping.
+  scopedCompanyTeamId String?       @map("scoped_company_team_id")
+  leadAgentId         String?       @map("lead_agent_id")
+  leadAgent           Agent?        @relation("ProjectLead", fields: [leadAgentId], references: [id], onDelete: SetNull)
+  /// Legacy envelope active-phase pointer (no FK; validated on write).
+  activePhaseId       String?       @map("active_phase_id")
+  /// Trace-only reference to the Job Order this project originated from. No lifecycle sync.
+  originJobOrderTicketId String?    @map("origin_job_order_ticket_id")
+  /// Idempotent cutover trace back to the source kpi_maintenance row. Removed after migration cleanup.
+  legacyKpiMaintenanceId String?    @unique @map("legacy_kpi_maintenance_id")
+  createdBy           String        @map("created_by")
+  createdByRole       String        @map("created_by_role")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+  phases              ProjectPhase[]
+
+  @@index([scopedCompanyTeamId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("projects")
+}
+
+model ProjectPhase {
+  id                  String    @id @default(cuid())
+  projectId           String    @map("project_id")
+  project             Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                String    @map("name")
+  sortOrder           Int       @default(0) @map("sort_order")
+  /// Phase target date (date-only). Auto-derived from item due dates when null.
+  dueDate             DateTime? @map("due_date") @db.Date
+  assignedAgentId     String?   @map("assigned_agent_id")
+  assignedAgent       Agent?    @relation("ProjectPhaseAssignee", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  /// Calendar day when a phase delay notification was last sent.
+  lastDelayNotifiedOn DateTime? @map("last_delay_notified_on") @db.Date
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  items               ProjectItem[]
+
+  @@index([projectId, sortOrder])
+  @@map("project_phases")
+}
+
+model ProjectItem {
+  id              String          @id @default(cuid())
+  phaseId         String          @map("phase_id")
+  phase           ProjectPhase    @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  title           String          @map("title")
+  status          ProjectStatus   @default(PENDING) @map("status")
+  priority        ProjectPriority? @map("priority")
+  dueDate         DateTime?       @map("due_date") @db.Date
+  assignedAgentId String?         @map("assigned_agent_id")
+  assignedAgent   Agent?          @relation("ProjectItemAssignee", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  sortOrder       Int             @default(0) @map("sort_order")
+  /// Cutover carry-over of legacy envelope item fields not yet modeled (screenshots, completion modes).
+  migratedMeta    Json?           @map("migrated_meta")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@index([phaseId, sortOrder])
+  @@map("project_items")
 }
