@@ -62,3 +62,6 @@ tools/cloudflared.exe
 
 # generated migration reports (regenerate with the classify script)
 /scripts/projects-migration-dry-run.csv
+
+# local Redis snapshot (written by npm run redis:local)
+*.rdb
