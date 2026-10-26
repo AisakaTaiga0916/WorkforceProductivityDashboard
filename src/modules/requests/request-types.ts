@@ -36,6 +36,13 @@ export type RequestTypeId = (typeof REQUEST_TYPES)[number]["id"];
 
 export const DEFAULT_REQUEST_TYPE: RequestTypeId = "ISSUE_CONCERN_TICKET";
 
+/** RFP / IRS / FTR run on approval seats — never credited to the board assignee as handling work. */
+export const PROCEDURAL_REQUEST_TYPES = [
+  "REQUEST_FOR_PAYMENT",
+  "ITEM_REQUISITION_SLIP",
+  "FUND_TRANSFER_REQUEST",
+] as const satisfies readonly RequestTypeId[];
+
 export function isRequestTypeId(value: unknown): value is RequestTypeId {
   return typeof value === "string" && REQUEST_TYPES.some((t) => t.id === value);
 }

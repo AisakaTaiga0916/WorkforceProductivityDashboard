@@ -30,14 +30,23 @@ export function ServiceWorkerRegister() {
     // Dev compiles often exceed NetworkFirst timeouts; a cached shell + new chunks
     // produces ChunkLoadError / half-mounted React trees. Keep SW for production only.
     if (process.env.NODE_ENV !== "production") {
-      void navigator.serviceWorker.getRegistrations().then((regs) => {
-        for (const reg of regs) void reg.unregister();
+      // A leftover worker serves stale `/_next/static` chunks (StaleWhileRevalidate), so this
+      // page may already be running an old bundle (hydration mismatch). Reload once after cleanup.
+      const controlled = Boolean(navigator.serviceWorker.controller);
+      void Promise.all([
+        navigator.serviceWorker
+          .getRegistrations()
+          .then((regs) => Promise.all(regs.map((reg) => reg.unregister()))),
+        "caches" in window
+          ? caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+          : Promise.resolve([]),
+      ]).then(() => {
+        const flag = "wpd-dev-sw-cleared";
+        if (controlled && !sessionStorage.getItem(flag)) {
+          sessionStorage.setItem(flag, "1");
+          window.location.reload();
+        }
       });
-      if ("caches" in window) {
-        void caches.keys().then((keys) => {
-          for (const key of keys) void caches.delete(key);
-        });
-      }
       return;
     }
 

@@ -233,7 +233,7 @@ export function JobOrderWorkersPanel({
         <p className="text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
           {approvalsComplete
             ? "Approvals are complete. Assign the execution assignee on the Assignment Board or below, then add co-workers who will work on this Job Order."
-            : "Opened after Noted By and Approved By (when those seats apply). Stage the execution assignee and Task Board link now — the assignee is applied to the Request Board when remaining approvals finish."}
+            : "Opened after Noted By and Approved By (when those seats apply). Stage the execution assignee now — the assignee is applied to the Request Board when remaining approvals finish."}
         </p>
       </div>
 

@@ -117,14 +117,14 @@ export function DashboardEventCalendar({ storageKey }: { storageKey: string }) {
         {
           id: `travel-order-${order.id}`,
           title: `Travel: ${order.orderRequest || "Travel Order"}`,
-          description: "Estimated departure and arrival — select to open Travel Orders.",
+          description: "Estimated departure and arrival — select to open the work plan.",
           startTime,
           endTime,
           color: "blue",
           category: "Travel Order",
           tags: ["Work"],
           readOnly: true,
-          href: "/travel-orders",
+          href: `/work/work-plans?plan=${encodeURIComponent(order.id)}`,
         },
       ];
     });

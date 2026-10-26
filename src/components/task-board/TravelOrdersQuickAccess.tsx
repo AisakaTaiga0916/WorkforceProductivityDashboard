@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useCallback, useState } from "react";
 import { LogOut } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { TravelOrderSummaryPanel } from "@/components/task-board/TravelOrderSummaryPanel";
+import { TravelOrdersHub } from "@/components/task-board/TravelOrdersHub";
 import { BRAND_TITLE } from "@/lib/brand";
 
 type TravelOrdersQuickAccessProps = {
@@ -12,6 +14,47 @@ type TravelOrdersQuickAccessProps = {
   /** Gate-pass kiosk: capture Start/End only; no task-board link. */
   personnelGuard?: boolean;
 };
+
+/** Work → Work Plans tab: every visible plan with approvals and check-ins (no kiosk chrome). */
+export function WorkPlansWorkspace({
+  operatorAgentId,
+  canAssignWork = false,
+  focusTravelOrderId = null,
+}: {
+  operatorAgentId: string | null;
+  canAssignWork?: boolean;
+  focusTravelOrderId?: string | null;
+}) {
+  const [listVersion, setListVersion] = useState(0);
+  const refreshList = useCallback(() => setListVersion((v) => v + 1), []);
+
+  return (
+    <section className="min-w-0 space-y-3">
+      <TravelOrdersHub
+        operatorAgentId={operatorAgentId}
+        canAssignWork={canAssignWork}
+        onChanged={refreshList}
+      />
+      {focusTravelOrderId ? (
+        <Link
+          href="/work/work-plans"
+          className="inline-block text-xs font-semibold text-orange-700 underline-offset-2 hover:underline dark:text-orange-300"
+        >
+          Show all work plans
+        </Link>
+      ) : null}
+      <TravelOrderSummaryPanel
+        key={listVersion}
+        source="visible"
+        interactionMode="full"
+        focusTravelOrderId={focusTravelOrderId}
+        operatorAgentId={operatorAgentId}
+        canAssignWork={canAssignWork}
+        canCheckIn
+      />
+    </section>
+  );
+}
 
 /** Staff quick-access Work Plans, including Gate Pass for trips that include travel. */
 export function TravelOrdersQuickAccess({

@@ -36,9 +36,17 @@ describe("job order workers", () => {
       jobOrderKpiCreditAgentIds({
         meta,
         ticketAssignedAgentId: "assignee-1",
-        linkedProjectAssigneeId: null,
       }).sort(),
     ).toEqual(["assignee-1", "worker-1"]);
+  });
+
+  it("credits nobody without an execution assignee or co-workers", () => {
+    expect(
+      jobOrderKpiCreditAgentIds({
+        meta: defaultJobOrderApprovalMeta(),
+        ticketAssignedAgentId: null,
+      }),
+    ).toEqual([]);
   });
 
   it("treats ticket assignee as execution member", () => {
@@ -47,18 +55,6 @@ describe("job order workers", () => {
         agentId: "assignee-1",
         meta: defaultJobOrderApprovalMeta(),
         ticketAssignedAgentId: "assignee-1",
-        linkedProjectAssigneeId: null,
-      }),
-    ).toBe(true);
-  });
-
-  it("treats linked project assignee as execution member", () => {
-    expect(
-      isJobOrderExecutionMember({
-        agentId: "project-assignee",
-        meta: defaultJobOrderApprovalMeta(),
-        ticketAssignedAgentId: null,
-        linkedProjectAssigneeId: "project-assignee",
       }),
     ).toBe(true);
   });

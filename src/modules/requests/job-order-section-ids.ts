@@ -1,12 +1,10 @@
 /** Scroll targets for post-approval Job Order panels in Request controls. */
-export const JOB_ORDER_TASK_BOARD_SECTION_ID = "jo-task-board-section";
 export const JOB_ORDER_EXECUTION_TEAM_SECTION_ID = "jo-execution-team-section";
 export const JOB_ORDER_ASSISTANCE_TEAM_SECTION_ID = "jo-assistance-team-section";
 
-export type JobOrderScrollSection = "task-board" | "execution-team" | "assistance-team";
+export type JobOrderScrollSection = "execution-team" | "assistance-team";
 
 const SECTION_BY_KEY: Record<JobOrderScrollSection, string> = {
-  "task-board": JOB_ORDER_TASK_BOARD_SECTION_ID,
   "execution-team": JOB_ORDER_EXECUTION_TEAM_SECTION_ID,
   "assistance-team": JOB_ORDER_ASSISTANCE_TEAM_SECTION_ID,
 };
@@ -28,7 +26,6 @@ export function scrollToJobOrderSection(sectionId: string): void {
 
 export function resolveJobOrderSectionFromHash(hash: string): JobOrderScrollSection | null {
   const raw = hash.replace(/^#/, "").trim();
-  if (raw === "jo-task-board" || raw === JOB_ORDER_TASK_BOARD_SECTION_ID) return "task-board";
   if (raw === "jo-execution-team" || raw === JOB_ORDER_EXECUTION_TEAM_SECTION_ID) {
     return "execution-team";
   }

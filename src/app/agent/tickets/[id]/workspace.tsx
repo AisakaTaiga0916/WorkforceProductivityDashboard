@@ -100,7 +100,6 @@ import {
 } from "@/modules/requests/ticket-intake-screenshots-meta";
 import { parseTransferRequestDetail } from "@/modules/requests/ticket-transfer-request";
 import { JobOrderPostApprovalNav } from "@/components/tickets/JobOrderPostApprovalNav";
-import { JobOrderProjectLinkPanel } from "@/components/tickets/JobOrderProjectLinkPanel";
 import { JobOrderWorkersPanel } from "@/components/tickets/JobOrderWorkersPanel";
 import { JobOrderAssistanceTeamPanel } from "@/components/tickets/JobOrderAssistanceTeamPanel";
 import { RequestChatPanel } from "@/components/tickets/RequestChatPanel";
@@ -153,10 +152,7 @@ export function AgentWorkspace({
   requestorCompanyTeamId = null,
   isPersonnel = false,
   canAssignPaymentAccountingFinance = false,
-  canCreateJobOrderProject = false,
-  canRequestJobOrderProject = false,
-  linkedJobOrderProjectAssigneeId = null,
-  linkedJobOrderProjectAssigneeName = null,
+  canManageJobOrderExecution = false,
   jobOrderSendToSectionAgentIds = [],
   jobOrderSendToSectionName = null,
   isJobOrderSendToDepartmentHead = false,
@@ -205,13 +201,8 @@ export function AgentWorkspace({
   isPersonnel?: boolean;
   /** SuperAdmin or Admin of the Send request to company. */
   canAssignPaymentAccountingFinance?: boolean;
-  /** Admin / SuperAdmin / company coordinator: create Task Board project from this Job Order. */
-  canCreateJobOrderProject?: boolean;
-  /** Assigned Personnel: request a company Admin to create the Task Project. */
-  canRequestJobOrderProject?: boolean;
-  /** Linked Task Board project assignee (primary KPI credit after approval). */
-  linkedJobOrderProjectAssigneeId?: string | null;
-  linkedJobOrderProjectAssigneeName?: string | null;
+  /** Admin / SuperAdmin / company coordinator: manage the Job Order execution workspace. */
+  canManageJobOrderExecution?: boolean;
   /** Agent ids in Send request to (department) — used for Assistance Team visibility. */
   jobOrderSendToSectionAgentIds?: string[];
   jobOrderSendToSectionName?: string | null;
@@ -574,17 +565,16 @@ export function AgentWorkspace({
           agentId: sessionAgentId,
           meta: jobOrderApprovalMeta,
           ticketAssignedAgentId: jobOrderExecutionAssigneeId,
-          linkedProjectAssigneeId: linkedJobOrderProjectAssigneeId,
         })),
   );
   const canAssignJobOrderExecutionAssignee = Boolean(
     isJobOrderExecutionOpen &&
-      (canCreateJobOrderProject || isSuperAdmin || canSetApprovalAssignees),
+      (canManageJobOrderExecution || isSuperAdmin || canSetApprovalAssignees),
   );
   const canManageJobOrderCoWorkers = Boolean(
     isJobOrderExecutionOpen &&
       jobOrderExecutionAssigneeId &&
-      (canCreateJobOrderProject ||
+      (canManageJobOrderExecution ||
         isSuperAdmin ||
         canSetApprovalAssignees ||
         isJobOrderExecutionAssignee),
@@ -596,7 +586,7 @@ export function AgentWorkspace({
     isJobOrderExecutionOpen &&
       !isJobOrderJobDone(jobOrderApprovalMeta) &&
       !["FOR_CONFIRMATION", "RESOLVED", "CLOSED"].includes(ticket.status) &&
-      (canCreateJobOrderProject ||
+      (canManageJobOrderExecution ||
         isSuperAdmin ||
         canSetApprovalAssignees ||
         isJobOrderExecutionAssignee ||
@@ -620,7 +610,7 @@ export function AgentWorkspace({
   );
   const canManageJobOrderAssistanceTeam = Boolean(
     showJobOrderAssistanceTeam &&
-      (canCreateJobOrderProject ||
+      (canManageJobOrderExecution ||
         isSuperAdmin ||
         canSetApprovalAssignees ||
         isJobOrderSendToDepartmentHead ||
@@ -636,7 +626,7 @@ export function AgentWorkspace({
     if (!isJobOrderApprovalRequest) return true;
     if (!isJobOrderExecutionOpen) return false;
     return (
-      canCreateJobOrderProject ||
+      canManageJobOrderExecution ||
       isSuperAdmin ||
       canSetApprovalAssignees ||
       isJobOrderExecutionTeamMember ||
@@ -647,7 +637,7 @@ export function AgentWorkspace({
     isJobOrderApprovalRequest &&
       isJobOrderExecutionOpen &&
       ACTIVE_REQUEST_STATUSES.includes(ticket.status) &&
-      (canCreateJobOrderProject ||
+      (canManageJobOrderExecution ||
         isSuperAdmin ||
         canSetApprovalAssignees ||
         isJobOrderExecutionTeamMember ||
@@ -2503,7 +2493,6 @@ export function AgentWorkspace({
             <div className="mt-2">
               <JobOrderPostApprovalNav
                 compact
-                showTaskBoard={canCreateJobOrderProject || canRequestJobOrderProject}
                 showExecutionTeam
                 showAssistanceTeam={showJobOrderAssistanceTeam}
                 activeSection={joPostApprovalSection}
@@ -3370,18 +3359,6 @@ export function AgentWorkspace({
                 {jobOrderProceduralLabel} — not green-lit yet. Assign on the Assignment Board. After
                 each approval, the assignee can submit for the next role from Ticket Controls.
               </p>
-            ) : null}
-
-            {isJobOrderApprovalRequest &&
-            isJobOrderExecutionOpen &&
-            joPostApprovalSection === "task-board" &&
-            (canCreateJobOrderProject || canRequestJobOrderProject) ? (
-              <JobOrderProjectLinkPanel
-                ticketId={ticket.id}
-                canCreateProject={canCreateJobOrderProject}
-                canRequestProject={canRequestJobOrderProject}
-                sessionAgentId={sessionAgentId}
-              />
             ) : null}
 
             {isJobOrderApprovalRequest &&

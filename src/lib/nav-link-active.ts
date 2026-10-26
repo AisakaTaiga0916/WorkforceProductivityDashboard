@@ -42,6 +42,7 @@ export function navLinkActive(
     if (pathname === "/agent/tasks" || pathname.startsWith("/agent/tasks/")) return false;
     if (
       pathname === "/agent" ||
+      pathname === "/agent/reports" ||
       pathname.startsWith("/agent/tickets") ||
       pathname === "/admin/manual-assignment"
     ) {
@@ -66,7 +67,6 @@ export function navLinkActive(
     );
   }
   if (path === "/admin/account" && pathname.startsWith("/admin/account")) return true;
-  if (path === "/insights" && pathname.startsWith("/insights")) return true;
   if (path === "/customer/profile" && pathname.startsWith("/customer")) return true;
   if (path === "/my-tickets" && pathname.startsWith("/my-tickets")) return true;
   if (pathname === path) return true;

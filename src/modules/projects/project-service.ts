@@ -76,6 +76,7 @@ export type ProjectDto = {
   originJobOrderTicketId: string | null;
   activePhaseId: string | null;
   createdAt: string;
+  updatedAt: string;
   phases: ProjectPhaseDto[];
 };
 
@@ -114,6 +115,7 @@ function mapProjectRow(row: ProjectRow, companyNames: Map<string, string>): Proj
     originJobOrderTicketId: row.originJobOrderTicketId,
     activePhaseId: row.activePhaseId,
     createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
     phases: row.phases.map((phase) => ({
       id: phase.id,
       name: phase.name,

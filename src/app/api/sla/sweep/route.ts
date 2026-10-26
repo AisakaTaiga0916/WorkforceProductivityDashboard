@@ -9,7 +9,7 @@ export async function POST() {
 
   const result = await runSlaEscalationSweep();
   // Ensure metrics/reporting pages read fresh post-sweep values.
-  revalidatePath("/insights");
+  revalidatePath("/agent/reports");
   revalidatePath("/reports");
   return NextResponse.json(result);
 }

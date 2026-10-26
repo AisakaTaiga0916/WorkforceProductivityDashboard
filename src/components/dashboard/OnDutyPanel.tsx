@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { authInputClass, authLabelClass } from "@/components/auth/AuthShell";
 import { AssigneeAvatar } from "@/components/agent-assignee-search";
 import { cn } from "@/lib/cn";
 import { DEFAULT_TIME_ZONE } from "@/modules/tasks/kpi-recurrence";
 import { portalRoleDisplayLabel } from "@/lib/staff-role";
 import type { OnDutyAgentSnapshot } from "@/lib/load-on-duty-snapshot";
+import type { PersonnelKpiSummary } from "@/modules/workforce/personnel-kpi";
 
 type Props = {
   initialAgents: OnDutyAgentSnapshot[];
@@ -31,6 +32,11 @@ type Props = {
   /** Role filter chip from the parent Workforce search bar (normalized role,
    *  e.g. "Admin"). Drives the API `role` param. */
   externalRoleFilter?: string;
+  kpiByAgentId?: ReadonlyMap<string, PersonnelKpiSummary>;
+  kpiByEmail?: ReadonlyMap<string, PersonnelKpiSummary>;
+  kpiPeriodLabel?: string;
+  onOpenKpi?: (person: PersonnelKpiSummary) => void;
+  kpiControls?: ReactNode;
 };
 
 function isAgentOnDuty(agent: OnDutyAgentSnapshot): boolean {
@@ -67,6 +73,119 @@ function roleBadgeClass(role: string | undefined): string {
   }
 }
 
+const OVERALL_KPI_HINT =
+  "Overall KPI = average of the task KPI (checklist items done ÷ due, projects excluded) and the request resolution rate (resolved ÷ assigned). Not the same as Work → Reports “Avg efficiency”.";
+
+function kpiTextClass(percent: number | null): string {
+  if (percent == null) return "text-zinc-400 dark:text-zinc-500";
+  if (percent >= 85) return "text-emerald-600 dark:text-emerald-400";
+  if (percent >= 60) return "text-amber-600 dark:text-amber-400";
+  return "text-rose-600 dark:text-rose-400";
+}
+
+function kpiBarClass(percent: number | null): string {
+  if (percent == null) return "bg-transparent";
+  if (percent >= 85) return "bg-emerald-500";
+  if (percent >= 60) return "bg-amber-500";
+  return "bg-rose-500";
+}
+
+function kpiPercentText(percent: number | null): string {
+  return percent == null ? "—" : `${percent}%`;
+}
+
+function AgentKpiBadge({
+  kpi,
+  periodLabel,
+  onOpen,
+}: {
+  kpi: PersonnelKpiSummary | null;
+  periodLabel?: string;
+  onOpen?: (person: PersonnelKpiSummary) => void;
+}) {
+  if (!kpi) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen?.(kpi)}
+      className={cn(
+        "rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums ring-1 ring-inset ring-zinc-200 dark:ring-zinc-700",
+        kpiTextClass(kpi.overallPercent),
+      )}
+      title={`Overall KPI${periodLabel ? ` · ${periodLabel}` : ""}. ${OVERALL_KPI_HINT}`}
+    >
+      KPI {kpiPercentText(kpi.overallPercent)}
+    </button>
+  );
+}
+
+function AgentKpiBlock({
+  kpi,
+  periodLabel,
+}: {
+  kpi: PersonnelKpiSummary | null;
+  periodLabel?: string;
+}) {
+  if (!kpi) {
+    return (
+      <div className="mt-3 border-t border-zinc-200 pt-2.5 text-[11px] text-zinc-400 dark:border-zinc-700 dark:text-zinc-500">
+        No KPI data{periodLabel ? ` · ${periodLabel}` : ""}
+      </div>
+    );
+  }
+  return (
+    <div
+      className="mt-3 w-full border-t border-zinc-200 pt-2.5 text-left dark:border-zinc-700"
+      title={`${OVERALL_KPI_HINT} Click the card for the breakdown.`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          Overall KPI
+          {periodLabel ? (
+            <span className="normal-case tracking-normal text-zinc-400 dark:text-zinc-500">
+              · {periodLabel}
+            </span>
+          ) : null}
+        </span>
+        <span className={cn("text-sm font-bold tabular-nums", kpiTextClass(kpi.overallPercent))}>
+          {kpiPercentText(kpi.overallPercent)}
+        </span>
+      </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+        <div
+          className={cn("h-full rounded-full", kpiBarClass(kpi.overallPercent))}
+          style={{ width: `${kpi.overallPercent ?? 0}%` }}
+        />
+      </div>
+      <div className="mt-1.5 flex items-center justify-between gap-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+        <span title={`${kpi.doneItems}/${kpi.totalItems} checklist items`}>
+          Tasks{" "}
+          <span className={cn("font-semibold tabular-nums", kpiTextClass(kpi.kpiPercent))}>
+            {kpiPercentText(kpi.kpiPercent)}
+          </span>
+        </span>
+        <span title={`${kpi.requests.resolved}/${kpi.requests.assigned} requests resolved`}>
+          Requests{" "}
+          <span
+            className={cn(
+              "font-semibold tabular-nums",
+              kpiTextClass(kpi.requests.resolutionPercent),
+            )}
+          >
+            {kpiPercentText(kpi.requests.resolutionPercent)}
+          </span>
+          {kpi.requests.overdue > 0 ? (
+            <span className="ml-1 font-semibold text-rose-500">· {kpi.requests.overdue} overdue</span>
+          ) : null}
+        </span>
+      </div>
+      <p className="mt-1.5 text-[10px] font-semibold text-orange-600 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100 dark:text-orange-400">
+        View KPI breakdown →
+      </p>
+    </div>
+  );
+}
+
 export function OnDutyPanel({
   initialAgents,
   initialPage,
@@ -82,6 +201,11 @@ export function OnDutyPanel({
   externalSearchQuery,
   externalCompanyFilter,
   externalRoleFilter,
+  kpiByAgentId,
+  kpiByEmail,
+  kpiPeriodLabel,
+  onOpenKpi,
+  kpiControls,
 }: Props) {
   const lockedCompany = lockedCompanyFilter?.trim() || "";
   const [agents, setAgents] = useState<OnDutyAgentSnapshot[]>(initialAgents);
@@ -191,6 +315,14 @@ export function OnDutyPanel({
     setPage(1);
   }
 
+  const showKpi = Boolean(kpiByAgentId || kpiByEmail);
+  const resolveKpi = (agent: OnDutyAgentSnapshot): PersonnelKpiSummary | null => {
+    const byId = kpiByAgentId?.get(agent.id);
+    if (byId) return byId;
+    const email = agent.email?.trim().toLowerCase();
+    return email ? kpiByEmail?.get(email) ?? null : null;
+  };
+
   const filtersActive = Boolean(effectiveCompanyFilter || searchQuery || externalRoleFilter);
   const emptyMessage = filtersActive
     ? "No personnel match the current filters."
@@ -227,6 +359,8 @@ export function OnDutyPanel({
           </span>
         </div>
       </div>
+
+      {kpiControls}
 
       {showFilters ? (
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
@@ -282,10 +416,30 @@ export function OnDutyPanel({
             agents.map((agent) => {
               const onDuty = isAgentOnDuty(agent);
               const label = dutyLabel(agent);
+              const cardKpi = showKpi ? resolveKpi(agent) : null;
+              const openCardKpi = cardKpi && onOpenKpi ? () => onOpenKpi(cardKpi) : null;
               return (
                 <div
                   key={agent.id}
-                  className="flex flex-col rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-900"
+                  {...(openCardKpi
+                    ? {
+                        role: "button",
+                        tabIndex: 0,
+                        "aria-label": `Open KPI breakdown for ${agent.name}`,
+                        onClick: openCardKpi,
+                        onKeyDown: (e: { key: string; preventDefault: () => void }) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openCardKpi();
+                          }
+                        },
+                      }
+                    : {})}
+                  className={cn(
+                    "group flex flex-col rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-900",
+                    openCardKpi &&
+                      "cursor-pointer transition hover:border-orange-400/70 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:hover:border-orange-500/60",
+                  )}
                 >
                   <div className="flex items-start gap-3">
                     <AssigneeAvatar agent={agent} className="size-10" />
@@ -334,6 +488,7 @@ export function OnDutyPanel({
                   <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
                     {agent.lastActivity ?? (onDuty ? "Clocked in today" : "No clock-in today")}
                   </p>
+                  {showKpi ? <AgentKpiBlock kpi={cardKpi} periodLabel={kpiPeriodLabel} /> : null}
                 </div>
               );
             })
@@ -385,6 +540,13 @@ export function OnDutyPanel({
                     >
                       {label}
                     </span>
+                    {showKpi ? (
+                      <AgentKpiBadge
+                        kpi={resolveKpi(agent)}
+                        periodLabel={kpiPeriodLabel}
+                        onOpen={onOpenKpi}
+                      />
+                    ) : null}
                   </div>
                 </div>
               );

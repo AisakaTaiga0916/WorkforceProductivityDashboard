@@ -1,10 +1,26 @@
 /** Format ticket activity `detail` for UI (hide machine JSON payloads). */
 
-import {
-  formatJobOrderProjectRequestDetail,
-  JO_PROJECT_REQUESTED_SUMMARY,
-} from "@/modules/requests/job-order-project-request";
 import { formatTransferRequestDetail } from "@/modules/requests/ticket-transfer-request";
+
+/** Retired Job Order → Task Project request flow; rows remain in activity history. */
+const LEGACY_JO_PROJECT_REQUESTED_SUMMARY = "Task project requested";
+
+function formatLegacyJobOrderProjectRequestDetail(detail: string): string {
+  try {
+    const o = JSON.parse(detail) as Record<string, unknown>;
+    const admin =
+      typeof o.targetAdminAgentName === "string" && o.targetAdminAgentName.trim()
+        ? o.targetAdminAgentName.trim()
+        : "company Admin";
+    const by =
+      typeof o.requestedByAgentName === "string" ? o.requestedByAgentName.trim() : "";
+    const base = by ? `Requested by ${by} → ${admin}` : `Requested from ${admin}`;
+    const note = typeof o.note === "string" ? o.note.trim() : "";
+    return note ? `${base}. ${note}` : base;
+  } catch {
+    return "Task Project requested from company Admin.";
+  }
+}
 
 export function formatTicketActivityDetail(
   summary: string,
@@ -12,8 +28,8 @@ export function formatTicketActivityDetail(
 ): string | null {
   if (!detail?.trim()) return null;
 
-  if (summary === JO_PROJECT_REQUESTED_SUMMARY) {
-    return formatJobOrderProjectRequestDetail(detail) ?? "Task Project requested from company Admin.";
+  if (summary === LEGACY_JO_PROJECT_REQUESTED_SUMMARY) {
+    return formatLegacyJobOrderProjectRequestDetail(detail);
   }
 
   if (summary === "Transfer requested") {

@@ -1456,7 +1456,7 @@ function scaleAssigneeProgressToTotals(
   return scaled;
 }
 
-type PeriodSnapshotRow = {
+export type PeriodSnapshotRow = {
   total: number;
   done: number;
   missing: number;
@@ -1465,7 +1465,7 @@ type PeriodSnapshotRow = {
 };
 
 /** Per-period contributor rows aligned with the same snapshot/live source as pillar donut metrics. */
-function contributorProgressForKpiPeriod(
+export function contributorProgressForKpiPeriod(
   kpi: {
     title: string;
     mainTask?: string | null;

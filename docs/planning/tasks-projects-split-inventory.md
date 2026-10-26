@@ -149,6 +149,77 @@ Verification (2026-10-19): `tsc` clean, eslint clean on new code, 91 files / **5
 
 Known limits (v1): no drag-and-drop between lanes (status via detail select); assignee pickers on phases/items and project delete are not exposed yet; no audit trail on project edits. Still staged until cutover: the task board continues to show legacy project rows (`category=project`) from `kpi_maintenance` until the production migration runs.
 
-## 11. Next — step 5
+## 11. Step 5 — JO linkage teardown (done 2026-10-19)
 
-JO linkage teardown: stop auto-link/request flows (`JobOrderProjectLinkPanel`, `job-order-project*` modules/routes), drop project-link joins from JO credit (`kpi-maintenance` sections 1151–1219, 1357–1374), and update `user-efficiency-breakdown` to execution-team credit only. Then step 6: remove migration shims and confirm projects carry no schedule/KPI/verification features.
+Removed:
+
+- UI: `JobOrderProjectLinkPanel`, the "Link Task Board task" button in `JobOrderPostApprovalNav` (and the `task-board` scroll section), `canCreateJobOrderProject` / `canRequestJobOrderProject` / linked-project-assignee props on the ticket workspace. The admin/coordinator gate the workspace still needs is renamed `canManageJobOrderExecution`.
+- Create-from-JO: `?fromJobOrder=` on `/work/tasks`, `fromJobOrderTicketId` on the board, and the JO prefill/auto-link in `KpiDefinitionConsole`. The console is now **tasks-only** (no Project type); projects are created in Work → Projects.
+- Server: `job-order-project.ts`, `job-order-project-request*.ts`, `GET /api/tickets/[id]/job-order-project`, ticket PATCH actions `link_job_order_project` / `unlink_job_order_project` / `request_job_order_project` / `cancel_job_order_project_request`, and the `linkedJobOrderTicketId` path of `POST /api/kpi-maintenance`.
+- Credit / visibility joins (decision #2): `kpiIdsWhereAgentIsJobOrderWorker` (board visibility, dashboard my-tasks, lane counts) and the `linked_kpi_maintenance_id` join in `user-efficiency-breakdown`. JO credit = execution assignee + co-workers (`jobOrderKpiCreditAgentIds`).
+
+Kept (trace only):
+
+- `tickets.linked_kpi_maintenance_id` column and the envelope `linkedJobOrderTicketId` keys — no writers remain; the projects migration classifier still reads the envelope.
+- Task board shows a read-only **"Origin J.O. #…"** chip from the envelope (no ticket-table join).
+- Historical "Task project requested" activity rows still render via a legacy formatter in `ticket-activity-display.ts`.
+- Patch note 0.7.0 in `src/lib/patch-notes-seed.ts` (apply with `npx tsx scripts/ensure-patch-notes.ts`).
+
+Next: drop the `linked_kpi_maintenance_id` column after the production projects cutover, and remove the remaining legacy project rendering from the task board once those rows are migrated.
+
+## 12. Work Plans under Work (done 2026-10-19)
+
+- `/work/work-plans` tab (`WorkPlansWorkspace` in `TravelOrdersQuickAccess.tsx`): every visible plan in full mode (approvals, check-ins), `?plan=<id>` focuses one plan.
+- `/travel-orders` is now the Personnel-Guard gate-pass kiosk only; staff are redirected to `/work/work-plans`.
+- Needs your action / calendar / global search deep-link work plans to `/work/work-plans?plan=<id>` (not the task board).
+- Sidebar "Work" points at `/work` (redirects to the first enabled tab) and stays visible while any of Tasks / Projects / Work Plans is on. No Task Schedule Config or KPI calendar on work plans.
+
+## 13. Reports (done 2026-10-19)
+
+Shared chrome: `src/modules/reports/report-range.ts` (range parse, day/week buckets, median, CSV), `report-scope.ts` (`reports.read` / `reports.export`, global company picker vs shell switcher), `src/components/reports/ReportPrimitives.tsx` (GET filter bar, stat grid, CSS bars, tables).
+
+- **Requests → Reports** `/agent/reports` (Request Board tab + sidebar): created/resolved, open/overdue now, median first response & resolution, created vs resolved trend, volume by type, open by status, aging. Scope = dashboard/Request Board scope (`resolveStaffTicketScope`). CSV: `GET /api/reports/requests/export` (ticket rows; `reports.export` + `requests.read`).
+- **Work → Reports** `/work/reports?lens=tasks|projects|work-plans` (Work tab + sidebar), filters company / team / range, separate loaders in `work-reports.ts`, lenses hidden unless module on + `<module>.read`:
+  - Tasks: board lanes (same `loadTaskBoardLaneRows` as the sidebar counts), completed vs due & on-time % (one-off targets), overdue aging, load by assignee, most delayed. Legacy project rows excluded.
+  - Projects: by status, at risk (`project-metrics.ts`, shared with the dashboard card), delayed phases, created / completed in range (completed = Done + `updatedAt`, no `completedAt` column yet).
+  - Work Plans: submitted in range + outcome, pending now by approval level, median submit → final approval (hierarchical levels only).
+  - CSV: `GET /api/reports/work/export?lens=…` (`reports.export`).
+- Metrics & Reports (`/insights`) is retired (2026-10-20) — see §15.
+
+## 15. Metrics & Reports retired (2026-10-20)
+
+Inventory of the old `/insights` page → new home:
+
+| Old item | Went to |
+|---|---|
+| Request volume, active, created vs closed trend, queue mix, avg first response / resolution | Requests → Reports (already there: created/resolved/open, throughput, open by status, medians) |
+| Closed in range, avg confirmation time | Requests → Reports (Closed, Median confirmation) |
+| First-response / resolution SLA compliance, transfer request rate, reopen rate | Requests → Reports stat grid (same basis as the old `computeKpis`) |
+| CSAT star distribution + feedback count | Requests → Reports "Customer satisfaction" |
+| Top closers | Requests → Reports "Closed by assignee" |
+| Personnel / department request filter | Requests → Reports Team + Assignee filters (incl. "Assigned to me") |
+| Task KPI pillars (cadence month/year), Employees efficiency, Departments grid (visibility + CSV import) | Work → Reports → Tasks "KPI performance" (`TaskKpiPerformance`, admins only, company/team from the shared filter bar) |
+| Projects KPI pillar (legacy `kpi_maintenance` projects) | Dropped — Work → Reports → Projects |
+| Task Management tab (`showKpiTasksTab = false`) | Dropped (dead) |
+
+Removed: the old page + `insights-metrics-panes.tsx`, `MetricsFilterBar`, `metrics-filter-url.ts`, `GET /api/kpis` + `computeKpis`, `GET /api/kpis/metric-companies`, the sidebar / staff-nav / dashboard / sidebar-widget Insights links, and the `/insights` proxy gate. Kept: `/api/kpis/task-metrics`, `/api/kpis/department-metrics`, `/api/admin/efficiency`, and the three metrics grids (now hosted by Work → Reports).
+
+Redirects: `/insights` → `/agent/reports`; `/insights?tab=task-metrics|kpi-mgmt` → `/work/reports?lens=tasks`; `/reports` → `/agent/reports`. Permissions are the report homes' own (`reports.read` + module read).
+
+## 16. Report filter strategy (2026-10-20)
+
+One client bar (`src/components/reports/ReportFilterBar.tsx`) on both report homes; the URL is the only state.
+
+- Company: the shell switcher (`wpd_company`) — shown as a "Company: …" readout, no second picker. Super Admin "All companies" = summary counts only (`ReportAllCompaniesNotice`; per-person tables, Team / Assignee, and KPI performance hidden).
+- Period: `?range=7d|30d|month|quarter|custom` (default 30d); `from`/`to` only for Custom (`parseReportRange`).
+- Requests → Reports: Team, Type, Status (status options grouped by board label). Work → Reports: lens chips + Team; Assignee on the Tasks lens only. Switching lenses keeps range + team.
+- Team picker lists the current company's teams and hides when there are none (or on All companies).
+- Mobile: Period stays visible; Team/Type/Status/Assignee sit behind one "Filters" toggle.
+- `report-query-memory.ts`: each report's last query is kept for the session; Work → Reports tab and the Request Board Reports tab reopen with it.
+- Tasks footnote: board lanes/delays use working days (company schedule); target dates in range are calendar days.
+
+Not done (v1): searchable team select / "My team" shortcut; Needs-your-action chips already exist on the dashboard.
+
+## 14. Validation (2026-10-19)
+
+`tsc` clean, new files eslint clean, 92 files / 525 tests pass. `node scripts/verify-work-split-reports.mjs` (dev server on :3000) — 21/21 PASS: Work redirects + tabs, staff `/travel-orders` → Work Plans, both report homes and all lenses for SuperAdmin and Personnel, CSV exports 200 for SuperAdmin / 403 for Personnel, removed JO project route 404, `?fromJobOrder` ignored. Task lens board counts match the sidebar (30 / 0 / 4 locally).

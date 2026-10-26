@@ -25,16 +25,19 @@ export const SYSTEM_MODULE_BLURBS: Record<SystemModuleId, string> = {
   requests: "Request intake, My Requests, and the request boards.",
   tasks: "Task Board / KPI work items and verification.",
   projects: "Project status board and project delivery tracking.",
-  work_plans: "Work Plans / Travel Orders and gate pass.",
+  work_plans: "Work → Work Plans (Travel Orders) and the gate-pass kiosk.",
 };
 
 /** Pages owned by each module (exact path match; `/work/tasks` is not `/work`). */
 const MODULE_PATHS: Record<SystemModuleId, readonly string[]> = {
-  requests: ["/agent", "/tickets/new"],
+  requests: ["/agent", "/agent/reports", "/tickets/new"],
   tasks: ["/work/tasks", "/agent/tasks"],
   projects: ["/work/projects"],
-  work_plans: ["/travel-orders"],
+  work_plans: ["/work/work-plans", "/travel-orders"],
 };
+
+/** Work area modules — `/work` and `/work/reports` stay visible while any of them is on. */
+const WORK_AREA_MODULES: readonly SystemModuleId[] = ["tasks", "projects", "work_plans"];
 
 export function parseSystemModuleVisibility(raw: unknown): SystemModuleVisibility {
   const next = { ...DEFAULT_SYSTEM_MODULE_VISIBILITY };
@@ -59,6 +62,10 @@ export function systemModuleForHref(href: string): SystemModuleId | null {
 }
 
 export function isHrefVisibleForModules(href: string, modules: SystemModuleVisibility): boolean {
+  const path = href.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
+  if (path === "/work" || path === "/work/reports") {
+    return WORK_AREA_MODULES.some((id) => modules[id]);
+  }
   const id = systemModuleForHref(href);
   return id === null || modules[id];
 }

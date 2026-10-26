@@ -12,15 +12,13 @@ export function isJobOrderExecutionMember(opts: {
   agentIds?: string[] | null;
   meta: JobOrderApprovalMeta | null | undefined;
   ticketAssignedAgentId: string | null | undefined;
-  linkedProjectAssigneeId?: string | null;
 }): boolean {
   const ids = [
     ...(opts.agentId?.trim() ? [opts.agentId.trim()] : []),
     ...(opts.agentIds ?? []).map((id) => id.trim()).filter(Boolean),
   ];
   if (ids.length === 0) return false;
-  const assignee =
-    opts.ticketAssignedAgentId?.trim() || opts.linkedProjectAssigneeId?.trim() || null;
+  const assignee = opts.ticketAssignedAgentId?.trim() || null;
   for (const id of [...new Set(ids)]) {
     if (assignee === id) return true;
     if (isJobOrderWorkerAgent(id, opts.meta)) return true;
@@ -28,15 +26,13 @@ export function isJobOrderExecutionMember(opts: {
   return false;
 }
 
-/** All agent ids that should receive KPI credit (assignee + listed co-workers). */
+/** All agent ids that receive KPI credit: the execution assignee + listed co-workers. */
 export function jobOrderKpiCreditAgentIds(opts: {
   meta: JobOrderApprovalMeta | null | undefined;
   ticketAssignedAgentId: string | null | undefined;
-  linkedProjectAssigneeId?: string | null;
 }): string[] {
   const ids = new Set<string>();
-  const assignee =
-    opts.ticketAssignedAgentId?.trim() || opts.linkedProjectAssigneeId?.trim() || null;
+  const assignee = opts.ticketAssignedAgentId?.trim() || null;
   if (assignee) ids.add(assignee);
   for (const id of parseJobOrderWorkerAgentIds(opts.meta)) ids.add(id);
   return [...ids];

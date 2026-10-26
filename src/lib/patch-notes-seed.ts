@@ -31,6 +31,60 @@ export type PatchNoteSeed = {
 
 export const PATCH_NOTE_SEEDS: PatchNoteSeed[] = [
   {
+    version: "0.7.0",
+    title: "Work area: Tasks & Projects split, Job Orders stay requests",
+    releasedAt: "2026-10-19T00:00:00.000Z",
+    content: {
+      newFeatures: [
+        {
+          title: "Work area",
+          description:
+            "The sidebar's Work entry opens Tasks and Projects as separate tabs (/work/tasks, /work/projects). Old /agent/tasks links redirect to Work → Tasks.",
+        },
+        {
+          title: "Projects board",
+          description:
+            "Projects have their own status board (Pending, On Going, Finalizing, Done) with phases, items, and target dates. Create projects from Work → Projects.",
+        },
+        {
+          title: "Work Plans tab",
+          description:
+            "Work → Work Plans lists every work plan visible to you with approvals and check-ins. Dashboard approvals open the plan directly. Travel Orders is now the guard gate-pass kiosk.",
+        },
+        {
+          title: "Request Reports and Work Reports",
+          description:
+            "Requests → Reports shows volume by type, throughput, SLA compliance, aging, CSAT, and closed by assignee. Work → Reports has separate Tasks, Projects, and Work Plans lenses; Tasks includes KPI performance (pillars, employees, teams) for admins. Both use the company from the sidebar switcher, date presets (Last 7 / 30 days, This month, This quarter, Custom), an optional Team filter, and export CSV (Admin). Filters live in the URL and are remembered when you come back to Reports.",
+        },
+      ],
+      improvements: [
+        {
+          title: "Metrics & Reports retired",
+          description:
+            "Its request metrics moved to Requests → Reports and its task KPI metrics to Work → Reports → Tasks. Old /insights and /reports links redirect to the new pages.",
+        },
+        {
+          title: "Dashboard queue first",
+          description:
+            "Home leads with Needs your action plus actionable cards (pending approvals, tasks due, projects at risk). The separate Overdue list was removed — overdue shows as badges.",
+        },
+        {
+          title: "Task create form is tasks-only",
+          description:
+            "Add Task no longer offers a Project type. Recurrence, schedule, KPI periods, and verification stay on tasks; phases and timelines live on projects.",
+        },
+      ],
+      other: [
+        {
+          title: "Projects are not created from Job Orders",
+          description:
+            "Job Orders are requests only. The \"Link Task Board task\" panel, create-project-from-JO flow, and \"Request Task Project\" handoff were removed. Job Order KPI credit goes to the execution assignee and co-workers. Older tasks created from a Job Order show a read-only \"Origin J.O.\" reference.",
+        },
+      ],
+      bugFixes: [],
+    },
+  },
+  {
     version: "0.6.1",
     title: "Travel Order two-page UI & confirm sync",
     releasedAt: "2026-07-28T00:00:00.000Z",

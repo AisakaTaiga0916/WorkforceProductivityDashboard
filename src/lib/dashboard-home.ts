@@ -44,6 +44,10 @@ import {
   listProjectsForViewer,
   resolveProjectViewer,
 } from "@/modules/projects/project-service";
+import { isProjectAtRisk } from "@/modules/projects/project-metrics";
+import { listPendingVerificationKpiIdsForOrgChartHead } from "@/modules/tasks/task-completion-verification-access";
+import { WORK_APPROVALS_PARAM } from "@/lib/work-deep-link-params";
+import { hasPermission, permissionSubjectFromSession } from "@/modules/platform/rbac/permissions";
 
 export type DashboardActionItem = {
   id: string;
@@ -105,7 +109,8 @@ function todayLocalYmd(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-async function resolveTicketScope(session: Session): Promise<{
+/** Tickets the viewer may see on home / reports (Request Board scope for the current company). */
+export async function resolveStaffTicketScope(session: Session): Promise<{
   ticketScope: Prisma.TicketWhereInput;
   scopedCompanyTeamId: string | null;
   scopedCompanyName: string | null;
@@ -227,13 +232,11 @@ async function listTasksAssignedToAgent(
   take = 8,
 ): Promise<DashboardActionItem[]> {
   const { kpiIdsWhereAgentIsTravelOrderTraveler } = await import("@/modules/work-plans/travel-order-db");
-  const { kpiIdsWhereAgentIsJobOrderWorker } = await import("@/modules/requests/job-order-workers-server");
   const { isTaskCompletionVerificationEnabled } = await import(
     "@/modules/platform/settings/task-verification-settings-db"
   );
-  const [travelerKpiIds, jobOrderWorkerKpiIds, rows, verificationEnabled] = await Promise.all([
+  const [travelerKpiIds, rows, verificationEnabled] = await Promise.all([
     kpiIdsWhereAgentIsTravelOrderTraveler(agentId),
-    kpiIdsWhereAgentIsJobOrderWorker(agentId),
     prisma.kpiMaintenance.findMany({
       select: {
         id: true,
@@ -266,8 +269,7 @@ async function listTasksAssignedToAgent(
     const assigned =
       row.assignedAgentId === agentId ||
       hasSubKpiAssignedTo(row.subKpis, agentId) ||
-      travelerKpiIds.has(row.id) ||
-      jobOrderWorkerKpiIds.has(row.id);
+      travelerKpiIds.has(row.id);
     if (!assigned) continue;
 
     const p = taskProgressForDashboard(row, verificationEnabled);
@@ -316,12 +318,53 @@ async function listTasksAssignedToAgent(
   return [...pending, ...done].slice(0, take);
 }
 
+/** Tasks whose completion the viewer must verify (the Task Board's For My Approval queue). */
+async function listTaskVerificationActions(
+  session: Session,
+  operatorAgentId: string | null,
+): Promise<DashboardActionItem[]> {
+  if (!(await isSystemModuleEnabled("tasks"))) return [];
+  if (!(await hasPermission(permissionSubjectFromSession(session), "tasks.verify"))) return [];
+  const ids = await listPendingVerificationKpiIdsForOrgChartHead({
+    email: session.user.email,
+    operatorAgentId,
+    role: session.user.role,
+    take: 20,
+  });
+  if (ids.length === 0) return [];
+  const rows = await prisma.kpiMaintenance.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      title: true,
+      mainTask: true,
+      itProjectName: true,
+      pendingVerificationAt: true,
+      updatedAt: true,
+    },
+  });
+  return rows.map((row) => {
+    const label = kpiMainTaskLabel(row);
+    const pillar = row.title.trim();
+    return {
+      id: `task-verify-${row.id}`,
+      kind: "approval" as const,
+      title: label || pillar || "Task",
+      subtitle: pillar && pillar.toLowerCase() !== label.toLowerCase() ? pillar : undefined,
+      href: `/work/tasks?${WORK_APPROVALS_PARAM}=1`,
+      status: "Awaiting verification",
+      badge: "Task",
+      updatedAt: (row.pendingVerificationAt ?? row.updatedAt).toISOString(),
+    };
+  });
+}
+
 export async function loadStaffDashboardHome(session: Session): Promise<StaffDashboardHome> {
   const user = session.user;
   const now = new Date();
   const firstName = user.name?.split(" ")[0] ?? "there";
 
-  const ctx = await resolveTicketScope(session);
+  const ctx = await resolveStaffTicketScope(session);
   const {
     ticketScope,
     personnelAgentId,
@@ -379,6 +422,7 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
     pendingTravelConfirmations,
     accountRequestsPending,
     tasksAssignedToMe,
+    taskVerificationActions,
   ] = await Promise.all([
     countStatus("OPEN"),
     countStatus(["IN_PROGRESS", "PENDING_INFO", "ESCALATED"]),
@@ -467,6 +511,7 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
     isPersonnel && personnelAgentId
       ? listTasksAssignedToAgent(personnelAgentId, 8)
       : Promise.resolve([] as DashboardActionItem[]),
+    listTaskVerificationActions(session, personnelAgentId).catch(() => [] as DashboardActionItem[]),
   ]);
 
   const candidateIds = [
@@ -565,6 +610,7 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
   const pendingApprovals =
     pendingTravelApprovals.length +
     pendingTravelConfirmations.length +
+    taskVerificationActions.length +
     (isAdminView ? accountRequestsPending : 0);
 
   let projectsAtRisk = 0;
@@ -572,26 +618,16 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
     const projectViewer = await resolveProjectViewer(session);
     const projects = await listProjectsForViewer(projectViewer);
     const today = todayLocalYmd();
-    projectsAtRisk = projects.filter((project) => {
-      if (project.status === "DONE") return false;
-      if (project.dueDate && project.dueDate < today) return true;
-      return project.phases.some((phase) =>
-        phase.items.some(
-          (item) => item.status !== "DONE" && item.dueDate != null && item.dueDate < today,
-        ),
-      );
-    }).length;
+    projectsAtRisk = projects.filter((project) => isProjectAtRisk(project, today)).length;
   }
 
   const travelActions: DashboardActionItem[] = [
     ...pendingTravelApprovals.map((row) => ({
       id: `travel-approval-${row.id}`,
       kind: "travel_order" as const,
-      title: row.orderRequest?.trim() || "Travel order approval",
+      title: row.orderRequest?.trim() || "Work plan approval",
       subtitle: row.kpiMainTask || row.kpiTitle || undefined,
-      href: row.kpiMaintenanceId
-        ? `/work/tasks?task=${encodeURIComponent(row.kpiMaintenanceId)}`
-        : "/work/tasks",
+      href: `/work/work-plans?plan=${encodeURIComponent(row.id)}`,
       status: "Awaiting approval",
       badge: "T.O.",
       updatedAt: row.updatedAt?.toISOString?.() ?? now.toISOString(),
@@ -599,11 +635,9 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
     ...pendingTravelConfirmations.map((row) => ({
       id: `travel-confirm-${row.id}`,
       kind: "travel_order" as const,
-      title: row.orderRequest?.trim() || "Travel order confirmation",
+      title: row.orderRequest?.trim() || "Work plan confirmation",
       subtitle: row.kpiMainTask || row.kpiTitle || undefined,
-      href: row.kpiMaintenanceId
-        ? `/work/tasks?task=${encodeURIComponent(row.kpiMaintenanceId)}`
-        : "/work/tasks",
+      href: `/work/work-plans?plan=${encodeURIComponent(row.id)}`,
       status: "Awaiting confirmation",
       badge: "T.O.",
       updatedAt: row.updatedAt?.toISOString?.() ?? now.toISOString(),
@@ -615,7 +649,7 @@ export async function loadStaffDashboardHome(session: Session): Promise<StaffDas
     ? ticketActions.filter((row) => pipelineTickets.find((t) => t.id === row.id)?.assignedAgentId === personnelAgentId)
     : ticketActions.slice(0, 5);
 
-  const needsAction = [...travelActions, ...ticketActions]
+  const needsAction = [...taskVerificationActions, ...travelActions, ...ticketActions]
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 10);
 

@@ -110,7 +110,6 @@ export async function POST(
       agentIds: sessionAgentIds,
       meta: joMeta,
       ticketAssignedAgentId: executionAssigneeId,
-      linkedProjectAssigneeId: null,
     });
     isAssistanceMember = sessionAgentIds.some((agentId) =>
       isJobOrderAssistanceMember(agentId, joMeta),

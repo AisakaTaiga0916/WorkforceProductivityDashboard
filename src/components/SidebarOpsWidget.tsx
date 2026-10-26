@@ -3,6 +3,7 @@
 import { isElevatedPlatformRole } from "@/lib/staff-role";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -25,7 +26,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { NEW_WORK_PLAN_HREF, workCreateHref } from "@/lib/work-deep-link-params";
 import { COMPANY_CONTEXT_CHANGED_EVENT, CompanySwitcher } from "@/components/CompanySwitcher";
+import { permissionAllows, usePermissions } from "@/modules/platform/rbac/permissions-client";
 
 type SidebarSummary = {
   open: number;
@@ -86,8 +89,8 @@ const SHORTCUT_CATALOG: ShortcutDef[] = [
     icon: LifeBuoy,
     superAdminOnly: true,
   },
-  { id: "request-mr", href: "/insights?tab=ticket-metrics", label: "Req M&R", icon: BarChart3 },
-  { id: "task-mr", href: "/insights?tab=task-metrics", label: "Task M&R", icon: ClipboardList },
+  { id: "request-mr", href: "/agent/reports", label: "Req Reports", icon: BarChart3 },
+  { id: "task-mr", href: "/work/reports", label: "Work Reports", icon: ClipboardList },
 ];
 
 const DEFAULT_ADMIN_IDS = [
@@ -134,6 +137,30 @@ function catalogForRole(isAdmin: boolean, isSuperAdmin: boolean): ShortcutDef[] 
   });
 }
 
+/**
+ * On a Work tab, Create opens that tab's own create flow (Add Task / Add Project modal,
+ * New Work Plan page) instead of
+ * a new request. Falls back to the request form where the tab offers no create for this user.
+ */
+function contextualCreate(
+  base: ShortcutDef,
+  pathname: string,
+  can: { addTask: boolean; addProject: boolean },
+): ShortcutDef {
+  const onTab = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  if (onTab("/work/tasks") && can.addTask) {
+    return { ...base, href: workCreateHref("/work/tasks"), label: "Add Task" };
+  }
+  if (onTab("/work/projects") && can.addProject) {
+    return { ...base, href: workCreateHref("/work/projects"), label: "Add Project" };
+  }
+  // Any staff member may file a work plan (the create API has no admin-only gate).
+  if (onTab("/work/work-plans")) {
+    return { ...base, href: NEW_WORK_PLAN_HREF, label: "New Work Plan" };
+  }
+  return base;
+}
+
 function defaultIds(isAdmin: boolean): string[] {
   return [...(isAdmin ? DEFAULT_ADMIN_IDS : DEFAULT_PERSONNEL_IDS)];
 }
@@ -176,6 +203,8 @@ export function SidebarOpsWidget({ className, compact = false }: Props) {
   const email = session?.user?.email ?? "";
   const isAdmin = isElevatedPlatformRole(role) || role === "Admin";
   const isSuperAdmin = role === "SuperAdmin";
+  const pathname = usePathname() ?? "";
+  const permissions = usePermissions();
   const [data, setData] = useState<SidebarSummary | null>(null);
   const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -247,9 +276,18 @@ export function SidebarOpsWidget({ className, compact = false }: Props) {
     };
   }, []);
 
+  const addProject = permissions.loaded && permissionAllows(permissions, "projects.create");
   const shortcuts = useMemo(
-    () => selectedIds.map((id) => availableById.get(id)).filter((item): item is ShortcutDef => Boolean(item)),
-    [selectedIds, availableById],
+    () =>
+      selectedIds
+        .map((id) => availableById.get(id))
+        .filter((item): item is ShortcutDef => Boolean(item))
+        .map((item) =>
+          item.id === "create"
+            ? contextualCreate(item, pathname, { addTask: isAdmin, addProject })
+            : item,
+        ),
+    [selectedIds, availableById, pathname, isAdmin, addProject],
   );
 
   const toggleShortcut = useCallback(

@@ -27,6 +27,7 @@ import Filters, {
   persistSavedFilters,
 } from "@/components/ui/filters";
 import type { WorkforceViewId } from "@/modules/platform/settings/workforce-view-visibility";
+import type { PersonnelKpiOverview, PersonnelKpiRange } from "@/modules/workforce/personnel-kpi";
 
 type WorkforceView = WorkforceViewId;
 
@@ -88,12 +89,16 @@ type Props = {
   canEditAssignmentColor?: boolean;
   /** Current company context (switcher) shown on the Org. Chart. */
   currentCompanyName?: string | null;
+  currentCompanyId?: string | null;
   initialOrgSections?: OrgChartSectionRow[];
   initialOrgNodes?: OrgChartNodeRow[];
   initialOrgEitherOrLinks?: OrgChartEitherOrLinkRow[];
   /** Portal technical roles keyed by mergedSourceUserId (display only). */
   initialPortalRoleByMergedId?: Record<string, string>;
   sectionCompanyOptions?: { id: string; name: string }[];
+  initialKpiOverview?: PersonnelKpiOverview | null;
+  initialKpiError?: string | null;
+  initialKpiRange: PersonnelKpiRange;
 };
 
 /**
@@ -253,6 +258,13 @@ export function WorkforceClient(props: Props) {
     if (state.role) params.set("role", state.role);
     if (state.onDutyCompany) params.set("onDutyCompany", state.onDutyCompany);
     if (state.view === "sections") params.set("view", "sections");
+    const current = new URLSearchParams(window.location.search);
+    const range = current.get("range");
+    const from = current.get("from");
+    const to = current.get("to");
+    if (range) params.set("range", range);
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
     const qs = params.toString();
     return qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
   }
@@ -350,13 +362,13 @@ export function WorkforceClient(props: Props) {
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">
                 {[
-                  showActivity ? "live On Duty / Offline activity" : null,
+                  showActivity ? "live On Duty / Offline activity with each person's KPI" : null,
                   showSections ? "org. chart" : null,
                 ]
                   .filter(Boolean)
                   .join(", ") || "Workforce"}{" "}
-                from today&apos;s HRIS clock-ins, for your current company. Roles and company access are
-                managed in Settings → User Management.
+                for your current company. Activity uses today&apos;s HRIS clock-ins; roles and company
+                access are managed in Settings → User Management.
               </p>
             </div>
             <div className="inline-flex shrink-0 self-start rounded-lg border border-zinc-300 bg-zinc-100 p-0.5 text-xs font-semibold sm:self-auto dark:border-zinc-700 dark:bg-zinc-900">
@@ -451,6 +463,7 @@ export function WorkforceClient(props: Props) {
         <div className={cn(view === "activity" && activityOpened ? "block" : "hidden")}>
           {activityOpened ? (
             <ActivitiesClient
+              key={props.currentCompanyId ?? "all"}
               embedded
               externalSearchQuery={searchQuery}
               externalCompanyFilter={onDutyCompany}
@@ -463,6 +476,9 @@ export function WorkforceClient(props: Props) {
             initialOnDutyCompanies={props.initialOnDutyCompanies}
             onDutyPageSize={props.onDutyPageSize}
             lockedCompanyFilter={props.lockedCompanyFilter}
+            initialKpiOverview={props.initialKpiOverview ?? null}
+            initialKpiError={props.initialKpiError ?? null}
+            initialKpiRange={props.initialKpiRange}
             />
           ) : null}
         </div>

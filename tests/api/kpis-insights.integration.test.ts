@@ -5,7 +5,6 @@ vi.mock("@/lib/access", () => ({
 }));
 
 import { requireRole } from "@/lib/access";
-import { GET as kpisGet } from "@/app/api/kpis/route";
 import { GET as taskMetricsGet } from "@/app/api/kpis/task-metrics/route";
 
 const AGC = "3fe47d9d-b558-42ad-8cee-d84752f883b1";
@@ -25,24 +24,12 @@ const superAdminSession = {
   },
 };
 
-describe("insights KPI API integration", () => {
+describe("task KPI metrics API integration (Work → Reports → Tasks)", () => {
   beforeEach(() => {
     vi.mocked(requireRole).mockResolvedValue({
       session: superAdminSession,
       unauthorized: null,
     });
-  });
-
-  it("GET /api/kpis returns 200 for AGC company", async () => {
-    const res = await kpisGet(
-      new Request(`http://localhost/api/kpis?from=2026-06-01&to=2026-06-21&companyId=${AGC}`),
-    );
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`status ${res.status}: ${text.slice(0, 500)}`);
-    }
-    const body = await res.json();
-    expect(body.operational).toBeDefined();
   });
 
   it("GET /api/kpis/task-metrics returns 200 for AGC company", async () => {

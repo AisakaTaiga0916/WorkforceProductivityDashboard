@@ -5,6 +5,7 @@ import { loadOnDutySnapshot } from "@/lib/load-on-duty-snapshot";
 import { prisma } from "@/modules/platform/db/prisma";
 import { listActiveCompanies } from "@/modules/platform/companies/company-directory";
 import { getCompanyAccess } from "@/modules/platform/scope/company-access";
+import { hasPermission, permissionSubjectFromSession } from "@/modules/platform/rbac/permissions";
 import { resolveViewerOnDutyCompanyFilter } from "@/modules/platform/scope/staff-company-scope";
 import {
   loadMergedIdsWithCompanyMembership,
@@ -21,6 +22,9 @@ import {
   isWorkforceViewVisible,
 } from "@/modules/platform/settings/workforce-view-visibility";
 import { getWorkforceViewVisibility } from "@/modules/platform/settings/workforce-view-visibility-db";
+import { parsePersonnelKpiRange } from "@/modules/workforce/personnel-kpi-range";
+import { loadPersonnelKpiOverview } from "@/modules/workforce/personnel-kpi-server";
+import type { PersonnelKpiOverview } from "@/modules/workforce/personnel-kpi";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +43,9 @@ export default async function WorkforcePage({
     q?: string | string[];
     role?: string | string[];
     onDutyCompany?: string | string[];
+    range?: string | string[];
+    from?: string | string[];
+    to?: string | string[];
   }>;
 }) {
   const session = await requireSession();
@@ -56,6 +63,11 @@ export default async function WorkforcePage({
   const initialView = firstVisibleWorkforceView(viewVisibility, viewParam);
   const initialSearchQuery = firstQuery(params.q)?.trim() ?? "";
   const initialRoleFilter = firstQuery(params.role)?.trim() ?? "";
+  const initialKpiRange = parsePersonnelKpiRange({
+    range: firstQuery(params.range),
+    from: firstQuery(params.from),
+    to: firstQuery(params.to),
+  });
 
   const [access, lockedCompanyFilter] = await Promise.all([
     getCompanyAccess(session),
@@ -133,6 +145,30 @@ export default async function WorkforcePage({
       ? loadMergedIdsWithCompanyMembership(currentCompanyId)
       : Promise.resolve(new Set<string>()),
   ]);
+
+  let initialKpiOverview: PersonnelKpiOverview | null = null;
+  let initialKpiError: string | null = null;
+  const canReadKpi =
+    visibleViews.activity &&
+    (await hasPermission(permissionSubjectFromSession(session), "tasks.read"));
+  if (visibleViews.activity && !canReadKpi) {
+    initialKpiError = "You don't have access to task KPI data.";
+  }
+  if (canReadKpi) {
+    try {
+      initialKpiOverview = await loadPersonnelKpiOverview({
+        personnel: payload.personnel,
+        companyId: currentCompanyId,
+        range: initialKpiRange,
+      });
+    } catch (e: unknown) {
+      initialKpiError = "KPI data is temporarily unavailable.";
+      console.warn(
+        "[workforce] KPI overview unavailable:",
+        e instanceof Error ? e.message.split("\n")[0] : e,
+      );
+    }
+  }
 
   /** Admins (and non-elevated heads): org chart is read-only and limited to their team tree. */
   const scopeOrgChartToViewer =
@@ -254,11 +290,15 @@ export default async function WorkforcePage({
       canManageSections={isSuperAdmin}
       canEditAssignmentColor
       currentCompanyName={currentCompanyName}
+      currentCompanyId={currentCompanyId}
       initialOrgSections={initialOrgSections}
       initialOrgNodes={orgPayload ? scopedOrgNodes : undefined}
       initialOrgEitherOrLinks={orgPayload ? initialOrgEitherOrLinks : undefined}
       initialPortalRoleByMergedId={initialPortalRoleByMergedId}
       sectionCompanyOptions={orderedCompanies}
+      initialKpiOverview={initialKpiOverview}
+      initialKpiError={initialKpiError}
+      initialKpiRange={initialKpiRange}
     />
   );
 }

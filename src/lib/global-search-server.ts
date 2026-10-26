@@ -303,9 +303,7 @@ async function searchTravelOrders(
         kind: "travel_order" as const,
         title: dto.orderRequest?.trim() || dto.kpiMainTask || "Travel Order",
         subtitle: dto.kpiMainTask || dto.kpiTitle || undefined,
-        href: dto.kpiMaintenanceId
-          ? `/agent/tasks?task=${encodeURIComponent(dto.kpiMaintenanceId)}`
-          : "/travel-orders",
+        href: `/work/work-plans?plan=${encodeURIComponent(dto.id)}`,
         status: dto.status,
         badge: "T.O.",
       };

@@ -29,7 +29,6 @@ export default async function WorkTasksPage({
 }: {
   searchParams: Promise<{
     task?: string | string[];
-    fromJobOrder?: string | string[];
     q?: string | string[];
     category?: string | string[];
     frequency?: string | string[];
@@ -44,9 +43,7 @@ export default async function WorkTasksPage({
 
   const params = await searchParams;
   const focusTaskId = firstQuery(params.task)?.trim() || null;
-  const fromJobOrderTicketId = firstQuery(params.fromJobOrder)?.trim() || null;
   const searchQuery = (firstQuery(params.q) ?? "").replace(/^#/, "").trim();
-
   const categoryFilter = (() => {
     const v = firstQuery(params.category) ?? "all";
     return v === "task" || v === "project" || v === "field" ? v : "all";
@@ -98,8 +95,9 @@ export default async function WorkTasksPage({
   const categoryOptions = [
     { value: "all", label: "All categories" },
     { value: "task", label: "Task" },
-    { value: "project", label: "Project" },
     { value: "field", label: "Field Assignment" },
+    // Pre-migration project rows still live in kpi_maintenance; viewable here, created under Projects.
+    { value: "project", label: "Legacy project" },
   ];
 
   const frequencyOptions = [
@@ -154,7 +152,6 @@ export default async function WorkTasksPage({
         sessionRole={session.user.role}
         showAdminTaskManagement={isAdminRole}
         focusTaskId={focusTaskId}
-        fromJobOrderTicketId={fromJobOrderTicketId}
         searchQuery={searchQuery}
         categoryFilter={categoryFilter}
         frequencyFilter={frequencyFilter}

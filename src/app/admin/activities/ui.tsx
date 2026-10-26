@@ -4,6 +4,12 @@ import { OnDutyPanel } from "@/components/dashboard/OnDutyPanel";
 import { BRAND_TITLE } from "@/lib/brand";
 import { cn } from "@/lib/cn";
 import type { OnDutyAgentSnapshot } from "@/lib/load-on-duty-snapshot";
+import type { PersonnelKpiOverview, PersonnelKpiRange } from "@/modules/workforce/personnel-kpi";
+import {
+  ActivityKpiControls,
+  ActivityKpiModal,
+  useActivityKpi,
+} from "../workforce/activity-kpi";
 
 type Props = {
   initialOnDutyAgents: OnDutyAgentSnapshot[];
@@ -25,6 +31,9 @@ type Props = {
   externalCompanyFilter?: string;
   /** Role filter chip from the parent Workforce search bar (normalized role). */
   externalRoleFilter?: string;
+  initialKpiOverview: PersonnelKpiOverview | null;
+  initialKpiError?: string | null;
+  initialKpiRange: PersonnelKpiRange;
 };
 
 export function ActivitiesClient({
@@ -41,7 +50,11 @@ export function ActivitiesClient({
   externalSearchQuery,
   externalCompanyFilter,
   externalRoleFilter,
+  initialKpiOverview,
+  initialKpiError,
+  initialKpiRange,
 }: Props) {
+  const kpi = useActivityKpi({ initialOverview: initialKpiOverview, initialError: initialKpiError, initialRange: initialKpiRange });
   // Embedded render uses a div so the Workforce page shell stays the only <main>.
   const ShellTag: "main" | "div" = embedded ? "div" : "main";
   return (
@@ -94,8 +107,14 @@ export function ActivitiesClient({
           externalSearchQuery={externalSearchQuery}
           externalCompanyFilter={externalCompanyFilter}
           externalRoleFilter={externalRoleFilter}
+          kpiByAgentId={kpi.lookup.byAgentId}
+          kpiByEmail={kpi.lookup.byEmail}
+          kpiPeriodLabel={kpi.range.label}
+          onOpenKpi={kpi.openPerson}
+          kpiControls={<ActivityKpiControls state={kpi} />}
         />
       </div>
+      <ActivityKpiModal state={kpi} />
     </ShellTag>
   );
 }

@@ -1,10 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DatePickerField } from "@/components/ui/DatePickerField";
 import { cn } from "@/lib/cn";
-import { JOB_ORDER_REQUEST_PILLAR_TITLE, isItProjectImplementationPillar } from "@/modules/tasks/it-task-pillar-titles";
 import { DEFAULT_TIME_ZONE, type KpiFrequencyCode } from "@/modules/tasks/kpi-recurrence";
 import {
   MIN_SEGMENTED_SUBKPIS_FOR_CREATE,
@@ -66,29 +66,16 @@ type Props = {
   onMaintenanceRecordsUpdated?: (rows: KpiDefinitionMaintenanceRecord[]) => void;
   /** When true, omit outer card chrome (for use inside a popup). */
   embedded?: boolean;
-  /** Prefill + auto-link when creating a Project from a Job Order. */
-  fromJobOrderTicketId?: string | null;
-  /** Called after a successful create that consumed a Job Order link. */
-  onFromJobOrderConsumed?: () => void;
 };
 
 export function KpiDefinitionConsole({
   onMaintenanceRecordsUpdated,
   embedded = false,
-  fromJobOrderTicketId = null,
-  onFromJobOrderConsumed,
 }: Props) {
   const [recurrenceTz, setRecurrenceTz] = useState(DEFAULT_TIME_ZONE);
-  const [maintenanceTitle, setMaintenanceTitle] = useState(() =>
-    fromJobOrderTicketId?.trim() ? JOB_ORDER_REQUEST_PILLAR_TITLE : "",
-  );
   const [mainTaskDraft, setMainTaskDraft] = useState("");
   const [mainTaskTargetDateDraft, setMainTaskTargetDateDraft] = useState("");
-  /** Project = one-off work item (no forced IT PROJECT IMPLEMENTATION pillar). */
-  const [isProjectMode, setIsProjectMode] = useState(() => Boolean(fromJobOrderTicketId?.trim()));
-  const [maintenanceIsRecurring, setMaintenanceIsRecurring] = useState(
-    () => !Boolean(fromJobOrderTicketId?.trim()),
-  );
+  const [maintenanceIsRecurring, setMaintenanceIsRecurring] = useState(true);
   const [maintenanceFrequency, setMaintenanceFrequency] = useState<MaintenanceFrequency>("Daily");
   const [recurrenceWeekday, setRecurrenceWeekday] = useState(1);
   const [recurrenceMonthDay, setRecurrenceMonthDay] = useState(1);
@@ -124,69 +111,6 @@ export function KpiDefinitionConsole({
     if (msg) setLocalError(null);
   }
   const [adminDesignatedCompanyId, setAdminDesignatedCompanyId] = useState<string | null>(null);
-  const [linkedJobOrderTicketId, setLinkedJobOrderTicketId] = useState<string | null>(null);
-  const [jobOrderPrefillBanner, setJobOrderPrefillBanner] = useState<string | null>(null);
-
-  /** Effective recurring flag: Projects are always one-off. */
-  const effectiveIsRecurring = isProjectMode ? false : maintenanceIsRecurring;
-
-  useEffect(() => {
-    const joId = fromJobOrderTicketId?.trim() || null;
-    if (!joId) {
-      setLinkedJobOrderTicketId(null);
-      setJobOrderPrefillBanner(null);
-      return;
-    }
-    let cancelled = false;
-    queueMicrotask(async () => {
-      try {
-        const res = await fetch(`/api/tickets/${joId}/job-order-project`, { cache: "no-store" });
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as {
-          prefill?: {
-            ticketNumber?: string;
-            suggestedProjectName?: string;
-            suggestedTargetDate?: string;
-            suggestedDescription?: string;
-            teamId?: string | null;
-            alreadyLinkedProjectId?: string | null;
-          };
-          linkedProject?: { displayName?: string } | null;
-        };
-        if (cancelled) return;
-        const p = data.prefill;
-        if (!p) return;
-        if (p.alreadyLinkedProjectId) {
-          setJobOrderPrefillBanner(
-            `Job Order ${p.ticketNumber ?? ""} is already linked to “${data.linkedProject?.displayName ?? "a project"}”. Unlink it first to create another.`,
-          );
-          setLinkedJobOrderTicketId(null);
-          return;
-        }
-        setIsProjectMode(true);
-        setMaintenanceIsRecurring(false);
-        setMaintenanceTitle(JOB_ORDER_REQUEST_PILLAR_TITLE);
-        setMainTaskDraft(p.suggestedProjectName?.trim() || `Job Order ${p.ticketNumber ?? ""}`);
-        if (p.suggestedTargetDate?.trim()) {
-          setMainTaskTargetDateDraft(p.suggestedTargetDate.trim());
-        }
-        if (p.teamId) {
-          setScopedCompanyTeamId(p.teamId);
-        }
-        // Do not prefill a "Job Order details" sub-task — open Check Reference from Sub Tasks instead.
-        setSubKpisDraft([]);
-        setLinkedJobOrderTicketId(joId);
-        setJobOrderPrefillBanner(
-          `Creating a Project from Job Order ${p.ticketNumber ?? ""}. Tagged as Project under “${JOB_ORDER_REQUEST_PILLAR_TITLE}” — save to link automatically.`,
-        );
-      } catch {
-        /* ignore */
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [fromJobOrderTicketId]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -217,8 +141,6 @@ export function KpiDefinitionConsole({
   }, []);
 
   useEffect(() => {
-    // Prefer Job Order company scope over admin designated company (avoid race overwrite).
-    if (linkedJobOrderTicketId || fromJobOrderTicketId?.trim()) return;
     if (
       adminDesignatedCompanyId &&
       rosterCompanies.length > 0 &&
@@ -227,9 +149,9 @@ export function KpiDefinitionConsole({
       setScopedCompanyTeamId(adminDesignatedCompanyId);
       void loadAssignFlag(adminDesignatedCompanyId);
     }
-    // loadAssignFlag is stable enough; omit from deps to match prior pattern (defined below).
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: avoid JO company overwrite race
-  }, [adminDesignatedCompanyId, rosterCompanies, linkedJobOrderTicketId, fromJobOrderTicketId]);
+    // loadAssignFlag is defined below; omit from deps to match prior pattern.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: run on company/roster changes only
+  }, [adminDesignatedCompanyId, rosterCompanies]);
 
   const kpiMaintenanceSearch = useMemo(
     () => `?tz=${encodeURIComponent(recurrenceTz)}`,
@@ -287,17 +209,15 @@ export function KpiDefinitionConsole({
       return;
     }
     setDraftUseSegments(true);
-    const phaseLabel = isProjectMode ? "Phase 1" : mainTaskDraft.trim() || "Segment 1";
-    const phaseDue = isProjectMode ? mainTaskTargetDateDraft.trim() || null : null;
+    const segmentLabel = mainTaskDraft.trim() || "Segment 1";
     if (subKpisDraft.length > 0) {
-      // Existing flat items become Unsegmented; user can drag into named segments/phases.
+      // Existing flat items become Unsegmented; user can drag into named segments.
       setDraftSegments(
         ensureUnsegmentedSegment([
           {
             id: crypto.randomUUID(),
-            label: phaseLabel,
+            label: segmentLabel,
             items: [],
-            ...(phaseDue ? { dueDate: phaseDue } : {}),
           },
           {
             id: UNSEGMENTED_SEGMENT_ID,
@@ -314,9 +234,8 @@ export function KpiDefinitionConsole({
         ensureUnsegmentedSegment([
           {
             id: crypto.randomUUID(),
-            label: phaseLabel,
+            label: segmentLabel,
             items: [],
-            ...(phaseDue ? { dueDate: phaseDue } : {}),
           },
         ]),
       );
@@ -345,58 +264,18 @@ export function KpiDefinitionConsole({
     setNumericalTargetDraft("");
     setDailyPenaltyDraft("");
     setEnableSubtaskAssignees(true);
-    setIsProjectMode(false);
     setLocalError(null);
-  }
-
-  function handleTaskTypeChange(next: "task" | "project") {
-    if ((linkedJobOrderTicketId || fromJobOrderTicketId?.trim()) && next !== "project") {
-      setError("Job Order creates stay in Project mode. Unlink the Job Order flow to create a Task.");
-      return;
-    }
-    setIsProjectMode(next === "project");
-    setLocalError(null);
-    if (next === "project") {
-      setInvertedRecording(false);
-      setMaintenanceIsRecurring(false);
-      if (fromJobOrderTicketId?.trim()) {
-        setLinkedJobOrderTicketId(fromJobOrderTicketId.trim());
-        setMaintenanceTitle((prev) => prev.trim() || JOB_ORDER_REQUEST_PILLAR_TITLE);
-        setJobOrderPrefillBanner(
-          "Project mode restored — saving will link this Job Order automatically.",
-        );
-      }
-    } else {
-      setLinkedJobOrderTicketId(null);
-      if (fromJobOrderTicketId) {
-        setJobOrderPrefillBanner(
-          "Switched away from Project mode — Job Order auto-link will not apply until you select Project again.",
-        );
-      }
-    }
   }
 
   async function createMaintenanceRecord() {
     if (INSIGHTS_VIEW_ONLY) return;
-    const isJoProjectCreate = Boolean(linkedJobOrderTicketId) && isProjectMode;
     if (!mainTaskDraft.trim()) {
-      setError(isProjectMode ? "Enter a project name." : "Enter a main task name.");
+      setError("Enter a main task name.");
       return;
     }
-    // Title is the work-item name (API also derives this); JO projects keep the reserved pillar title.
-    const title = normalizeTaskTitle(
-      isJoProjectCreate
-        ? maintenanceTitle.trim() || JOB_ORDER_REQUEST_PILLAR_TITLE
-        : mainTaskDraft,
-    );
-    if (isItProjectImplementationPillar(title) && isJoProjectCreate) {
-      setError("Job Order projects cannot use IT Project Implementation. They stay under Job Order Request.");
-      return;
-    }
-    if (isJoProjectCreate) {
-      setMaintenanceTitle(title);
-    }
-    const freqUpper = !effectiveIsRecurring
+    // Title is the work-item name (API also derives this).
+    const title = normalizeTaskTitle(mainTaskDraft);
+    const freqUpper = !maintenanceIsRecurring
       ? ("MONTHLY" as KpiFrequencyCode)
       : maintenanceFrequencyToCode(maintenanceFrequency);
 
@@ -411,15 +290,7 @@ export function KpiDefinitionConsole({
       for (const seg of ensured) {
         if (isUnsegmentedSegmentId(seg.id)) continue;
         if (!seg.label.trim()) {
-          setError(
-            isProjectMode
-              ? 'Each phase needs a label (or turn off "Make Phases").'
-              : 'Each checklist segment needs a label (or turn off "Segment this checklist").',
-          );
-          return;
-        }
-        if (isProjectMode && !seg.dueDate?.trim()) {
-          setError(`Set a target date for phase "${seg.label.trim() || "Untitled"}".`);
+          setError('Each checklist segment needs a label (or turn off "Segment this checklist").');
           return;
         }
       }
@@ -428,9 +299,7 @@ export function KpiDefinitionConsole({
         .reduce((a, s) => a + s.items.length, 0);
       if (namedTotal < MIN_SEGMENTED_SUBKPIS_FOR_CREATE) {
         setError(
-          isProjectMode
-            ? `Assign at least ${MIN_SEGMENTED_SUBKPIS_FOR_CREATE} sub-task${MIN_SEGMENTED_SUBKPIS_FOR_CREATE === 1 ? "" : "s"} to a phase before creating the project.`
-            : `Assign at least ${MIN_SEGMENTED_SUBKPIS_FOR_CREATE} sub-task${MIN_SEGMENTED_SUBKPIS_FOR_CREATE === 1 ? "" : "s"} to a segment before creating the task.`,
+          `Assign at least ${MIN_SEGMENTED_SUBKPIS_FOR_CREATE} sub-task${MIN_SEGMENTED_SUBKPIS_FOR_CREATE === 1 ? "" : "s"} to a segment before creating the task.`,
         );
         return;
       }
@@ -448,7 +317,7 @@ export function KpiDefinitionConsole({
 
     if (completionRequirements.numerical) {
       const isPillarOnlyDraft = !draftUseSegments && subKpisDraft.length === 0;
-      const skipTargetAtCreate = effectiveIsRecurring && isPillarOnlyDraft;
+      const skipTargetAtCreate = maintenanceIsRecurring && isPillarOnlyDraft;
       if (!skipTargetAtCreate) {
         const targetRaw = numericalTargetDraft.trim();
         const target = targetRaw === "" ? NaN : Number(targetRaw);
@@ -462,24 +331,20 @@ export function KpiDefinitionConsole({
     const body: Record<string, unknown> = {
       title,
       frequency: freqUpper,
-      isRecurring: effectiveIsRecurring,
+      isRecurring: maintenanceIsRecurring,
       enableSubtaskAssignees: enableSubtaskAssignees === true,
       mainTask: mainTaskDraft.trim(),
       completionRequirements,
-      isProject: isProjectMode === true,
       invertedRecording: invertedRecording === true,
     };
     if (scopedCompanyTeamId) body.scopedCompanyTeamId = scopedCompanyTeamId;
-    if (isProjectMode && linkedJobOrderTicketId) {
-      body.linkedJobOrderTicketId = linkedJobOrderTicketId;
-    }
     if (completionRequirements.numerical) {
       const targetRaw = numericalTargetDraft.trim();
       if (targetRaw !== "") {
         body.numericalTarget = Number(targetRaw);
       }
     }
-    if (!effectiveIsRecurring) {
+    if (!maintenanceIsRecurring) {
       const penaltyRaw = dailyPenaltyDraft.trim();
       if (penaltyRaw !== "") {
         const penalty = Number(penaltyRaw);
@@ -495,20 +360,14 @@ export function KpiDefinitionConsole({
       body.segments = draftSegments.map((s) => ({
         id: s.id,
         label: s.label.trim(),
-        ...(isProjectMode && s.dueDate?.trim() ? { dueDate: s.dueDate.trim() } : {}),
         items: s.items.map((it) => ({
           title: it.title.trim(),
           description: it.description ?? null,
           remarks: it.remarks ?? null,
-          // Project phases own the target date — omit per-subtask dues.
-          // Daily recurring also omits sub-task target dates.
-          dueDate:
-            isProjectMode || (effectiveIsRecurring && freqUpper === "DAILY")
-              ? ""
-              : it.dueDate ?? "",
+          // Daily recurring omits sub-task target dates.
+          dueDate: maintenanceIsRecurring && freqUpper === "DAILY" ? "" : it.dueDate ?? "",
           dueDateRollsWithCycle:
-            !isProjectMode &&
-            effectiveIsRecurring &&
+            maintenanceIsRecurring &&
             freqUpper !== "DAILY" &&
             Boolean(it.dueDate?.trim()) &&
             it.dueDateRollsWithCycle === true,
@@ -522,23 +381,23 @@ export function KpiDefinitionConsole({
         title: s.title,
         description: s.description ?? null,
         remarks: s.remarks ?? null,
-        dueDate: effectiveIsRecurring && freqUpper === "DAILY" ? "" : s.dueDate ?? "",
+        dueDate: maintenanceIsRecurring && freqUpper === "DAILY" ? "" : s.dueDate ?? "",
         dueDateRollsWithCycle:
-          effectiveIsRecurring &&
+          maintenanceIsRecurring &&
           freqUpper !== "DAILY" &&
           Boolean(s.dueDate?.trim()) &&
           s.dueDateRollsWithCycle === true,
         projectPriority: s.projectPriority ?? null,
       }));
     }
-    if (!effectiveIsRecurring && mainTaskTargetDateDraft.trim()) {
+    if (!maintenanceIsRecurring && mainTaskTargetDateDraft.trim()) {
       body.pillarDueDate = mainTaskTargetDateDraft.trim();
     }
 
-    if (effectiveIsRecurring && freqUpper === "WEEKLY") {
+    if (maintenanceIsRecurring && freqUpper === "WEEKLY") {
       body.recurrenceWeekday = recurrenceWeekday;
     }
-    if (effectiveIsRecurring && (freqUpper === "MONTHLY" || freqUpper === "QUARTERLY" || freqUpper === "SEMI_ANNUAL" || freqUpper === "YEARLY")) {
+    if (maintenanceIsRecurring && (freqUpper === "MONTHLY" || freqUpper === "QUARTERLY" || freqUpper === "SEMI_ANNUAL" || freqUpper === "YEARLY")) {
       body.recurrenceMonthDay = recurrenceMonthDay;
     }
     body.timeZone = recurrenceTz;
@@ -562,10 +421,8 @@ export function KpiDefinitionConsole({
       if (message) {
         setOk(message);
       } else {
-        setOk(isProjectMode ? "Project created." : "Task created.");
+        setOk("Task created.");
       }
-      setIsProjectMode(false);
-      setMaintenanceTitle("");
       setMainTaskDraft("");
       setMainTaskTargetDateDraft("");
       setMaintenanceIsRecurring(true);
@@ -585,9 +442,6 @@ export function KpiDefinitionConsole({
       setEnableSubtaskAssignees(true);
       setScopedCompanyTeamId("");
       setDraftSegments([]);
-      setLinkedJobOrderTicketId(null);
-      setJobOrderPrefillBanner(null);
-      onFromJobOrderConsumed?.();
       const reload = await fetch(`/api/kpi-maintenance${kpiMaintenanceSearch}`, { cache: "no-store" });
       if (reload.ok) {
         const payload = (await reload.json()) as { rows: KpiDefinitionMaintenanceRecord[] };
@@ -606,7 +460,6 @@ export function KpiDefinitionConsole({
     setError(errMsg);
   }
 
-  const isJoCreateFlow = Boolean(linkedJobOrderTicketId || fromJobOrderTicketId?.trim());
   /** Form is available whenever the operator can create work — no task-group pick required. */
   const formUnlocked = kpiMaintenanceAssignWork;
 
@@ -633,69 +486,25 @@ export function KpiDefinitionConsole({
           {successMessage}
         </p>
       ) : null}
-      {jobOrderPrefillBanner ? (
-        <div className="mt-2 rounded-lg border border-orange-400/40 bg-orange-500/10 px-3 py-2 text-xs text-orange-950 dark:border-orange-500/35 dark:bg-orange-500/10 dark:text-orange-100">
-          <p className="min-w-0">{jobOrderPrefillBanner}</p>
-        </div>
-      ) : null}
-
       <div className={cn("grid gap-2.5 md:grid-cols-2", embedded ? "mt-0" : "mt-4")}>
-        {isJoCreateFlow ? (
-          <div className="rounded-xl border border-orange-400/35 bg-orange-500/5 px-3 py-2.5 text-xs text-orange-950 md:col-span-2 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-100">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-orange-800 dark:text-orange-200">
-              Project section
-            </p>
-            <p className="mt-1 font-semibold">{JOB_ORDER_REQUEST_PILLAR_TITLE}</p>
-            <p className="mt-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-              Saving creates the project under Job Order Request and links this Job Order automatically.
-            </p>
-          </div>
-        ) : null}
         {kpiMaintenanceAssignWork ? (
-          <fieldset className="flex flex-col gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-600 dark:text-zinc-500 md:col-span-2">
-            <legend className="mb-1 px-0">Task type</legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <label
-                className={cn(
-                  "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-normal normal-case tracking-normal text-zinc-900 dark:text-zinc-100",
-                  isJoCreateFlow ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-                  !isProjectMode
-                    ? "border-orange-500 bg-orange-50/80 ring-1 ring-orange-500/30 dark:border-orange-500/60 dark:bg-orange-950/20"
-                    : "border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-950",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="maintenance-task-type"
-                  checked={!isProjectMode}
-                  disabled={isJoCreateFlow}
-                  onChange={() => handleTaskTypeChange("task")}
-                />
-                Task
-              </label>
-              <label
-                className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-normal normal-case tracking-normal text-zinc-900 dark:text-zinc-100",
-                  isProjectMode
-                    ? "border-orange-500 bg-orange-50/80 ring-1 ring-orange-500/30 dark:border-orange-500/60 dark:bg-orange-950/20"
-                    : "border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-950",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="maintenance-task-type"
-                  checked={isProjectMode}
-                  onChange={() => handleTaskTypeChange("project")}
-                />
-                Project
-              </label>
-            </div>
-            <p className="text-xs font-normal normal-case tracking-normal text-zinc-500 dark:text-zinc-400">
-              {isProjectMode
-                ? "Projects are one-off (non-recurring) and use the same sub-task manager, assignees, and completion conditions as tasks."
-                : "Tasks can be recurring or one-off. Use Travel Order for field travel work."}
-            </p>
-          </fieldset>
+          <p className="text-xs text-zinc-500 md:col-span-2 dark:text-zinc-400">
+            Tasks can be recurring or one-off. Field travel is filed under{" "}
+            <Link
+              href="/work/work-plans"
+              className="font-semibold text-orange-700 underline-offset-2 hover:underline dark:text-orange-300"
+            >
+              Work → Work Plans
+            </Link>
+            ; projects (phases, timeline) under{" "}
+            <Link
+              href="/work/projects"
+              className="font-semibold text-orange-700 underline-offset-2 hover:underline dark:text-orange-300"
+            >
+              Work → Projects
+            </Link>
+            .
+          </p>
         ) : null}
         {kpiMaintenanceAssignWork && formUnlocked ? (
           <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 md:col-span-2">
@@ -718,7 +527,7 @@ export function KpiDefinitionConsole({
         {formUnlocked ? (
           <div className="grid gap-3 md:col-span-2 md:grid-cols-[minmax(220px,1fr)_180px]">
             <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-600 dark:text-zinc-500">
-              {isProjectMode ? "Project name" : "Main Task"}
+              Main Task
               <input
                 type="text"
                 value={mainTaskDraft}
@@ -726,33 +535,31 @@ export function KpiDefinitionConsole({
                   setMainTaskDraft(e.target.value);
                   setLocalError(null);
                 }}
-                placeholder={isProjectMode ? "Name of the project" : "e.g. Reroute Connections"}
+                placeholder="e.g. Reroute Connections"
                 required
                 className={TASK_TITLE_INPUT_CLASS}
               />
             </label>
-            {!effectiveIsRecurring ? (
+            {!maintenanceIsRecurring ? (
               <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-600 dark:text-zinc-500">
                 Target date
                 <DatePickerField
                   value={mainTaskTargetDateDraft}
                   onChange={(e) => setMainTaskTargetDateDraft(e.target.value)}
-                  aria-label={isProjectMode ? "Project target date" : "Main task target date"}
+                  aria-label="Main task target date"
                   shellClassName="h-10"
                 />
               </label>
             ) : null}
             <p className="text-xs font-normal normal-case tracking-normal text-zinc-500 dark:text-zinc-400 md:col-span-2">
-              {isProjectMode
-                ? "With no sub-tasks, completion conditions apply on this project on the Task Board."
-                : "Works for recurring and one-off schedules — with no sub-tasks, completion conditions apply on this main task on the Task Board."}
-              {!effectiveIsRecurring
+              Works for recurring and one-off schedules — with no sub-tasks, completion conditions apply on this main task on the Task Board.
+              {!maintenanceIsRecurring
                 ? " Target date applies when there are no sub-tasks (delayed the day after if incomplete)."
                 : null}
             </p>
           </div>
         ) : null}
-        {formUnlocked && !isProjectMode ? (
+        {formUnlocked ? (
           <div className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-600 dark:text-zinc-500">
             Task schedule type
             <label className="flex items-center gap-2 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100">
@@ -797,12 +604,7 @@ export function KpiDefinitionConsole({
             </label>
           </div>
         ) : null}
-        {formUnlocked && isProjectMode ? (
-          <div className="rounded-xl border border-dashed border-zinc-300 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-            Projects are always one-off (non-recurring).
-          </div>
-        ) : null}
-        {formUnlocked && !isProjectMode && maintenanceIsRecurring ? (
+        {formUnlocked && maintenanceIsRecurring ? (
           <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-600 dark:text-zinc-500">
             Frequency
             <select
@@ -846,7 +648,6 @@ export function KpiDefinitionConsole({
           </label>
         ) : null}
         {formUnlocked &&
-        !isProjectMode &&
         maintenanceIsRecurring &&
         maintenanceFrequency === "Weekly" ? (
           <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-600 dark:text-zinc-500">
@@ -867,7 +668,6 @@ export function KpiDefinitionConsole({
           </label>
         ) : null}
         {formUnlocked &&
-        !isProjectMode &&
         maintenanceIsRecurring &&
         (maintenanceFrequency === "Monthly" ||
           maintenanceFrequency === "Quarterly" ||
@@ -898,11 +698,9 @@ export function KpiDefinitionConsole({
         <div className="rounded-xl border border-dashed border-zinc-300 px-3 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400 md:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p>
-              {isProjectMode
-                  ? "Projects are one-off. Add optional sub-tasks in the popup; without them, completion conditions apply on the project."
-                  : maintenanceIsRecurring
-                    ? "Sub-tasks are optional. Without them, completion conditions apply on the main task each cycle."
-                    : "Sub-tasks are optional. Without them, set a main task target date and complete work on the main task — delayed the day after target if still incomplete."}
+              {maintenanceIsRecurring
+                ? "Sub-tasks are optional. Without them, completion conditions apply on the main task each cycle."
+                : "Sub-tasks are optional. Without them, set a main task target date and complete work on the main task — delayed the day after target if still incomplete."}
             </p>
             {formUnlocked ? (
               <button
@@ -928,8 +726,8 @@ export function KpiDefinitionConsole({
           </p>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             Select one or more ways assignees can complete work on the Task Board. With no sub-tasks, these apply on
-            the {isProjectMode ? "project" : "main task"}
-            {effectiveIsRecurring ? " (recurring and one-off)." : "."}
+            the main task
+            {maintenanceIsRecurring ? " (recurring and one-off)." : "."}
           </p>
           <div className="mt-3 space-y-2">
             <label className="flex cursor-pointer items-start gap-2">
@@ -981,23 +779,21 @@ export function KpiDefinitionConsole({
               />
               <span>Numerical record (assignees enter a number when completing work)</span>
             </label>
-            {!isProjectMode ? (
-              <label className="flex cursor-pointer items-start gap-2">
-                <input
-                  type="checkbox"
-                  checked={invertedRecording}
-                  onChange={(e) => setInvertedRecording(e.target.checked)}
-                  className="mt-1"
-                />
-                <span>
-                  Inverted recording
-                  <span className="mt-0.5 block text-xs font-normal text-zinc-500 dark:text-zinc-400">
-                    Unchecked items count as 100%. Checking boxes lowers the recorded percent (incident /
-                    breach style).
-                  </span>
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                checked={invertedRecording}
+                onChange={(e) => setInvertedRecording(e.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                Inverted recording
+                <span className="mt-0.5 block text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                  Unchecked items count as 100%. Checking boxes lowers the recorded percent (incident /
+                  breach style).
                 </span>
-              </label>
-            ) : null}
+              </span>
+            </label>
           </div>
           {completionNumerical ? (
             <label className="mt-3 flex max-w-xs flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-600 dark:text-zinc-500">
@@ -1011,13 +807,13 @@ export function KpiDefinitionConsole({
                 className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-normal normal-case tracking-normal outline-none ring-orange-500/30 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               />
               <span className="text-xs font-normal normal-case tracking-normal text-zinc-500 dark:text-zinc-400">
-                {effectiveIsRecurring && subKpisDraft.length === 0
+                {maintenanceIsRecurring && subKpisDraft.length === 0
                   ? "Optional for recurring tasks with no sub-tasks — assignees set the target each cycle on the Task Board."
                   : "Assignees will see this target when recording their actual number on the Task Board."}
               </span>
             </label>
           ) : null}
-          {!effectiveIsRecurring ? (
+          {!maintenanceIsRecurring ? (
             <label className="mt-3 flex max-w-xs flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.14em] text-zinc-600 dark:text-zinc-500">
               Daily delay penalty
               <input
@@ -1061,7 +857,7 @@ export function KpiDefinitionConsole({
           ) : (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               Optional. Use Add Sub Tasks above to build a checklist, or Apply with none to use{" "}
-              {isProjectMode ? "project" : "main-task"} completion.
+              main-task completion.
             </p>
           )}
         </div>
@@ -1087,23 +883,18 @@ export function KpiDefinitionConsole({
 
       <DraftSubTasksPopup
         open={draftSubTasksOpen && formUnlocked}
-        taskLabel={mainTaskDraft.trim() || maintenanceTitle.trim() || "New task"}
+        taskLabel={mainTaskDraft.trim() || "New task"}
         items={subKpisDraft}
         segmented={draftUseSegments}
         segments={draftSegments}
-        canSegment={showSegmentedCreateOption && !isProjectMode}
-        canMakePhases={showSegmentedCreateOption && isProjectMode}
+        canSegment={showSegmentedCreateOption}
+        canMakePhases={false}
         minimumSegmentItems={MIN_SEGMENTED_SUBKPIS_FOR_CREATE}
-        hideDueDate={effectiveIsRecurring && maintenanceFrequency === "Daily"}
+        hideDueDate={maintenanceIsRecurring && maintenanceFrequency === "Daily"}
         allowDueDateRollWithCycle={
-          effectiveIsRecurring && maintenanceFrequency !== "Daily"
+          maintenanceIsRecurring && maintenanceFrequency !== "Daily"
         }
         parentDueDate={mainTaskTargetDateDraft}
-        checkReferenceHref={
-          (linkedJobOrderTicketId || fromJobOrderTicketId)?.trim()
-            ? `/agent/tickets/${encodeURIComponent((linkedJobOrderTicketId || fromJobOrderTicketId)!.trim())}`
-            : null
-        }
         onChange={setSubKpisDraft}
         onSegmentedChange={setDraftSegmentedMode}
         onSegmentsChange={setDraftSegments}

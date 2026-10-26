@@ -51,14 +51,10 @@ import {
   handleSetJobOrderApprovalAssignees,
 } from "@/modules/requests/job-order-approval-service";
 import {
-  handleCancelJobOrderProjectRequest,
   handleCompleteJobOrderExecution,
-  handleLinkJobOrderProject,
-  handleRequestJobOrderProject,
   handleSetJobOrderAssistanceTeam,
   handleSetJobOrderExecutionAssignee,
   handleSetJobOrderWorkers,
-  handleUnlinkJobOrderProject,
 } from "@/modules/requests/job-order-execution-service";
 
 /** NextResponse.json cannot serialize BigInt (e.g. Team.hrisCompanyId). */
@@ -694,69 +690,6 @@ export async function PATCH(
         session,
         operatorAgentId: operator?.id ?? null,
         canStaffMutateTicket,
-        roleIsAdmin,
-        roleIsCompanyAdmin,
-      });
-      if (res instanceof NextResponse) return res;
-      return NextResponse.json({
-        ...(res.ticket ? await ticketJsonWithAssigneeColor(res.ticket) : {}),
-        ...(res.meta ? { jobOrderApprovalMeta: res.meta } : {}),
-        ...(res.extra ?? {}),
-      });
-    }
-
-    if (action === "link_job_order_project") {
-      const res = await handleLinkJobOrderProject({
-        ticketId: id,
-        body,
-        canStaffMutateTicket,
-      });
-      if (res instanceof NextResponse) return res;
-      return NextResponse.json({
-        ...(res.ticket ? await ticketJsonWithAssigneeColor(res.ticket) : {}),
-        ...(res.meta ? { jobOrderApprovalMeta: res.meta } : {}),
-        ...(res.extra ?? {}),
-      });
-    }
-
-    if (action === "unlink_job_order_project") {
-      const res = await handleUnlinkJobOrderProject({
-        ticketId: id,
-        canStaffMutateTicket,
-      });
-      if (res instanceof NextResponse) return res;
-      return NextResponse.json({
-        ...(res.ticket ? await ticketJsonWithAssigneeColor(res.ticket) : {}),
-        ...(res.meta ? { jobOrderApprovalMeta: res.meta } : {}),
-        ...(res.extra ?? {}),
-      });
-    }
-
-    if (action === "request_job_order_project") {
-      const res = await handleRequestJobOrderProject({
-        ticketId: id,
-        ticket,
-        session,
-        body,
-        operatorAgentId: operator?.id ?? null,
-        operatorName: operator?.name ?? null,
-        isAssignedOperator,
-        roleIsAdmin,
-        roleIsCompanyAdmin,
-      });
-      if (res instanceof NextResponse) return res;
-      return NextResponse.json({
-        ...(res.ticket ? await ticketJsonWithAssigneeColor(res.ticket) : {}),
-        ...(res.meta ? { jobOrderApprovalMeta: res.meta } : {}),
-        ...(res.extra ?? {}),
-      });
-    }
-
-    if (action === "cancel_job_order_project_request") {
-      const res = await handleCancelJobOrderProjectRequest({
-        ticketId: id,
-        operatorAgentId: operator?.id ?? null,
-        isAssignedOperator,
         roleIsAdmin,
         roleIsCompanyAdmin,
       });

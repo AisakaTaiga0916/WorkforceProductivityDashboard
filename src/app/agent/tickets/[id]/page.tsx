@@ -34,7 +34,6 @@ import {
   reconcileJobOrderAwaitingExecutionAssignee,
   stampJobOrderCreatorOnCreate,
 } from "@/modules/requests/job-order-approval-db";
-import { getTicketLinkedKpiMaintenanceId } from "@/modules/requests/job-order-project";
 import { hasJobOrderJobOutputUploaded } from "@/modules/requests/job-order-attachments";
 import { parseIntakeScreenshotMeta } from "@/modules/requests/ticket-intake-screenshots-meta";
 import { resolveAgentIdsForOrgChartSection } from "@/modules/hierarchy/org-chart-section-roster";
@@ -468,23 +467,6 @@ export default async function AgentTicketPage({
       })
     : null;
 
-  let linkedJobOrderProjectAssigneeId: string | null = null;
-  let linkedJobOrderProjectAssigneeName: string | null = null;
-  if (isJobOrderRequest) {
-    const linkedProjectId = await getTicketLinkedKpiMaintenanceId(ticketForWorkspace.id);
-    if (linkedProjectId) {
-      const linkedProject = await prisma.kpiMaintenance.findUnique({
-        where: { id: linkedProjectId },
-        select: {
-          assignedAgentId: true,
-          assignedAgent: { select: { id: true, name: true } },
-        },
-      });
-      linkedJobOrderProjectAssigneeId = linkedProject?.assignedAgentId ?? null;
-      linkedJobOrderProjectAssigneeName = linkedProject?.assignedAgent?.name ?? null;
-    }
-  }
-
   return (
     <AgentTicketModalShell>
       <TrackRecentSearchVisit
@@ -592,10 +574,7 @@ export default async function AgentTicketPage({
             requestorCompanyTeamId={requestorCompanyTeamId}
             isPersonnel={isPersonnel}
             canAssignPaymentAccountingFinance={canAssignPaymentAccountingFinance}
-            canCreateJobOrderProject={isAdmin || companyCoordinator}
-            canRequestJobOrderProject={isPersonnel && isAssignedOperator && !isAdmin && !companyCoordinator}
-            linkedJobOrderProjectAssigneeId={linkedJobOrderProjectAssigneeId}
-            linkedJobOrderProjectAssigneeName={linkedJobOrderProjectAssigneeName}
+            canManageJobOrderExecution={isAdmin || companyCoordinator}
             jobOrderSendToSectionAgentIds={jobOrderSendToSectionAgentIds}
             jobOrderSendToSectionName={rfpSectionName}
             isJobOrderSendToDepartmentHead={isJobOrderSendToDepartmentHead}

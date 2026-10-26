@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { Handshake, Kanban, Users } from "lucide-react";
+import { Handshake, Users } from "lucide-react";
 import { cn } from "@/lib/cn";
 import {
   jobOrderSectionIdForKey,
@@ -11,7 +11,6 @@ import {
 } from "@/modules/requests/job-order-section-ids";
 
 type Props = {
-  showTaskBoard?: boolean;
   showExecutionTeam?: boolean;
   showAssistanceTeam?: boolean;
   activeSection: JobOrderScrollSection | null;
@@ -21,7 +20,6 @@ type Props = {
 };
 
 const HASH_BY_SECTION: Record<JobOrderScrollSection, string> = {
-  "task-board": "jo-task-board",
   "execution-team": "jo-execution-team",
   "assistance-team": "jo-assistance-team",
 };
@@ -38,7 +36,6 @@ function selectSection(
 }
 
 export function JobOrderPostApprovalNav({
-  showTaskBoard = true,
   showExecutionTeam = true,
   showAssistanceTeam = false,
   activeSection,
@@ -48,11 +45,10 @@ export function JobOrderPostApprovalNav({
   useEffect(() => {
     const section = resolveJobOrderSectionFromHash(window.location.hash);
     if (!section) return;
-    if (section === "task-board" && !showTaskBoard) return;
     if (section === "execution-team" && !showExecutionTeam) return;
     if (section === "assistance-team" && !showAssistanceTeam) return;
     onSelectSection(section);
-  }, [showTaskBoard, showExecutionTeam, showAssistanceTeam, onSelectSection]);
+  }, [showExecutionTeam, showAssistanceTeam, onSelectSection]);
 
   useEffect(() => {
     if (!activeSection) return;
@@ -62,7 +58,7 @@ export function JobOrderPostApprovalNav({
     return () => window.clearTimeout(timer);
   }, [activeSection]);
 
-  if (!showTaskBoard && !showExecutionTeam && !showAssistanceTeam) return null;
+  if (!showExecutionTeam && !showAssistanceTeam) return null;
 
   const btnClass =
     "inline-flex min-h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition";
@@ -75,22 +71,6 @@ export function JobOrderPostApprovalNav({
         </p>
       ) : null}
       <div className={compact ? "flex w-full flex-wrap gap-2" : "flex flex-wrap gap-2"}>
-        {showTaskBoard ? (
-          <button
-            type="button"
-            aria-pressed={activeSection === "task-board"}
-            onClick={() => selectSection("task-board", onSelectSection)}
-            className={cn(
-              btnClass,
-              activeSection === "task-board"
-                ? "border-orange-500 bg-orange-500/25 text-orange-950 ring-2 ring-orange-400/60 dark:border-orange-400 dark:bg-orange-950/60 dark:text-orange-50"
-                : "border-orange-400/50 bg-orange-500/10 text-orange-950 hover:bg-orange-500/20 dark:border-orange-500/40 dark:bg-orange-950/30 dark:text-orange-100 dark:hover:bg-orange-950/45",
-            )}
-          >
-            <Kanban className="size-3.5 shrink-0" aria-hidden />
-            Link Task Board task
-          </button>
-        ) : null}
         {showExecutionTeam ? (
           <button
             type="button"

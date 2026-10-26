@@ -57,6 +57,7 @@ import {
 } from "@/modules/tasks/it-project-subkpis";
 import { helpdeskSupportPercent } from "@/modules/tasks/kpis";
 import { OPEN_PIPELINE_STATUSES } from "@/modules/requests/active-request-statuses";
+import { PROCEDURAL_REQUEST_TYPES } from "@/modules/requests/request-types";
 import { kpiMainTaskLabel } from "@/modules/tasks/kpi-main-task";
 import { normalizePersonName } from "@/lib/person-name";
 import { DEFAULT_TIME_ZONE, normalizeTimeZone, type KpiFrequencyCode } from "@/modules/tasks/kpi-recurrence";
@@ -611,8 +612,6 @@ async function loadJobOrderWorkerWorkInWindow(
       ticket_number: string;
       assigned_agent_id: string | null;
       job_order_approval_meta: unknown;
-      linked_kpi_maintenance_id: string | null;
-      project_assignee_id: string | null;
       updated_at: Date;
     }>
   >`
@@ -622,11 +621,8 @@ async function loadJobOrderWorkerWorkInWindow(
       t.ticket_number,
       t.assigned_agent_id,
       t.job_order_approval_meta,
-      t.linked_kpi_maintenance_id,
-      k.assigned_agent_id AS project_assignee_id,
       t.updated_at
     FROM tickets t
-    LEFT JOIN kpi_maintenance k ON k.id = t.linked_kpi_maintenance_id
     WHERE t.request_type = 'JOB_ORDER'
       AND t.job_order_approval_meta->>'proceduralStep' = 'DONE'
       AND t.status IN ('FOR_CONFIRMATION', 'RESOLVED', 'CLOSED')
@@ -640,7 +636,6 @@ async function loadJobOrderWorkerWorkInWindow(
     const creditIds = jobOrderKpiCreditAgentIds({
       meta,
       ticketAssignedAgentId: row.assigned_agent_id,
-      linkedProjectAssigneeId: row.project_assignee_id,
     });
     for (const id of creditIds) agentIds.add(id);
     return { ...row, meta, creditIds };
@@ -847,13 +842,6 @@ function boardTaskPenalty(t: TaskRow, nowMs: number): number {
   const units = penaltyAccrualUnits(days, normalizeDelayPenaltyFrequency(t.delayPenaltyFrequency));
   return Math.max(0, Math.round(rate * units));
 }
-
-/** Procedural RFPs / IRS / FTR use role-seat KPIs — never board-assignee credit. */
-const PROCEDURAL_REQUEST_TYPES = [
-  "REQUEST_FOR_PAYMENT",
-  "ITEM_REQUISITION_SLIP",
-  "FUND_TRANSFER_REQUEST",
-] as const;
 
 async function loadTicketCountsByAgent(
   start: Date,

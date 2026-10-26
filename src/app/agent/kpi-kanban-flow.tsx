@@ -2,7 +2,15 @@
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, GripVertical, ListChecks, Maximize2, Pencil, X } from "lucide-react";
+import {
+  ChevronDown,
+  GripVertical,
+  ListChecks,
+  Maximize2,
+  Pencil,
+  Plus,
+  X,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
 import { AgentAssigneeSearch, AssigneeAvatar, type AssigneeSearchAgent } from "@/components/agent-assignee-search";
 import { normalizePersonName } from "@/lib/person-name";
@@ -113,25 +121,14 @@ import {
 import type { TaskScreenshotSlot } from "@/modules/tasks/task-screenshot-meta";
 import { parseTaskScreenshotMetaList } from "@/modules/tasks/task-screenshot-meta";
 import { KpiDefinitionConsole } from "@/components/KpiDefinitionConsole";
+import { useOneShotQueryParam, useWorkCreateDeepLink } from "@/lib/work-create-deep-link";
+import { WORK_APPROVALS_PARAM } from "@/lib/work-deep-link-params";
+import { WORK_ACTION_ICON_CLASS, WorkTabActions } from "@/components/WorkTabActions";
 import { SeekAssistanceModal } from "@/components/task-board/SeekAssistanceModal";
 import { SubTasksManagerPopup } from "@/components/task-board/SubTasksManagerPopup";
 import { TravelOrderSummaryPanel } from "@/components/task-board/TravelOrderSummaryPanel";
-import { TravelOrderRequestModal } from "@/components/task-board/TravelOrderRequestModal";
-import { TravelOrderApprovalModal } from "@/components/task-board/TravelOrderApprovalModal";
-import { TravelOrderRfpEditModal } from "@/components/task-board/TravelOrderRfpEditModal";
-import { TravelOrderOfflineBanner } from "@/components/offline/TravelOrderOfflineBanner";
 import { TaskBoardPopup } from "@/components/task-board/TaskBoardPopup";
-import type { TravelOrderDto } from "@/modules/work-plans/travel-order";
-import { isWorkPlanOrder } from "@/modules/work-plans/work-plan";
-import {
-  cacheTravelOrders,
-  deleteOfflineDraft,
-  listAllCachedTravelOrders,
-  listOfflineDrafts,
-  offlineDraftAsListItem,
-} from "@/lib/offline/travel-order-offline-db";
 import { isElevatedPlatformRole, isPlatformSuperAdminPortalRole } from "@/lib/staff-role";
-import { isBrowserOnline, fetchTravelOrderWithTimeout, isTravelOrderNetworkFailure, flushTravelOrderPendingQueue, subscribeTravelOrderConnectivity } from "@/lib/offline/travel-order-sync";
 import { DatePickerField } from "@/components/ui/DatePickerField";
 import { ApprovalStepper } from "@/components/ui/approval-stepper";
 import { taskCompletionVerificationUiSteps } from "@/modules/tasks/task-completion-verification-ui";
@@ -175,28 +172,6 @@ function subTaskStatusLabel(s: SubKpiItem, nowMs: number, timeZone: string): str
   if (isItProjectSubTaskDelayed(s, nowMs, timeZone)) return "Delayed";
   if (hasValidActualDate(s)) return "On time";
   return "Pending";
-}
-
-/** Thin-line icon: travel ticket + map pin (matches board outline iconography). */
-function TravelOrdersIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M3.75 8.25a1.75 1.75 0 0 1 1.75-1.75h8.5a1.75 1.75 0 0 1 1.75 1.75v1.1a1.15 1.15 0 1 0 0 2.3v1.1a1.75 1.75 0 0 1-1.75 1.75h-8.5a1.75 1.75 0 0 1-1.75-1.75v-1.1a1.15 1.15 0 1 0 0-2.3v-1.1Z" />
-      <path d="M7 9.25h4.25M7 12h3" />
-      <path d="M18.25 6.75c0 2.35-2.75 5.25-2.75 5.25S12.75 9.1 12.75 6.75a2.75 2.75 0 1 1 5.5 0Z" />
-      <circle cx="15.5" cy="6.75" r="1" fill="currentColor" stroke="none" />
-    </svg>
-  );
 }
 
 function ChecklistProgressRing({
@@ -289,7 +264,7 @@ type KpiRecord = {
     personInCharge?: string | null;
     isWorkPlan?: boolean;
   } | null;
-  /** Job Orders linked to this Task Board project. */
+  /** Read-only origin trace: Job Order this legacy project was created from. */
   linkedJobOrders?: Array<{ id: string; ticketNumber: string; title: string }>;
 };
 
@@ -514,7 +489,6 @@ export function AgentKpiKanbanFlow({
   assignedAgentFilterId = null,
   showAdminTaskManagement = false,
   focusTaskId = null,
-  fromJobOrderTicketId = null,
   sessionRole = null,
   searchQuery = "",
   categoryFilter = "all",
@@ -530,13 +504,11 @@ export function AgentKpiKanbanFlow({
   showAdminTaskManagement?: boolean;
   /** Open this task's details once rows are loaded (e.g. notification deep link). */
   focusTaskId?: string | null;
-  /** Open Task management prefilled from a Job Order. */
-  fromJobOrderTicketId?: string | null;
   /** Portal role of the signed-in user (SSR). SuperAdmin-only gates use this. */
   sessionRole?: string | null;
   /** Free-text search (matched against task title). */
   searchQuery?: string;
-  /** Task Board category filter: all | task | project | field. */
+  /** Task Board category filter: all | task | field | project (legacy rows, view-only). */
   categoryFilter?: string;
   /** Frequency filter: all or a TASK_FREQUENCY_DONUT_KEYS value (ONE-OFF, DAILY, ...). */
   frequencyFilter?: string;
@@ -596,27 +568,6 @@ export function AgentKpiKanbanFlow({
   const [taskVerificationEnabled, setTaskVerificationEnabled] = useState(true);
   /** Pending approval task ids the viewer has already opened in For My Approval. */
   const [approvalSeenIds, setApprovalSeenIds] = useState<Set<string>>(() => new Set());
-  const [fromJobOrderId, setFromJobOrderId] = useState<string | null>(
-    fromJobOrderTicketId?.trim() || null,
-  );
-  const [travelOrdersOpen, setTravelOrdersOpen] = useState(false);
-  const [createTravelOrderOpen, setCreateTravelOrderOpen] = useState(false);
-  const [resumeTravelOrderDraftId, setResumeTravelOrderDraftId] = useState<string | null>(null);
-  const [companyTravelOrders, setCompanyTravelOrders] = useState<TravelOrderDto[]>([]);
-  const [companyTravelOrdersLoading, setCompanyTravelOrdersLoading] = useState(false);
-  const [companyTravelOrdersError, setCompanyTravelOrdersError] = useState<string | null>(null);
-  /** Draft id awaiting a second tap to confirm removal (SuperAdmin only). */
-  const [confirmRemoveDraftId, setConfirmRemoveDraftId] = useState<string | null>(null);
-  const [viewTravelOrder, setViewTravelOrder] = useState<{
-    taskId: string;
-    travelOrderId: string | null;
-    title: string;
-  } | null>(null);
-  const [editTravelOrderRfp, setEditTravelOrderRfp] = useState<{
-    taskId: string;
-    travelOrderId: string;
-    linkedRfpTicketId?: string | null;
-  } | null>(null);
   const [mobileLane, setMobileLane] = useState<KpiBoardStatus>("CURRENT");
   const [laneRegisterKey, setLaneRegisterKey] = useState(0);
   const [subAssigneePeersByMainId, setSubAssigneePeersByMainId] = useState<Record<string, AssignableAgent[]>>({});
@@ -985,15 +936,8 @@ export function AgentKpiKanbanFlow({
     });
   }, [focusTaskId, rows, showAdminTaskManagement]);
 
-  useEffect(() => {
-    const joId = fromJobOrderTicketId?.trim() || null;
-    queueMicrotask(() => {
-      setFromJobOrderId(joId);
-      if (joId && (showAdminTaskManagement || canAssignWork)) {
-        setTaskManagementOpen(true);
-      }
-    });
-  }, [fromJobOrderTicketId, showAdminTaskManagement, canAssignWork]);
+  const openTaskManagement = useCallback(() => setTaskManagementOpen(true), []);
+  useWorkCreateDeepLink(showAdminTaskManagement, openTaskManagement);
 
   function openActiveTask(taskId: string) {
     setActiveTaskId(taskId);
@@ -2236,14 +2180,6 @@ export function AgentKpiKanbanFlow({
   );
 
   const approvalOperatorKey = operatorAgentId?.trim() || "unknown";
-  const forMyApprovalUnreadCount = useMemo(() => {
-    let n = 0;
-    for (const row of forMyApprovalTasks) {
-      if (!approvalSeenIds.has(row.id)) n += 1;
-    }
-    return n;
-  }, [forMyApprovalTasks, approvalSeenIds]);
-
   useEffect(() => {
     if (!operatorAgentId) return;
     queueMicrotask(() => {
@@ -2270,7 +2206,7 @@ export function AgentKpiKanbanFlow({
     };
   }, []);
 
-  function openForMyApproval() {
+  const openForMyApproval = useCallback(() => {
     const pendingIds = new Set(forMyApprovalTasks.map((row) => row.id));
     // Drop stale ids (already verified / no longer pending) and mark current queue as seen.
     const nextSeen = new Set([...approvalSeenIds].filter((id) => pendingIds.has(id)));
@@ -2278,168 +2214,9 @@ export function AgentKpiKanbanFlow({
     setApprovalSeenIds(nextSeen);
     writeTaskApprovalSeenIds(approvalOperatorKey, nextSeen);
     setForMyApprovalOpen(true);
-  }
+  }, [forMyApprovalTasks, approvalSeenIds, approvalOperatorKey]);
+  useOneShotQueryParam(WORK_APPROVALS_PARAM, rows.length > 0, openForMyApproval);
 
-  const loadLocalTravelOrderListItems = useCallback(async () => {
-    // Only queued offline creates are listed — local "saved draft" rows are intentionally
-    // excluded from the Travel Orders list so drafts don't clutter the modal.
-    const pendingRows = await listOfflineDrafts("pending");
-    return pendingRows
-      .filter((d) => !d.serverTravelOrderId)
-      .map(offlineDraftAsListItem);
-  }, []);
-
-  const loadSavedTravelOrderDraftItems = useCallback(async () => {
-    // Saved drafts (syncStatus "draft") are appended last so they stay resumable
-    // and removable without cluttering the active list.
-    const draftRows = await listOfflineDrafts("draft");
-    return draftRows
-      .filter((d) => !d.serverTravelOrderId)
-      .map(offlineDraftAsListItem);
-  }, []);
-
-  async function removeDraftTravelOrder(localId: string) {
-    if (confirmRemoveDraftId !== localId) {
-      setConfirmRemoveDraftId(localId);
-      window.setTimeout(() => {
-        setConfirmRemoveDraftId((prev) => (prev === localId ? null : prev));
-      }, 4000);
-      return;
-    }
-    setConfirmRemoveDraftId(null);
-    try {
-      await deleteOfflineDraft(localId);
-    } catch {
-      // Draft already gone — treat as removed.
-    }
-    void reloadCompanyTravelOrders();
-  }
-
-  const reloadCompanyTravelOrders = useCallback(async () => {
-    setCompanyTravelOrdersLoading(true);
-    setCompanyTravelOrdersError(null);
-
-    const localItems = await loadLocalTravelOrderListItems().catch(() => []);
-    const savedDrafts = await loadSavedTravelOrderDraftItems().catch(() => []);
-    const cachedEarly = await listAllCachedTravelOrders().catch(() => []);
-    // Paint cache immediately so the modal is never empty while the network hangs.
-    if (localItems.length > 0 || cachedEarly.length > 0 || savedDrafts.length > 0) {
-      setCompanyTravelOrders([...localItems, ...cachedEarly, ...savedDrafts]);
-    }
-
-    try {
-      if (!isBrowserOnline()) {
-        if (localItems.length === 0 && cachedEarly.length === 0 && savedDrafts.length === 0) {
-          setCompanyTravelOrdersError(
-            "You are offline and no cached travel orders are available yet.",
-          );
-        }
-        return;
-      }
-
-      async function fetchListOnce(timeoutMs: number): Promise<TravelOrderDto[]> {
-        const res = await fetchTravelOrderWithTimeout(
-          "/api/travel-orders",
-          { cache: "no-store", credentials: "same-origin" },
-          timeoutMs,
-        );
-        const body = (await res.json().catch(() => ({}))) as {
-          travelOrders?: TravelOrderDto[];
-          error?: string;
-        };
-        if (!res.ok) {
-          throw new Error(body.error ?? "Could not load travel orders.");
-        }
-        return Array.isArray(body.travelOrders) ? body.travelOrders : [];
-      }
-
-      let list: TravelOrderDto[];
-      try {
-        list = await fetchListOnce(45_000);
-      } catch (firstErr) {
-        // One automatic retry after a short pause (covers cold compile / transient abort).
-        if (!isTravelOrderNetworkFailure(firstErr)) throw firstErr;
-        await new Promise((r) => setTimeout(r, 1500));
-        list = await fetchListOnce(90_000);
-      }
-
-      setCompanyTravelOrders([...localItems, ...list, ...savedDrafts]);
-      setCompanyTravelOrdersError(null);
-      void cacheTravelOrders(list);
-    } catch (err: unknown) {
-      const hasCache =
-        localItems.length > 0 || cachedEarly.length > 0 || savedDrafts.length > 0;
-      if (!hasCache) {
-        setCompanyTravelOrders([]);
-      }
-      const offline = typeof navigator !== "undefined" && !navigator.onLine;
-      if (offline) {
-        setCompanyTravelOrdersError(
-          hasCache
-            ? "Showing cached travel orders (offline)."
-            : "You are offline and no cached travel orders are available yet.",
-        );
-      } else if (isTravelOrderNetworkFailure(err)) {
-        setCompanyTravelOrdersError(
-          hasCache
-            ? "Still refreshing from the server — showing cached travel orders."
-            : "Could not reach the server for travel orders. Try again in a moment.",
-        );
-      } else {
-        setCompanyTravelOrdersError(
-          err instanceof Error
-            ? hasCache
-              ? `${err.message} Showing cached travel orders.`
-              : err.message
-            : "Could not load travel orders.",
-        );
-      }
-    } finally {
-      setCompanyTravelOrdersLoading(false);
-    }
-  }, [loadLocalTravelOrderListItems]);
-
-  // Warm-compile travel-order APIs as soon as the tasks page mounts (cold compile can exceed 20s).
-  useEffect(() => {
-    if (!isBrowserOnline()) return;
-    const ctrl = new AbortController();
-    const warm = (url: string) =>
-      fetch(url, {
-        cache: "no-store",
-        credentials: "same-origin",
-        signal: ctrl.signal,
-      }).catch(() => undefined);
-    void warm("/api/travel-orders");
-    void warm("/api/kpi-maintenance/field-assignment");
-    return () => {
-      ctrl.abort();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!travelOrdersOpen) return;
-    let cancelled = false;
-    // Do not wait for offline flush — load the list immediately.
-    void reloadCompanyTravelOrders();
-    void flushTravelOrderPendingQueue().catch(() => undefined);
-
-    if (typeof navigator !== "undefined" && navigator.onLine) {
-      const worker = navigator.serviceWorker?.controller;
-      worker?.postMessage({
-        type: "WARM_TRAVEL_ORDER_SHELL",
-        urls: ["/offline-travel-orders.html", "/work/tasks", window.location.pathname],
-      });
-    }
-    const unsub = subscribeTravelOrderConnectivity(() => {
-      if (!isBrowserOnline() || cancelled) return;
-      void reloadCompanyTravelOrders();
-      void flushTravelOrderPendingQueue().catch(() => undefined);
-    });
-    return () => {
-      cancelled = true;
-      unsub();
-    };
-  }, [travelOrdersOpen, reloadCompanyTravelOrders]);
   const agentNameById = useMemo(() => {
     const all = [...agents, ...allAssignableAgents, ...Object.values(subAssigneePeersByMainId).flat()];
     return new Map(dedupeAssignableAgents(all).map((a) => [a.id, a.name] as const));
@@ -4874,7 +4651,7 @@ export function AgentKpiKanbanFlow({
               {(activeTask.linkedJobOrders?.length ?? 0) > 0 ? (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-                    Linked J.O.
+                    Origin J.O.
                   </span>
                   {activeTask.linkedJobOrders!.map((jo) => (
                     <a
@@ -5274,64 +5051,19 @@ export function AgentKpiKanbanFlow({
   return (
     <section className="mt-3 min-w-0 space-y-3 md:space-y-4">
       <PointerDragGhostLayer ghost={kpiStatusDrag.ghost} />
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex min-w-0 flex-wrap gap-2">
-          {showAdminTaskManagement ? (
-            <button
-              type="button"
-              onClick={() => setTaskManagementOpen(true)}
-              className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-orange-500/40 dark:hover:bg-orange-500/10 dark:hover:text-orange-100 sm:px-4"
-            >
-              Add Task
-            </button>
-          ) : null}
+      {showAdminTaskManagement ? (
+        <WorkTabActions>
           <button
             type="button"
-            onClick={() => openForMyApproval()}
-            className="relative inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-orange-500/40 dark:hover:bg-orange-500/10 dark:hover:text-orange-100 sm:px-4"
-            aria-label={
-              forMyApprovalUnreadCount > 0
-                ? `For My Approval, ${forMyApprovalUnreadCount} new`
-                : "For My Approval"
-            }
+            onClick={() => setTaskManagementOpen(true)}
+            className={WORK_ACTION_ICON_CLASS}
+            aria-label="Add Task"
+            title="Add Task"
           >
-            For My Approval
-            {forMyApprovalUnreadCount > 0 ? (
-              <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-[18px] text-white shadow-sm">
-                {forMyApprovalUnreadCount > 9 ? "9+" : forMyApprovalUnreadCount}
-              </span>
-            ) : forMyApprovalTasks.length > 0 ? (
-              <span className="rounded-full bg-orange-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                {forMyApprovalTasks.length}
-              </span>
-            ) : null}
+            <Plus className="size-4" aria-hidden />
           </button>
-          <button
-            type="button"
-            onClick={() => setTravelOrdersOpen(true)}
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 transition hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:border-orange-500/40 dark:hover:bg-orange-500/10 dark:hover:text-orange-100 sm:px-4"
-          >
-            <TravelOrdersIcon className="size-4 shrink-0" />
-            Travel Orders
-          </button>
-        </div>
-      </div>
-      <div className="hidden md:block">
-        <h3 className="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-600 dark:text-zinc-500">
-          Task Kanban (drag to update)
-        </h3>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Cards are grouped by schedule type (One-off / Daily / Weekly / Monthly / Quarterly), then
-          Projects and Field Assignment — same layout as Task Metrics. Hold and slide a task to{" "}
-          <strong>Done</strong> or <strong>Current</strong> (touch or mouse).{" "}
-          <span className="text-zinc-500 dark:text-zinc-500">
-            The <strong>Delayed</strong> column applies to <strong>IT Project Implementation</strong> tasks
-            (sub-task past due or actual after due), and to <strong>one-off</strong> tasks the day after each
-            sub-task target date if still incomplete (or when the actual date is on or after that boundary).
-            Fully complete but late tasks stay in <strong>Delayed</strong>, not Done.
-          </span>
-        </p>
-      </div>
+        </WorkTabActions>
+      ) : null}
       {hasBoardRows ? (
         <div
           role="tablist"
@@ -5413,7 +5145,7 @@ export function AgentKpiKanbanFlow({
                 categoryFilter === "field"
                   ? "Field Assignment"
                   : categoryFilter === "project"
-                    ? "Project"
+                    ? "legacy project"
                     : "Task"
               } cards match this filter.`
             : companyFilterTeamId
@@ -5627,7 +5359,7 @@ export function AgentKpiKanbanFlow({
                               )}
                               {(r.linkedJobOrders?.length ?? 0) > 0 ? (
                                 <p className="mt-1 truncate text-[11px] font-medium text-orange-800 dark:text-orange-200">
-                                  J.O.{" "}
+                                  Origin J.O.{" "}
                                   {r.linkedJobOrders!.map((jo) => jo.ticketNumber).join(", ")}
                                 </p>
                               ) : null}
@@ -5892,11 +5624,6 @@ export function AgentKpiKanbanFlow({
       >
         <KpiDefinitionConsole
           embedded
-          fromJobOrderTicketId={fromJobOrderId}
-          onFromJobOrderConsumed={() => {
-            setFromJobOrderId(null);
-            void load();
-          }}
           onMaintenanceRecordsUpdated={() => void load()}
         />
       </TaskBoardPopup>
@@ -6029,230 +5756,6 @@ export function AgentKpiKanbanFlow({
           </ul>
         )}
       </TaskBoardPopup>
-      <TaskBoardPopup
-        open={travelOrdersOpen}
-        title="Travel Orders"
-        description="Travel orders for your company, plus any where you are an approver or the person-in-charge. Open a row to view details and approvals."
-        onClose={() => setTravelOrdersOpen(false)}
-        size="lg"
-      >
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-zinc-600 dark:text-zinc-400">
-            Includes company travel orders and ones you prepare or approve. Approved orders stay viewable here.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setResumeTravelOrderDraftId(null);
-              setCreateTravelOrderOpen(true);
-            }}
-            className="rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-500"
-          >
-            New Travel Order
-          </button>
-        </div>
-        <TravelOrderOfflineBanner className="mb-3" />
-        {companyTravelOrdersError ? (
-          <div className="mb-3 flex items-start justify-between gap-3 rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-200">
-            <p className="min-w-0 flex-1">{companyTravelOrdersError}</p>
-            <button
-              type="button"
-              onClick={() => void reloadCompanyTravelOrders()}
-              disabled={companyTravelOrdersLoading}
-              className="shrink-0 rounded-md border border-rose-400/50 bg-rose-500/15 px-2.5 py-1 font-semibold text-rose-800 hover:bg-rose-500/25 disabled:opacity-60 dark:text-rose-100"
-            >
-              {companyTravelOrdersLoading ? "Retrying…" : "Retry"}
-            </button>
-          </div>
-        ) : null}
-        {companyTravelOrdersLoading && companyTravelOrders.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-zinc-300 px-4 py-10 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-500">
-            Loading travel orders…
-          </p>
-        ) : companyTravelOrders.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-zinc-300 px-4 py-10 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:text-zinc-500">
-            No travel orders for your company yet. Click <strong>New Travel Order</strong> to create one.
-          </div>
-        ) : (
-          <ul className="space-y-2">
-            {companyTravelOrders.map((order) => {
-              const isDraft = order.status === "DRAFT";
-              const pendingSync = order.status === "PENDING_SYNC";
-              const workPlan = isWorkPlanOrder(order);
-              const meta = workPlan ? order.workPlanMeta : null;
-              const preparedBy = order.createdByAgent?.name?.trim() || null;
-              const personInCharge =
-                meta?.personInChargeName?.trim() ||
-                meta?.requestingParty?.trim() ||
-                null;
-              const subtitleParts: string[] = [];
-              if (preparedBy) subtitleParts.push(`Prepared by: ${preparedBy}`);
-              if (personInCharge && personInCharge !== preparedBy) {
-                subtitleParts.push(`Person-in-Charge: ${personInCharge}`);
-              } else if (meta?.departmentBusinessUnit?.trim()) {
-                subtitleParts.push(meta.departmentBusinessUnit.trim());
-              }
-              if (pendingSync) subtitleParts.push("Saved offline — will sync when online");
-              return (
-                <li key={order.id} className="flex items-stretch gap-1.5">
-                  <button
-                    type="button"
-                    disabled={pendingSync}
-                    onClick={() => {
-                      if (pendingSync) return;
-                      if (isDraft) {
-                        setTravelOrdersOpen(false);
-                        setResumeTravelOrderDraftId(order.id);
-                        setCreateTravelOrderOpen(true);
-                        return;
-                      }
-                      if (!order.kpiMaintenanceId) return;
-                      const taskId = order.kpiMaintenanceId;
-                      const onBoard = rows.some((row) => row.id === taskId);
-                      setTravelOrdersOpen(false);
-                      if (onBoard) {
-                        openActiveTask(taskId);
-                        return;
-                      }
-                      setViewTravelOrder({
-                        taskId,
-                        travelOrderId: order.id,
-                        title:
-                          order.orderRequest?.trim() ||
-                          order.kpiMainTask ||
-                          order.kpiTitle ||
-                          "Travel Order",
-                      });
-                    }}
-                    className="flex w-full items-start justify-between gap-3 rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-3 text-left transition hover:border-orange-400/60 hover:bg-orange-50/50 disabled:cursor-default disabled:opacity-90 dark:border-zinc-700 dark:bg-zinc-950/50 dark:hover:border-orange-500/40 dark:hover:bg-orange-950/20"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-[10px] font-bold uppercase tracking-[0.14em] text-orange-800 dark:text-orange-200">
-                        Travel Order
-                      </p>
-                      <p className="mt-1 truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                        {order.orderRequest?.trim() ||
-                          order.kpiMainTask ||
-                          "Travel Order for Management Approval"}
-                      </p>
-                      <p className="mt-1 text-xs text-zinc-500">
-                        {isDraft
-                          ? "Saved draft — open to continue editing"
-                          : subtitleParts.length > 0
-                            ? subtitleParts.join(" Â· ")
-                            : "Open to view details and approvals"}
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-                      {isDraft ? "DRAFT" : pendingSync ? "PENDING SYNC" : order.status}
-                    </span>
-                  </button>
-                  {(isDraft || pendingSync) ? (
-                    <button
-                      type="button"
-                      onClick={() => void removeDraftTravelOrder(order.id)}
-                      className={
-                        confirmRemoveDraftId === order.id
-                          ? "shrink-0 self-center rounded-xl border border-rose-400 bg-rose-600 px-2.5 py-3 text-[11px] font-bold text-white hover:bg-rose-500"
-                          : "shrink-0 self-center rounded-xl border border-rose-300 bg-white px-2.5 py-3 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-500/40 dark:bg-zinc-950 dark:text-rose-300 dark:hover:bg-rose-950/30"
-                      }
-                      title={
-                        pendingSync
-                          ? "Discard this offline queue item (stored on this device)"
-                          : "Remove this draft travel order (stored on this device)"
-                      }
-                    >
-                      {confirmRemoveDraftId === order.id
-                        ? "Confirm remove?"
-                        : pendingSync
-                          ? "Discard"
-                          : "Remove draft"}
-                    </button>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </TaskBoardPopup>
-      <TravelOrderRequestModal
-        open={createTravelOrderOpen}
-        mainTaskName=""
-        allowEditDetails
-        companyScopeAgentId={operatorAgentId}
-        resumeLocalId={resumeTravelOrderDraftId}
-        onClose={() => {
-          setCreateTravelOrderOpen(false);
-          setResumeTravelOrderDraftId(null);
-        }}
-        onDraftSaved={() => {
-          setCreateTravelOrderOpen(false);
-          setResumeTravelOrderDraftId(null);
-          void reloadCompanyTravelOrders();
-        }}
-        onCreated={({ kpiId, travelOrderId, linkedRfpTicketId, offlineQueued }) => {
-          setCreateTravelOrderOpen(false);
-          setResumeTravelOrderDraftId(null);
-          if (offlineQueued) {
-            void reloadCompanyTravelOrders();
-            return;
-          }
-          // After submit, open the linked RFP editor so the requestor can review/edit.
-          if (travelOrderId) {
-            setEditTravelOrderRfp({
-              taskId: kpiId,
-              travelOrderId,
-              linkedRfpTicketId: linkedRfpTicketId ?? null,
-            });
-          } else {
-            setViewTravelOrder({
-              taskId: kpiId,
-              travelOrderId: null,
-              title: "Travel Order",
-            });
-          }
-          queueMicrotask(() => {
-            void reloadCompanyTravelOrders();
-            void load();
-          });
-        }}
-      />
-      <TravelOrderRfpEditModal
-        open={Boolean(editTravelOrderRfp)}
-        taskId={editTravelOrderRfp?.taskId ?? null}
-        travelOrderId={editTravelOrderRfp?.travelOrderId ?? null}
-        initialTicketId={editTravelOrderRfp?.linkedRfpTicketId ?? null}
-        onClose={() => setEditTravelOrderRfp(null)}
-      />
-      <TravelOrderApprovalModal
-        open={Boolean(viewTravelOrder)}
-        taskId={viewTravelOrder?.taskId ?? null}
-        travelOrderId={viewTravelOrder?.travelOrderId ?? null}
-        title={viewTravelOrder?.title}
-        description="View details and management approvals for this travel order."
-        operatorAgentId={operatorAgentId}
-        canAssignWork={canAssignWork}
-        canCheckIn
-        onClose={() => setViewTravelOrder(null)}
-        onUpdated={() => {
-          void reloadCompanyTravelOrders();
-          void load();
-        }}
-        onEditLinkedRfp={
-          viewTravelOrder?.travelOrderId
-            ? () => {
-                const toId = viewTravelOrder.travelOrderId;
-                if (!toId) return;
-                const taskId = viewTravelOrder.taskId;
-                setViewTravelOrder(null);
-                setEditTravelOrderRfp({
-                  taskId,
-                  travelOrderId: toId,
-                });
-              }
-            : undefined
-        }
-      />
       {(() => {
         return (
           <SubTasksManagerPopup

@@ -80,10 +80,10 @@ export default async function Home() {
                 Open agent console
               </Link>
               <Link
-                href="/insights"
+                href="/agent/reports"
                 className="inline-flex items-center justify-center rounded-full border border-zinc-400 px-6 py-2.5 text-sm font-semibold text-zinc-800 transition hover:border-zinc-600 hover:text-zinc-950 dark:border-zinc-500 dark:text-zinc-100 dark:hover:border-zinc-300 dark:hover:text-white"
               >
-                View KPIs
+                View reports
               </Link>
             </div>
           </section>

@@ -24,7 +24,7 @@ export default async function WorkLayout({ children }: { children: React.ReactNo
             Work
           </h1>
           <p className="mt-1 hidden text-sm text-zinc-600 dark:text-zinc-400 sm:block">
-            Tasks and projects in one place.
+            Tasks, projects, and work plans in one place.
           </p>
         </div>
         <WorkTabs />

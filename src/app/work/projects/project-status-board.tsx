@@ -8,8 +8,10 @@ import {
 } from "@/modules/projects/project-status";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import { useWorkCreateDeepLink } from "@/lib/work-create-deep-link";
+import { WORK_ACTION_ICON_CLASS, WorkTabActions } from "@/components/WorkTabActions";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarDays, Plus, Trash2, X } from "lucide-react";
+import { CalendarDays, FolderPlus, Plus, Trash2, X } from "lucide-react";
 
 type CompanyOption = { id: string; name: string };
 type BoardPayload = { projects: ProjectDto[]; companies: CompanyOption[]; canCreate: boolean };
@@ -217,12 +219,12 @@ function NewProjectModal({
     >
       <div
         role="dialog"
-        aria-label="New project"
+        aria-label="Add project"
         onClick={(event) => event.stopPropagation()}
         className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-800 dark:bg-zinc-900"
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">New Project</h2>
+          <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Add Project</h2>
           <button
             type="button"
             onClick={onClose}
@@ -262,7 +264,7 @@ function NewProjectModal({
             </select>
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block text-sm">
               <span className="mb-1 block font-medium text-zinc-700 dark:text-zinc-300">Target date</span>
               <input
@@ -580,15 +582,18 @@ export function ProjectStatusBoard() {
   }, []);
 
   const applyProject = useCallback((project: ProjectDto) => {
-    setPayload((prev) =>
-      prev
-        ? {
-            ...prev,
-            projects: sortProjects(prev.projects.map((row) => (row.id === project.id ? project : row))),
-          }
-        : prev,
-    );
+    setPayload((prev) => {
+      if (!prev) return prev;
+      const exists = prev.projects.some((row) => row.id === project.id);
+      const projects = exists
+        ? prev.projects.map((row) => (row.id === project.id ? project : row))
+        : [...prev.projects, project];
+      return { ...prev, projects: sortProjects(projects) };
+    });
   }, []);
+
+  const openCreate = useCallback(() => setCreateOpen(true), []);
+  useWorkCreateDeepLink(Boolean(payload?.canCreate), openCreate);
 
   const patchProject = useCallback(
     async (id: string, body: Record<string, unknown>): Promise<boolean> => {
@@ -616,16 +621,19 @@ export function ProjectStatusBoard() {
 
   return (
     <section className="min-w-0">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 sm:mb-4">
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Project delivery board — projects are separate from operational tasks.
-        </p>
-        {payload?.canCreate ? (
-          <Button type="button" onClick={() => setCreateOpen(true)}>
-            New Project
-          </Button>
-        ) : null}
-      </div>
+      {payload?.canCreate ? (
+        <WorkTabActions>
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className={WORK_ACTION_ICON_CLASS}
+            aria-label="Add Project"
+            title="Add Project"
+          >
+            <FolderPlus className="size-4" aria-hidden />
+          </button>
+        </WorkTabActions>
+      ) : null}
 
       {error ? (
         <p className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
@@ -685,6 +693,7 @@ export function ProjectStatusBoard() {
           onCreated={(project) => {
             applyProject(project);
             setCreateOpen(false);
+            setOpenId(project.id);
           }}
         />
       ) : null}

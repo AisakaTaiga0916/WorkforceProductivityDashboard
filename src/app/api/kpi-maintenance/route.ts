@@ -27,7 +27,6 @@ import {
   isPillarOnlyTask,
   pillarScreenshotUploadEnabled,
   pillarScreenshotsEnabled,
-  type NormalizedSubKpis,
   type SubKpiItem,
   findSubKpiItem,
   mapSubKpiItems,
@@ -59,9 +58,7 @@ import {
   validateStructuredUpdate,
   wrapForPersist,
   wrapForPersistWithExistingMeta,
-  markProjectTask,
   setInvertedRecording,
-  setLinkedJobOrderOnSubKpis,
   canAdjustNumericalTarget,
   canMutateSubKpiAssignee,
   hasItemsInUnassignedSegment,
@@ -70,13 +67,10 @@ import {
 } from "@/modules/tasks/kpi-subkpis";
 import {
   applyPhaseDelayNotifications,
-  buildItProjectFromPhaseDrafts,
   isItProjectEnvelope,
   itProjectActivePhase,
   itProjectAllItems,
-  itProjectChecklistItems,
   parseItProjectSubKpis,
-  seedJoLinkedProjectTimeline,
   setItProjectActivePhase,
   setItProjectSubKpiAssignee,
   setItProjectSubKpiItemsAssistanceRequested,
@@ -90,7 +84,6 @@ import {
   updateItProjectPhases,
   usesProjectTimelineTracker,
   validateItProjectPhaseDueConstraints,
-  wrapItProjectSubKpis,
   moveItProjectSubKpiToPhase,
   setItProjectPhaseDueDate,
   isTimelineProjectKpi,
@@ -298,7 +291,7 @@ function kpiRowVisibleToAgent(
   return row.assignedAgentId === id || hasSubKpiAssignedTo(row.subKpis, id);
 }
 
-/** Assignee / sub-assignee visibility, plus Field Assignments where the agent is a traveler or JO co-worker.
+/** Assignee / sub-assignee visibility, plus Field Assignments where the agent is a traveler.
  * Also keeps pending-verification cards visible when the viewer is the org-chart department head. */
 function filterKpiRowsForViewer<
   T extends {
@@ -310,14 +303,12 @@ function filterKpiRowsForViewer<
   rows: T[],
   agentId: string | null | undefined,
   travelerKpiIds: Set<string>,
-  jobOrderWorkerKpiIds: Set<string>,
   pendingApprovalIds?: Set<string>,
 ): T[] {
   return rows.filter(
     (row) =>
       kpiRowVisibleToAgent(row, agentId) ||
       travelerKpiIds.has(row.id) ||
-      jobOrderWorkerKpiIds.has(row.id) ||
       Boolean(pendingApprovalIds?.has(row.id)),
   );
 }
@@ -380,16 +371,12 @@ export async function GET(req: Request) {
     kpiIdsWithTravelOrders,
     travelOrderBoardSummariesByKpiIds,
   } = await import("@/modules/work-plans/travel-order-db");
-  const { kpiIdsWhereAgentIsJobOrderWorker } = await import("@/modules/requests/job-order-workers-server");
 
   const viewerAgentId = !perms.canAssignWork
     ? (perms.operator?.id ?? null)
     : filterByAssigned;
   const travelerKpiIds = viewerAgentId
     ? await kpiIdsWhereAgentIsTravelOrderTraveler(viewerAgentId)
-    : new Set<string>();
-  const jobOrderWorkerKpiIds = viewerAgentId
-    ? await kpiIdsWhereAgentIsJobOrderWorker(viewerAgentId)
     : new Set<string>();
 
   const pendingApprovalIdList = await listPendingVerificationKpiIdsForOrgChartHead({
@@ -404,7 +391,6 @@ export async function GET(req: Request) {
       rows,
       viewerAgentId,
       travelerKpiIds,
-      jobOrderWorkerKpiIds,
       pendingApprovalIds,
     );
   } else if (filterByAssigned) {
@@ -412,7 +398,6 @@ export async function GET(req: Request) {
       rows,
       filterByAssigned,
       travelerKpiIds,
-      jobOrderWorkerKpiIds,
       pendingApprovalIds,
     );
   }
@@ -684,7 +669,6 @@ export async function GET(req: Request) {
         rows,
         viewerAgentId,
         travelerKpiIds,
-        jobOrderWorkerKpiIds,
         pendingApprovalIds,
       );
     } else if (filterByAssigned) {
@@ -692,7 +676,6 @@ export async function GET(req: Request) {
         rows,
         filterByAssigned,
         travelerKpiIds,
-        jobOrderWorkerKpiIds,
         pendingApprovalIds,
       );
     }
@@ -758,39 +741,25 @@ export async function GET(req: Request) {
   }
 
   const { isFieldAssignmentTask, getLinkedJobOrderFromSubKpis } = await import("@/modules/tasks/kpi-subkpis");
-  const { loadJobOrdersLinkedToProjects } = await import("@/modules/requests/job-order-project");
   const kpiIdList = rows.map((r) => r.id);
   const [fieldAssignmentIds, travelSummaries] = await Promise.all([
     kpiIdsWithTravelOrders(kpiIdList),
     travelOrderBoardSummariesByKpiIds(kpiIdList),
   ]);
 
-  const linkedJobOrders = await loadJobOrdersLinkedToProjects(rows.map((r) => r.id));
-  const linkedByProjectId = new Map<string, Array<{ id: string; ticketNumber: string; title: string }>>();
-  for (const jo of linkedJobOrders) {
-    const projectId = jo.linkedKpiMaintenanceId;
-    if (!projectId) continue;
-    const list = linkedByProjectId.get(projectId) ?? [];
-    list.push({ id: jo.id, ticketNumber: jo.ticketNumber, title: jo.title });
-    linkedByProjectId.set(projectId, list);
-  }
-
   return NextResponse.json({
     rows: rows.map((r) => {
-      const fromDb = linkedByProjectId.get(r.id) ?? [];
-      const fromEnvelope = getLinkedJobOrderFromSubKpis(r.subKpis);
-      const linkedJobOrdersForRow =
-        fromDb.length > 0
-          ? fromDb
-          : fromEnvelope
-            ? [
-                {
-                  id: fromEnvelope.ticketId,
-                  ticketNumber: fromEnvelope.ticketNumber ?? "J.O.",
-                  title: "Linked Job Order",
-                },
-              ]
-            : [];
+      // Read-only origin trace for legacy rows created from a Job Order (no lifecycle sync).
+      const origin = getLinkedJobOrderFromSubKpis(r.subKpis);
+      const linkedJobOrdersForRow = origin
+        ? [
+            {
+              id: origin.ticketId,
+              ticketNumber: origin.ticketNumber ?? "J.O.",
+              title: "Origin Job Order",
+            },
+          ]
+        : [];
       const travelSummary = travelSummaries.get(r.id) ?? null;
       return {
         ...r,
@@ -867,14 +836,6 @@ export async function POST(req: Request) {
     isRecurring?: boolean;
     nonRecurringStartAt?: string;
     nonRecurringEndAt?: string;
-    itProjectName?: string;
-    itProjectPhase?: string;
-    itProjectPhases?: Array<{
-      name?: string;
-      dueDate?: string;
-      items?: Array<{ title?: string; dueDate?: string }>;
-    }>;
-    itProjectState?: { activePhaseId?: string; phases?: ItProjectData["phases"] };
     scopedCompanyTeamId?: string | null;
     completionRequirements?: SubKpiCompletionRequirements;
     numericalTarget?: number;
@@ -886,38 +847,36 @@ export async function POST(req: Request) {
     isProject?: boolean;
     /** Unchecked = 100%; checked items reduce the recorded percent. */
     invertedRecording?: boolean;
-    /** When creating a Project from a Job Order, auto-link after save. */
-    linkedJobOrderTicketId?: string | null;
   };
   const mainTaskRaw = body.mainTask?.trim() ?? "";
-  const requestedTitle = body.title?.trim() ?? "";
-  const isItProject = isItProjectImplementationPillar(requestedTitle);
-  /** Task groups removed: persist title from the work-item name (keep reserved IT pillar titles). */
-  const title = isItProject
-    ? requestedTitle
-    : (mainTaskRaw.replace(/\s+/g, " ").toUpperCase() || requestedTitle);
+  /** Task groups removed: persist title from the work-item name. */
+  const title = mainTaskRaw.replace(/\s+/g, " ").toUpperCase() || (body.title?.trim() ?? "");
+  if (
+    body.isProject === true ||
+    isItProjectImplementationPillar(body.title?.trim() ?? "") ||
+    isItProjectImplementationPillar(title)
+  ) {
+    return NextResponse.json(
+      { error: "Projects are created under Work → Projects, not as tasks." },
+      { status: 400 },
+    );
+  }
   const frequency = (body.frequency?.toUpperCase() ?? "DAILY") as KpiFrequency;
   const enableSubtaskAssigneesFlag =
     typeof body.enableSubtaskAssignees === "boolean" ? body.enableSubtaskAssignees : true;
   if (!title || !allowedFrequencies.has(frequency)) {
     return NextResponse.json({ error: "title and frequency are required." }, { status: 400 });
   }
-  if (!isItProject && !mainTaskRaw) {
+  if (!mainTaskRaw) {
     return NextResponse.json({ error: "mainTask is required." }, { status: 400 });
   }
-  if (isItProject && body.subKpisSegmented === true) {
-    return NextResponse.json(
-      { error: "IT Project Implementation does not use segmented checklists." },
-      { status: 400 },
-    );
-  }
-  const isRecurring = isItProject ? false : body.isRecurring !== false;
+  const isRecurring = body.isRecurring !== false;
   const nonRecurringStartAt: Date | null = null;
   const nonRecurringEndAt: Date | null = null;
 
   let recurrenceWeekday: number | null = null;
   let recurrenceMonthDay: number | null = null;
-  if (!isItProject && isRecurring && frequency === "WEEKLY") {
+  if (isRecurring && frequency === "WEEKLY") {
     const wd = body.recurrenceWeekday;
     if (typeof wd !== "number" || wd < 0 || wd > 6 || !Number.isInteger(wd)) {
       return NextResponse.json(
@@ -927,7 +886,7 @@ export async function POST(req: Request) {
     }
     recurrenceWeekday = wd;
   }
-  if (!isItProject && isRecurring && (frequency === "MONTHLY" || frequency === "QUARTERLY" || frequency === "SEMI_ANNUAL" || frequency === "YEARLY")) {
+  if (isRecurring && (frequency === "MONTHLY" || frequency === "QUARTERLY" || frequency === "SEMI_ANNUAL" || frequency === "YEARLY")) {
     const dom = body.recurrenceMonthDay;
     if (typeof dom !== "number" || dom < 1 || dom > 31 || !Number.isInteger(dom)) {
       return NextResponse.json(
@@ -997,11 +956,10 @@ export async function POST(req: Request) {
 
   let numericalTarget: number | null = null;
   const willBePillarOnly =
-    !isItProject &&
     body.subKpisSegmented !== true &&
     (!Array.isArray(body.subKpis) ||
       body.subKpis.map((s) => (s.title ?? "").trim()).filter(Boolean).length === 0);
-  if (!isItProject && taskCompletionRequirements.numerical) {
+  if (taskCompletionRequirements.numerical) {
     const rawTarget = body.numericalTarget;
     if (willBePillarOnly && isRecurring && rawTarget == null) {
       numericalTarget = null;
@@ -1015,114 +973,87 @@ export async function POST(req: Request) {
     }
   }
 
-  let built: { ok: true; norm: NormalizedSubKpis } | { ok: false; error: string };
+  const subTaskScreenshots = subTaskCompletionRequirements.screenshots;
+  const mapDraftItem = (s: {
+    title?: string;
+    description?: string | null;
+    remarks?: string | null;
+    startDate?: string;
+    dueDate?: string;
+    dueDateRollsWithCycle?: boolean | null;
+    endDate?: string;
+    actualDate?: string;
+    projectPriority?: string | null;
+    screenshotsEnabled?: boolean;
+  }) => {
+    const dueDate =
+      isRecurring && frequency === "DAILY" ? "" : (s.dueDate ?? s.endDate ?? "").trim();
+    return {
+      title: (s.title ?? "").trim(),
+      description: typeof s.description === "string" ? s.description : "",
+      remarks: typeof s.remarks === "string" ? s.remarks : "",
+      startDate: "",
+      dueDate,
+      dueDateRollsWithCycle:
+        isRecurring &&
+        frequency !== "DAILY" &&
+        Boolean(dueDate) &&
+        s.dueDateRollsWithCycle === true,
+      actualDate: isRecurring ? "" : (s.actualDate ?? "").trim(),
+      projectPriority: s.projectPriority ?? null,
+      completionRequirements: subTaskCompletionRequirements,
+      screenshotsEnabled: subTaskScreenshots,
+      ...(numericalTarget != null ? { numericalTarget } : {}),
+    };
+  };
+  const flatItems =
+    Array.isArray(body.subKpis) && !body.subKpisSegmented
+      ? body.subKpis.map(mapDraftItem).filter((s) => s.title.length > 0)
+      : [];
 
-  let itProjectPersist: Prisma.InputJsonValue | null = null;
-  let itProjectPhaseLabel: string | null = null;
-
-  if (isItProject) {
-    const phaseDrafts = Array.isArray(body.itProjectPhases)
-      ? body.itProjectPhases.map((p) => ({
-          name: (p.name ?? "").trim(),
-          dueDate: (p.dueDate ?? "").trim(),
-          items: Array.isArray(p.items)
-            ? p.items.map((it) => ({
-                title: (it.title ?? "").trim(),
-                dueDate: (it.dueDate ?? "").trim(),
-              }))
+  const segmentsInput =
+    body.subKpisSegmented === true && Array.isArray(body.segments)
+      ? body.segments.map((seg) => ({
+          id: typeof seg.id === "string" ? seg.id.trim() : undefined,
+          label: (seg.label ?? "").trim(),
+          dueDate: typeof seg.dueDate === "string" ? seg.dueDate.trim() : null,
+          items: Array.isArray(seg.items)
+            ? seg.items.map(mapDraftItem).filter((i) => i.title.length > 0)
             : [],
         }))
-      : [];
-    const projectBuilt = buildItProjectFromPhaseDrafts(phaseDrafts);
-    if (!projectBuilt.ok) {
-      return NextResponse.json({ error: projectBuilt.error }, { status: 400 });
-    }
-    itProjectPersist = wrapItProjectSubKpis(projectBuilt.data);
-    itProjectPhaseLabel = itProjectActivePhase(projectBuilt.data).name;
-    built = { ok: true, norm: { segmented: false, flat: [] } };
-  } else {
-    const subTaskScreenshots = subTaskCompletionRequirements.screenshots;
-    const mapDraftItem = (s: {
-      title?: string;
-      description?: string | null;
-      remarks?: string | null;
-      startDate?: string;
-      dueDate?: string;
-      dueDateRollsWithCycle?: boolean | null;
-      endDate?: string;
-      actualDate?: string;
-      projectPriority?: string | null;
-      screenshotsEnabled?: boolean;
-    }) => {
-      const dueDate =
-        isRecurring && frequency === "DAILY" ? "" : (s.dueDate ?? s.endDate ?? "").trim();
-      return {
-        title: (s.title ?? "").trim(),
-        description: typeof s.description === "string" ? s.description : "",
-        remarks: typeof s.remarks === "string" ? s.remarks : "",
-        startDate: "",
-        dueDate,
-        dueDateRollsWithCycle:
-          isRecurring &&
-          frequency !== "DAILY" &&
-          Boolean(dueDate) &&
-          s.dueDateRollsWithCycle === true,
-        actualDate: isRecurring ? "" : (s.actualDate ?? "").trim(),
-        projectPriority: s.projectPriority ?? null,
-        completionRequirements: subTaskCompletionRequirements,
-        screenshotsEnabled: subTaskScreenshots,
-        ...(numericalTarget != null ? { numericalTarget } : {}),
-      };
-    };
-    const flatItems =
-      Array.isArray(body.subKpis) && !body.subKpisSegmented
-        ? body.subKpis.map(mapDraftItem).filter((s) => s.title.length > 0)
-        : [];
+      : undefined;
 
-    const segmentsInput =
-      body.subKpisSegmented === true && Array.isArray(body.segments)
-        ? body.segments.map((seg) => ({
-            id: typeof seg.id === "string" ? seg.id.trim() : undefined,
-            label: (seg.label ?? "").trim(),
-            dueDate: typeof seg.dueDate === "string" ? seg.dueDate.trim() : null,
-            items: Array.isArray(seg.items)
-              ? seg.items.map(mapDraftItem).filter((i) => i.title.length > 0)
-              : [],
-          }))
-        : undefined;
-
-    built = validateSegmentStructureForPersist(
-      body.subKpisSegmented === true,
-      flatItems,
-      segmentsInput,
-      {
-        allowPillarOnly:
-          flatItems.length === 0 &&
-          body.subKpisSegmented !== true &&
-          (taskCompletionRequirements.checkbox ||
-            taskCompletionRequirements.screenshots ||
-            taskCompletionRequirements.screenshotUpload ||
-            taskCompletionRequirements.numerical),
-      },
-    );
-  }
+  const built = validateSegmentStructureForPersist(
+    body.subKpisSegmented === true,
+    flatItems,
+    segmentsInput,
+    {
+      allowPillarOnly:
+        flatItems.length === 0 &&
+        body.subKpisSegmented !== true &&
+        (taskCompletionRequirements.checkbox ||
+          taskCompletionRequirements.screenshots ||
+          taskCompletionRequirements.screenshotUpload ||
+          taskCompletionRequirements.numerical),
+    },
+  );
 
   if (!built.ok) {
     return NextResponse.json({ error: built.error }, { status: 400 });
   }
 
-  let subKpisPersist = (itProjectPersist ?? wrapForPersist(built.norm)) as Prisma.InputJsonValue;
-  if (!isItProject && built.norm.segmented === false && built.norm.flat.length === 0) {
+  let subKpisPersist = wrapForPersist(built.norm) as Prisma.InputJsonValue;
+  if (built.norm.segmented === false && built.norm.flat.length === 0) {
     subKpisPersist = applyPillarOnlyTaskCreate(subKpisPersist, taskCompletionRequirements, {
       numericalTarget,
       dueDate: !isRecurring ? (body.pillarDueDate?.trim() ?? "") : null,
     });
-  } else if (!isItProject && !isRecurring && body.pillarDueDate?.trim()) {
+  } else if (!isRecurring && body.pillarDueDate?.trim()) {
     // Persist main-task target so subtasks can inherit when they have no custom due date.
     subKpisPersist = setTaskTargetDueDate(subKpisPersist, body.pillarDueDate.trim());
   }
   if (body.taskDailyPenaltyAmount !== undefined) {
-    if (!isItProject && isRecurring) {
+    if (isRecurring) {
       return NextResponse.json(
         { error: "Daily delay penalty applies only to one-off (non-recurring) tasks." },
         { status: 400 },
@@ -1135,7 +1066,7 @@ export async function POST(req: Request) {
     );
   }
   if (body.taskDelayPenaltyFrequency !== undefined) {
-    if (!isItProject && isRecurring) {
+    if (isRecurring) {
       return NextResponse.json(
         { error: "Delay penalty frequency applies only to one-off (non-recurring) tasks." },
         { status: 400 },
@@ -1148,74 +1079,8 @@ export async function POST(req: Request) {
         : normalizeDelayPenaltyFrequency(body.taskDelayPenaltyFrequency),
     );
   }
-  if (!isItProject && body.isProject === true) {
-    if (isRecurring) {
-      return NextResponse.json({ error: "Projects must be one-off (non-recurring)." }, { status: 400 });
-    }
-    subKpisPersist = markProjectTask(subKpisPersist);
-  }
-  if (!isItProject && body.invertedRecording === true) {
+  if (body.invertedRecording === true) {
     subKpisPersist = setInvertedRecording(subKpisPersist, true);
-  }
-
-  const linkedJobOrderTicketId =
-    typeof body.linkedJobOrderTicketId === "string" ? body.linkedJobOrderTicketId.trim() : "";
-  if (linkedJobOrderTicketId) {
-    if (!(body.isProject === true || isItProject)) {
-      return NextResponse.json(
-        { error: "A Job Order can only be linked when creating a Project." },
-        { status: 400 },
-      );
-    }
-    // JO creates must use the Project + timeline path — not the IT PROJECT IMPLEMENTATION pillar.
-    if (isItProject) {
-      return NextResponse.json(
-        {
-          error:
-            "Job Order projects use Project mode (not IT Project Implementation). Create them with a project name only.",
-        },
-        { status: 400 },
-      );
-    }
-    const joTicket = await prisma.ticket.findUnique({
-      where: { id: linkedJobOrderTicketId },
-      select: {
-        id: true,
-        ticketNumber: true,
-        requestType: true,
-        description: true,
-      },
-    });
-    if (!joTicket || joTicket.requestType !== "JOB_ORDER") {
-      return NextResponse.json({ error: "Linked Job Order was not found." }, { status: 404 });
-    }
-    const { getTicketLinkedKpiMaintenanceId } = await import("@/modules/requests/job-order-project");
-    const alreadyLinked = await getTicketLinkedKpiMaintenanceId(joTicket.id);
-    if (alreadyLinked) {
-      return NextResponse.json(
-        {
-          error:
-            "This Job Order is already linked to a project. Unlink it first before creating another related project.",
-        },
-        { status: 409 },
-      );
-    }
-    const { setLinkedJobOrderOnSubKpis } = await import("@/modules/tasks/kpi-subkpis");
-    const { parseJobOrderDescription } = await import("@/modules/requests/job-order");
-    subKpisPersist = setLinkedJobOrderOnSubKpis(subKpisPersist, {
-      ticketId: joTicket.id,
-      ticketNumber: joTicket.ticketNumber,
-    });
-    const joTarget =
-      body.pillarDueDate?.trim() ||
-      parseJobOrderDescription(joTicket.description)?.targetDate?.trim() ||
-      null;
-    subKpisPersist = seedJoLinkedProjectTimeline(subKpisPersist, { targetDueDate: joTarget });
-  } else if (!isItProject && body.isProject === true) {
-    // Non-JO projects still need the Timeline Tracker envelope so phase targets persist.
-    subKpisPersist = seedJoLinkedProjectTimeline(subKpisPersist, {
-      targetDueDate: body.pillarDueDate?.trim() || null,
-    });
   }
 
   const timeZone = normalizeTimeZone(body.timeZone);
@@ -1242,68 +1107,31 @@ export async function POST(req: Request) {
       )
     : null;
 
-  const itProjectName =
-    isItProjectImplementationPillar(title) && typeof body.itProjectName === "string"
-      ? body.itProjectName.trim() || null
-      : null;
-  const itProjectPhase = isItProject
-    ? itProjectPhaseLabel
-    : isItProjectImplementationPillar(title) && typeof body.itProjectPhase === "string"
-      ? body.itProjectPhase.trim() || null
-      : null;
-
   // Names are unique per title+mainTask (title is derived from the work-item name).
   // Always create a fresh row; never merge/clone prior subtasks or state.
-  if (!isItProject && mainTaskRaw) {
-    const duplicateMainTask = await prisma.kpiMaintenance.findFirst({
-      where: {
-        title,
-        mainTask: { equals: mainTaskRaw, mode: "insensitive" },
-      },
-      select: { id: true, mainTask: true },
-    });
-    if (duplicateMainTask) {
-      return NextResponse.json(
-        {
-          error:
-            body.isProject === true
-              ? `A project named "${mainTaskRaw}" already exists. Use a different project name.`
-              : `A task named "${mainTaskRaw}" already exists. Use a different name.`,
-        },
-        { status: 409 },
-      );
-    }
-  }
-
-  if (isItProject && itProjectName) {
-    // Allow multiple IT projects under the same pillar title; block only duplicate project names.
-    const existingProject = await prisma.kpiMaintenance.findFirst({
-      where: {
-        title,
-        itProjectName: { equals: itProjectName, mode: "insensitive" },
-      },
-      select: { id: true },
-    });
-    if (existingProject) {
-      return NextResponse.json(
-        { error: `IT Project "${itProjectName}" already exists. Use a different project name.` },
-        { status: 409 },
-      );
-    }
+  const duplicateMainTask = await prisma.kpiMaintenance.findFirst({
+    where: {
+      title,
+      mainTask: { equals: mainTaskRaw, mode: "insensitive" },
+    },
+    select: { id: true, mainTask: true },
+  });
+  if (duplicateMainTask) {
+    return NextResponse.json(
+      { error: `A task named "${mainTaskRaw}" already exists. Use a different name.` },
+      { status: 409 },
+    );
   }
 
   let created;
   try {
-    // Preserve IT project envelopes; setTaskCount pass-throughs kind: it_project.
-    const newItemCount = isItProject
-      ? itProjectChecklistItems(subKpisPersist).length
-      : collectAllSubKpiItems(normalizeSubKpis(subKpisPersist)).length;
+    const newItemCount = collectAllSubKpiItems(normalizeSubKpis(subKpisPersist)).length;
     const initialJson = setTaskCount(subKpisPersist, newItemCount);
 
     created = await prisma.kpiMaintenance.create({
       data: {
         title,
-        mainTask: isItProject ? null : mainTaskRaw,
+        mainTask: mainTaskRaw,
         isRecurring,
         frequency,
         subKpis: initialJson,
@@ -1323,8 +1151,6 @@ export async function POST(req: Request) {
           : null,
         createdBy: session.user.email ?? session.user.name ?? "unknown",
         createdByRole: session.user.role,
-        itProjectName,
-        itProjectPhase,
         enableSubtaskAssignees: enableSubtaskAssigneesFlag,
       },
     });
@@ -1333,13 +1159,7 @@ export async function POST(req: Request) {
     if (e instanceof Prisma.PrismaClientKnownRequestError) {
       if (e.code === "P2002") {
         return NextResponse.json(
-          {
-            error: isItProject
-              ? `Could not create project under '${title}' (duplicate name).`
-              : body.isProject === true
-                ? `A project named "${mainTaskRaw}" already exists. Use a different project name.`
-                : `A task named "${mainTaskRaw}" already exists. Use a different name.`,
-          },
+          { error: `A task named "${mainTaskRaw}" already exists. Use a different name.` },
           { status: 409 },
         );
       }
@@ -1348,51 +1168,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
   const createdDate = new Date(created.createdAt).toISOString().slice(0, 10);
-  const message = isItProject
-    ? `New project '${itProjectName ?? created.title}' created on ${createdDate}.`
-    : body.isProject === true
-      ? `New project '${mainTaskRaw}' created on ${createdDate}.`
-      : `New task '${mainTaskRaw}' created on ${createdDate}.`;
-
-  if (linkedJobOrderTicketId) {
-    const { attachCreatedProjectToJobOrder } = await import("@/modules/requests/job-order-project");
-    const linked = await attachCreatedProjectToJobOrder({
-      ticketId: linkedJobOrderTicketId,
-      kpiMaintenanceId: created.id,
-    });
-    if (!linked.ok) {
-      // Project exists; surface the link failure so the operator can link manually.
-      return NextResponse.json(
-        {
-          message: `${message} Could not auto-link Job Order: ${linked.error}`,
-          taskGroup: created,
-          linkedJobOrderError: linked.error,
-        },
-        { status: 201 },
-      );
-    }
-  }
+  const message = `New task '${mainTaskRaw}' created on ${createdDate}.`;
 
   try {
     await logKpiActivity({
       kpiMaintenanceId: created.id,
       author: session.user.name?.trim() || session.user.email?.trim() || "User",
-      summary: isItProject ? "Project created" : "Task created",
+      summary: "Task created",
       detail: message,
     });
   } catch (e) {
     console.error("[kpi-maintenance POST] audit log failed", e);
   }
 
-  return NextResponse.json(
-    {
-      message: linkedJobOrderTicketId
-        ? `${message} Linked to Job Order.`
-        : message,
-      taskGroup: created,
-    },
-    { status: 201 },
-  );
+  return NextResponse.json({ message, taskGroup: created }, { status: 201 });
 }
 
 export async function PATCH(req: Request) {

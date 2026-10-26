@@ -3,10 +3,15 @@ import { isSystemModuleEnabled } from "@/modules/platform/settings/system-module
 
 export const dynamic = "force-dynamic";
 
+const WORK_TABS = [
+  { module: "tasks", href: "/work/tasks" },
+  { module: "projects", href: "/work/projects" },
+  { module: "work_plans", href: "/work/work-plans" },
+] as const;
+
 export default async function WorkIndexPage() {
-  const tasksEnabled = await isSystemModuleEnabled("tasks");
-  if (!tasksEnabled && (await isSystemModuleEnabled("projects"))) {
-    redirect("/work/projects");
+  for (const tab of WORK_TABS) {
+    if (await isSystemModuleEnabled(tab.module)) redirect(tab.href);
   }
   redirect("/work/tasks");
 }

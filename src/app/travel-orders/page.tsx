@@ -20,6 +20,8 @@ export default async function TravelOrdersPage() {
   if (!(isElevatedUserRole(role) || role === "Admin" || role === "Personnel" || personnelGuard)) {
     redirect("/");
   }
+  // Staff use Work → Work Plans; this route stays as the Personnel-Guard gate-pass kiosk.
+  if (!personnelGuard) redirect("/work/work-plans");
   if (!(await isSystemModuleEnabled("work_plans"))) return <ModuleDisabledNotice module="work_plans" />;
 
   const [operator, perms] = await Promise.all([

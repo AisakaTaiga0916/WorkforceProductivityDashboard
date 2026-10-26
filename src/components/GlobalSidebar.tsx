@@ -51,7 +51,7 @@ function linksForRole(role: string | undefined): NavItem[] {
         label: "Operations",
         children: [
           { href: "/agent", label: "Requests" },
-          { href: "/work/tasks", label: "Work" },
+          { href: "/work", label: "Work" },
         ],
       },
       {
@@ -64,7 +64,6 @@ function linksForRole(role: string | undefined): NavItem[] {
             : []),
         ],
       },
-      { kind: "group", label: "Reports", children: [{ href: "/insights", label: "Metrics & Reports" }] },
     ];
     return items;
   }
@@ -76,7 +75,7 @@ function linksForRole(role: string | undefined): NavItem[] {
         label: "Operations",
         children: [
           { href: "/agent", label: "Requests" },
-          { href: "/work/tasks", label: "Work" },
+          { href: "/work", label: "Work" },
         ],
       },
       {
@@ -84,7 +83,6 @@ function linksForRole(role: string | undefined): NavItem[] {
         label: "Management",
         children: [{ href: "/admin/workforce", label: "Workforce" }],
       },
-      { kind: "group", label: "Reports", children: [{ href: "/insights", label: "Metrics & Reports" }] },
     ];
   }
   if (role === "Personnel") {
@@ -95,10 +93,9 @@ function linksForRole(role: string | undefined): NavItem[] {
         label: "Operations",
         children: [
           { href: "/agent", label: "Requests" },
-          { href: "/work/tasks", label: "Work" },
+          { href: "/work", label: "Work" },
         ],
       },
-      { kind: "group", label: "Reports", children: [{ href: "/insights", label: "Metrics & Reports" }] },
     ];
   }
   if (role === "Personnel-Guard") {

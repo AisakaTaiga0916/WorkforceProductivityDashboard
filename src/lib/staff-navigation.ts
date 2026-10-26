@@ -48,8 +48,7 @@ const BOARDS: StaffNavSection = {
       label: "Assign Requests",
       adminOnly: true,
     },
-    { id: "work", href: "/work/tasks", label: "Work (Tasks & Projects)" },
-    { id: "travel-orders", href: "/travel-orders", label: "Travel Orders" },
+    { id: "work", href: "/work", label: "Work (Tasks, Projects & Work Plans)" },
     { id: "unassigned", href: "/agent?assigned=UNASSIGNED", label: "Unassigned", adminOnly: true },
   ],
 };
@@ -84,9 +83,10 @@ const SUPERADMIN_SETTINGS: StaffNavSection = {
 
 const INSIGHTS: StaffNavSection = {
   id: "insights",
-  label: "Insights",
+  label: "Reports",
   items: [
-    { id: "kpi", href: "/insights", label: "KPI / Insights" },
+    { id: "request-reports", href: "/agent/reports", label: "Request Reports" },
+    { id: "work-reports", href: "/work/reports", label: "Work Reports" },
     { id: "process", href: "/process", label: "Process Controls" },
   ],
 };

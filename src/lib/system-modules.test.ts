@@ -22,7 +22,28 @@ describe("system module visibility", () => {
     expect(systemModuleForHref("/agent/tasks")).toBe("tasks");
     expect(systemModuleForHref("/work/projects")).toBe("projects");
     expect(systemModuleForHref("/travel-orders")).toBe("work_plans");
+    expect(systemModuleForHref("/work/work-plans")).toBe("work_plans");
     expect(systemModuleForHref("/admin/workforce")).toBeNull();
+  });
+
+  it("keeps the /work hub visible while any Work module is on", () => {
+    const allWorkOff = {
+      ...DEFAULT_SYSTEM_MODULE_VISIBILITY,
+      tasks: false,
+      projects: false,
+      work_plans: false,
+    };
+    expect(isHrefVisibleForModules("/work", allWorkOff)).toBe(false);
+    expect(isHrefVisibleForModules("/work", { ...allWorkOff, work_plans: true })).toBe(true);
+    expect(isHrefVisibleForModules("/work/reports", allWorkOff)).toBe(false);
+    expect(isHrefVisibleForModules("/work/reports", { ...allWorkOff, projects: true })).toBe(true);
+  });
+
+  it("gates Request Reports with the requests module", () => {
+    expect(systemModuleForHref("/agent/reports")).toBe("requests");
+    expect(
+      isHrefVisibleForModules("/agent/reports", { ...DEFAULT_SYSTEM_MODULE_VISIBILITY, requests: false }),
+    ).toBe(false);
   });
 
   it("hides links for disabled modules only", () => {
@@ -30,7 +51,7 @@ describe("system module visibility", () => {
     expect(isHrefVisibleForModules("/work/tasks", modules)).toBe(false);
     expect(isHrefVisibleForModules("/work/projects", modules)).toBe(true);
     expect(isHrefVisibleForModules("/agent", modules)).toBe(true);
-    expect(isHrefVisibleForModules("/insights", modules)).toBe(true);
+    expect(isHrefVisibleForModules("/admin/workforce", modules)).toBe(true);
   });
 
   it("parses the projects module toggle", () => {

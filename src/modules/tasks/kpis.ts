@@ -1,6 +1,6 @@
 import type { Prisma, TicketStatus } from "@prisma/client/primary";
 import { DateTime } from "luxon";
-import { ACTIVE_REQUEST_STATUSES, OPEN_PIPELINE_STATUSES } from "@/modules/requests/active-request-statuses";
+import { OPEN_PIPELINE_STATUSES } from "@/modules/requests/active-request-statuses";
 import { loadRfpRolePersonnelMetrics } from "@/modules/requests/rfp-role-kpis";
 import {
   loadFtrPreparedPersonnelMetrics,
@@ -26,7 +26,6 @@ import {
   resolveHelpdeskMetricBlend,
   type HelpdeskTaskMetricCounts,
 } from "@/modules/requests/helpdesk-csv";
-import { loadAgentIdsForCompanyTeam } from "@/modules/platform/scope/staff-company-scope";
 import { prisma } from "@/modules/platform/db/prisma";
 
 export type {
@@ -142,7 +141,7 @@ export type CsatStarDistributionRow = {
   count: number;
 };
 
-function buildCsatStarDistribution(
+export function buildCsatStarDistribution(
   rows: { csat: number; _count: number }[],
 ): CsatStarDistributionRow[] {
   const counts = new Map<number, number>([
@@ -187,10 +186,6 @@ function summarizeUserSupportStatusCounts(rows: { status: TicketStatus; _count: 
     forConfirmation: m.get("FOR_CONFIRMATION") ?? 0,
     closed: m.get("CLOSED") ?? 0,
   };
-}
-
-function rangeFilter(range: KpiRange) {
-  return { gte: range.from, lte: range.to };
 }
 
 type WorkingDayInterval = { start: Date; end: Date };
@@ -348,13 +343,6 @@ function emptyTaskMetricsHelpdesk(
   };
 }
 
-/**
- * Reporting timezone — defaults to Asia/Taipei (GMT+8) so volume trends line up with
- * what operators see locally instead of UTC midnights. Can be overridden with
- * the REPORT_TZ env var.
- */
-const REPORT_TZ = process.env.REPORT_TZ || "Asia/Taipei";
-
 function kpiRangeToYmd(range: KpiRange): { fromYmd: string; toYmd: string } {
   const ymd = (d: Date) =>
     `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
@@ -405,53 +393,6 @@ function openTicketsInRangeWhere(range: KpiRange, scoped: Record<string, unknown
     createdAt: { lte: range.to },
     OR: [{ closedAt: null }, { closedAt: { gte: range.from } }],
   };
-}
-
-const localDayFmt = new Intl.DateTimeFormat("en-CA", {
-  timeZone: REPORT_TZ,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-function localDayKey(d: Date): string {
-  /** en-CA returns YYYY-MM-DD which is also what we use as the bucket label. */
-  return localDayFmt.format(d);
-}
-
-/** Local-time calendar days inclusive between `from` and `to` (DST-safe). */
-function enumerateDaysLocal(from: Date, to: Date): string[] {
-  const startKey = localDayKey(from);
-  const endKey = localDayKey(to);
-  const labels: string[] = [];
-  /**
-   * Walk by parsing each YYYY-MM-DD as a UTC midnight and stepping 24h. This is
-   * deterministic and avoids DST ambiguity since we never re-cross timezone
-   * offsets while iterating.
-   */
-  const startMs = Date.UTC(
-    Number(startKey.slice(0, 4)),
-    Number(startKey.slice(5, 7)) - 1,
-    Number(startKey.slice(8, 10)),
-  );
-  const endMs = Date.UTC(
-    Number(endKey.slice(0, 4)),
-    Number(endKey.slice(5, 7)) - 1,
-    Number(endKey.slice(8, 10)),
-  );
-  for (let t = startMs; t <= endMs; t += 86400000) {
-    labels.push(new Date(t).toISOString().slice(0, 10));
-  }
-  return labels;
-}
-
-function countPerDay(labels: string[], timestamps: Date[], dayOf: (d: Date) => string): number[] {
-  const map = new Map(labels.map((l) => [l, 0]));
-  for (const dt of timestamps) {
-    const k = dayOf(dt);
-    if (map.has(k)) map.set(k, (map.get(k) ?? 0) + 1);
-  }
-  return labels.map((l) => map.get(l) ?? 0);
 }
 
 export type PersonnelTicketMetric = {
@@ -747,300 +688,4 @@ async function loadPersonnelTicketMetrics(
     })
     .filter((row) => row.closed > 0 || row.pending > 0)
     .sort((a, b) => b.efficiency - a.efficiency || b.closed - a.closed || a.name.localeCompare(b.name));
-}
-
-export async function computeKpis(
-  range: KpiRange,
-  scope: KpiScope = {},
-  opts: { helpdeskCadence?: HelpdeskTaskCadence } = {},
-) {
-  const helpdeskCadence = opts.helpdeskCadence ?? "MONTHLY";
-  const agentScope = scope.assignedAgentIds
-    ? ({ assignedAgentId: { in: scope.assignedAgentIds.length > 0 ? scope.assignedAgentIds : ["__none__"] } } as const)
-    : scope.assignedAgentId
-      ? ({ assignedAgentId: scope.assignedAgentId } as const)
-      : {};
-  const teamScope = scope.teamIds
-    ? ({ teamId: { in: scope.teamIds.length > 0 ? scope.teamIds : ["__none__"] } } as const)
-    : scope.teamId
-      ? ({ teamId: scope.teamId } as const)
-      : {};
-  const scoped: Prisma.TicketWhereInput = { ...agentScope, ...teamScope };
-  const ticketRelationScope = Object.keys(scoped).length > 0 ? ({ ticket: scoped } as const) : {};
-  const maintenanceScope = scope.assignedAgentIds
-    ? ({ assignedAgentId: { in: scope.assignedAgentIds.length > 0 ? scope.assignedAgentIds : ["__none__"] } } as const)
-    : scope.assignedAgentId
-      ? ({ assignedAgentId: scope.assignedAgentId } as const)
-      : {};
-  const createdInRange = { createdAt: rangeFilter(range), ...scoped };
-  const closedInRangeWhere = { closedAt: rangeFilter(range), ...scoped };
-
-  const [
-    volume,
-    backlogActive,
-    forConfirmationBacklog,
-    transferRequestsInRange,
-    reopened,
-    firstResponseSamples,
-    resolutionSamples,
-    feedbackAgg,
-    perAgent,
-    closedTickets,
-    createdTimestamps,
-    closedTimestamps,
-    queueByStatus,
-    kpisAdded,
-    feedbackCsatByStar,
-    confirmationClosedSamples,
-  ] = await Promise.all([
-    prisma.ticket.count({ where: createdInRange }),
-    prisma.ticket.count({
-      where: { status: { in: ACTIVE_REQUEST_STATUSES }, ...scoped },
-    }),
-    prisma.ticket.count({
-      where: { status: { in: ["FOR_CONFIRMATION", "RESOLVED"] }, ...scoped },
-    }),
-    prisma.ticketActivity.count({
-      where: {
-        summary: "Transfer requested",
-        createdAt: rangeFilter(range),
-        ...ticketRelationScope,
-      },
-    }),
-    prisma.ticket.count({
-      where: { ...createdInRange, reopenCount: { gt: 0 } },
-    }),
-    prisma.ticket.findMany({
-      where: {
-        ...createdInRange,
-        firstResponseAt: { not: null },
-      },
-      select: {
-        createdAt: true,
-        firstResponseAt: true,
-        firstResponseDueAt: true,
-      },
-    }),
-    prisma.ticket.findMany({
-      where: {
-        ...createdInRange,
-        resolvedAt: { not: null },
-      },
-      select: {
-        createdAt: true,
-        resolvedAt: true,
-        resolutionDueAt: true,
-      },
-    }),
-    prisma.ticketFeedback.aggregate({
-      where: {
-        createdAt: rangeFilter(range),
-        ...ticketRelationScope,
-      },
-      _avg: { csat: true, nps: true, ces: true },
-      _count: true,
-    }),
-    prisma.ticket.groupBy({
-      by: ["assignedAgentId"],
-      where: closedInRangeWhere,
-      _count: true,
-    }),
-    prisma.ticket.findMany({
-      where: closedInRangeWhere,
-      select: { reopenCount: true, messages: { select: { id: true } } },
-    }),
-    prisma.ticket.findMany({
-      where: createdInRange,
-      select: { createdAt: true },
-    }),
-    prisma.ticket.findMany({
-      where: closedInRangeWhere,
-      select: { closedAt: true },
-    }),
-    prisma.ticket.groupBy({
-      by: ["status"],
-      where: { status: { not: "CLOSED" }, ...scoped },
-      _count: true,
-    }),
-    prisma.kpiMaintenance.count({
-      where: {
-        createdAt: rangeFilter(range),
-        ...maintenanceScope,
-      },
-    }),
-    prisma.ticketFeedback.groupBy({
-      by: ["csat"],
-      where: {
-        createdAt: rangeFilter(range),
-        ...ticketRelationScope,
-        csat: { gte: 1, lte: 5 },
-      },
-      _count: true,
-    }),
-    prisma.ticket.findMany({
-      where: {
-        closedAt: rangeFilter(range),
-        resolvedAt: { not: null },
-        ...scoped,
-      },
-      select: { resolvedAt: true, closedAt: true },
-    }),
-  ]);
-
-  const dayLabels = enumerateDaysLocal(range.from, range.to);
-  const createdByDay = countPerDay(
-    dayLabels,
-    createdTimestamps.map((t) => t.createdAt),
-    localDayKey,
-  );
-  const closedDates = closedTimestamps.map((t) => t.closedAt).filter((d): d is Date => d != null);
-  const closedByDay = countPerDay(dayLabels, closedDates, localDayKey);
-
-  const queueStatusMix = queueByStatus
-    .map((row) => ({
-      status: row.status as TicketStatus,
-      count: row._count,
-    }))
-    .sort((a, b) => b.count - a.count);
-
-  const ms = (a: Date, b: Date) => b.getTime() - a.getTime();
-
-  const frtValues = firstResponseSamples.map((t) =>
-    ms(t.createdAt, t.firstResponseAt!),
-  );
-  const avgFrtMs =
-    frtValues.length === 0
-      ? null
-      : frtValues.reduce((a, b) => a + b, 0) / frtValues.length;
-
-  const artValues = resolutionSamples.map((t) =>
-    ms(t.createdAt, t.resolvedAt!),
-  );
-  const avgArtMs =
-    artValues.length === 0
-      ? null
-      : artValues.reduce((a, b) => a + b, 0) / artValues.length;
-
-  const confirmationValues = confirmationClosedSamples
-    .map((t) => (t.closedAt && t.resolvedAt ? ms(t.resolvedAt, t.closedAt) : null))
-    .filter((v): v is number => v !== null && v >= 0);
-  const avgConfirmationMs =
-    confirmationValues.length === 0
-      ? null
-      : confirmationValues.reduce((a, b) => a + b, 0) / confirmationValues.length;
-
-  const firstResponseSlaMet = firstResponseSamples.filter(
-    (t) => t.firstResponseAt! <= t.firstResponseDueAt,
-  ).length;
-  const firstResponseSlaRate =
-    firstResponseSamples.length === 0
-      ? null
-      : firstResponseSlaMet / firstResponseSamples.length;
-
-  const resolutionSlaMet = resolutionSamples.filter(
-    (t) => t.resolvedAt! <= t.resolutionDueAt,
-  ).length;
-  const resolutionSlaRate =
-    resolutionSamples.length === 0
-      ? null
-      : resolutionSlaMet / resolutionSamples.length;
-
-  const closedCount = closedTickets.length;
-
-  const fcrEligible = closedTickets.filter((t) => t.reopenCount === 0);
-  const fcrApprox =
-    fcrEligible.length === 0
-      ? null
-      : fcrEligible.filter((t) => t.messages.length <= 2).length /
-        fcrEligible.length;
-
-  const transferRequestRate = volume === 0 ? null : transferRequestsInRange / volume;
-  const reopenRate = volume === 0 ? null : reopened / volume;
-
-  const agentIds = perAgent
-    .map((row) => row.assignedAgentId)
-    .filter((id): id is string => Boolean(id));
-  const agents = agentIds.length
-    ? await prisma.agent.findMany({
-        where: { id: { in: agentIds } },
-        select: { id: true, name: true, email: true },
-      })
-    : [];
-  const agentMap = new Map(agents.map((a) => [a.id, a]));
-
-  const agentRows = perAgent
-    .filter((row) => row.assignedAgentId)
-    .map((row) => ({
-      agentId: row.assignedAgentId!,
-      name: agentMap.get(row.assignedAgentId!)?.name ?? "Unknown",
-      ticketsClosed: row._count,
-    }))
-    .sort((a, b) => b.ticketsClosed - a.ticketsClosed);
-
-  let taskMetricsScope: KpiScope = scope;
-  if (!scope.assignedAgentId && !scope.assignedAgentIds && (scope.teamId || scope.teamIds)) {
-    if (scope.teamId) {
-      taskMetricsScope = {
-        ...scope,
-        assignedAgentIds: await loadAgentIdsForCompanyTeam(scope.teamId),
-      };
-    } else if (scope.teamIds) {
-      const nested = await Promise.all(scope.teamIds.map((id) => loadAgentIdsForCompanyTeam(id)));
-      taskMetricsScope = {
-        ...scope,
-        assignedAgentIds: [...new Set(nested.flat())],
-      };
-    }
-  }
-
-  const { taskMetricsHelpdesk, taskMetricsUserSupport } = await computeTaskMetrics(
-    range,
-    taskMetricsScope,
-    helpdeskCadence,
-  );
-  const csatByStar = buildCsatStarDistribution(
-    feedbackCsatByStar.map((r) => ({ csat: r.csat, _count: r._count })),
-  );
-
-  return {
-    range,
-    operational: {
-      ticketVolume: volume,
-      /** Active request pipeline (non-CLOSED) — matches Request / Company board totals. */
-      backlogSize: backlogActive,
-      forConfirmationSize: forConfirmationBacklog,
-      firstResponseTimeMsAvg: avgFrtMs,
-      resolutionTimeMsAvg: avgArtMs,
-      confirmationTimeMsAvg: avgConfirmationMs,
-      firstContactResolutionApprox: fcrApprox,
-    },
-    sla: {
-      firstResponseComplianceRate: firstResponseSlaRate,
-      resolutionComplianceRate: resolutionSlaRate,
-      transferRequestRate,
-      reopenRate,
-      ticketsClosedInRange: closedCount,
-    },
-    quality: {
-      csatAvg: feedbackAgg._avg.csat,
-      npsAvg: feedbackAgg._avg.nps,
-      cesAvg: feedbackAgg._avg.ces,
-      feedbackCount: feedbackAgg._count,
-      csatByStar,
-    },
-    agents: {
-      ticketsClosedByAgent: agentRows,
-    },
-    charts: {
-      days: dayLabels,
-      createdByDay,
-      closedByDay,
-      queueStatusMix,
-    },
-    kpiManagement: {
-      kpisAdded,
-    },
-    taskMetricsHelpdesk,
-    taskMetricsUserSupport,
-  };
 }

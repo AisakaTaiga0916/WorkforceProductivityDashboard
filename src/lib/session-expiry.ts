@@ -55,7 +55,6 @@ export function isAuthRequiredPath(pathname: string): boolean {
   if (PUBLIC_AUTH_PATHS.has(pathname)) return false;
   if (pathname.startsWith("/agent")) return true;
   if (pathname.startsWith("/admin")) return true;
-  if (pathname.startsWith("/insights")) return true;
   if (pathname.startsWith("/reports")) return true;
   if (pathname.startsWith("/my-requests")) return true;
   if (pathname.startsWith("/my-tickets")) return true;

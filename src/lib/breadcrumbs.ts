@@ -8,8 +8,8 @@ const ROUTE_LABELS: Record<string, string> = {
   work: "Work",
   tasks: "Tasks",
   projects: "Projects",
+  "work-plans": "Work Plans",
   tickets: "Requests",
-  insights: "KPI / Insights",
   process: "Process Controls",
   admin: "Administration",
   workforce: "User / Position management",
@@ -102,8 +102,20 @@ export function buildStaffBreadcrumbs(
       : [home, { label: "Work", href: "/work/tasks" }, { label: "Projects" }];
   }
 
+  if (parts[0] === "work" && parts[1] === "reports") {
+    return [home, { label: "Work", href: "/work" }, { label: "Reports" }];
+  }
+
+  if (parts[0] === "agent" && parts[1] === "reports") {
+    return [home, { label: "Requests", href: "/agent" }, { label: "Reports" }];
+  }
+
+  if (parts[0] === "work" && parts[1] === "work-plans") {
+    return [home, { label: "Work", href: "/work" }, { label: "Work Plans" }];
+  }
+
   if (parts[0] === "work") {
-    return [home, { label: "Work", href: "/work/tasks" }];
+    return [home, { label: "Work", href: "/work" }];
   }
 
   if (parts[0] === "agent" && parts[1] === "approvals") {

@@ -47,14 +47,6 @@ export async function proxy(req: NextRequest) {
     }
   }
 
-  if (pathname.startsWith("/insights")) {
-    const denied = requireAuth(req, token, sessionInvalid);
-    if (denied) return denied;
-    if (!isAllowed(token!.role as string | undefined, ["Admin", "Personnel"])) {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
-  }
-
   if (pathname.startsWith("/admin") || pathname.startsWith("/reports")) {
     if (pathname.startsWith("/admin/manual-assignment")) {
       const denied = requireAuth(req, token, sessionInvalid);
@@ -129,7 +121,6 @@ export async function proxy(req: NextRequest) {
 export const config = {
   matcher: [
     "/agent/:path*",
-    "/insights/:path*",
     "/admin/:path*",
     "/reports/:path*",
     "/tickets/new",

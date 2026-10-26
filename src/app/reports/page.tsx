@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Legacy route — executive metrics live on Insights. */
+/** Legacy route — request analytics live on Requests → Reports. */
 export default function ReportsPage() {
-  redirect("/insights?tab=ticket-metrics");
+  redirect("/agent/reports");
 }
